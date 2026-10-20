@@ -10,6 +10,7 @@ import io.github.sudoitir.openbroker.NodeOutcome;
 import io.github.sudoitir.openbroker.Partial;
 import io.github.sudoitir.openbroker.Status;
 import io.github.sudoitir.openbroker.artemis.ArtemisKinds;
+import io.github.sudoitir.openbroker.artemis.ArtemisLists;
 import io.github.sudoitir.openbroker.artemis.ArtemisMBeans;
 import io.github.sudoitir.openbroker.artemis.JolokiaRequest;
 import io.github.sudoitir.openbroker.artemis.JolokiaResponse;
@@ -17,7 +18,9 @@ import io.github.sudoitir.openbroker.messaging.Count;
 import io.github.sudoitir.openbroker.model.Attributes;
 import io.github.sudoitir.openbroker.model.KindId;
 import io.github.sudoitir.openbroker.model.ResourceId;
+import io.github.sudoitir.openbroker.model.ResourceQuery;
 import io.github.sudoitir.openbroker.model.Scope;
+import io.github.sudoitir.openbroker.model.StandardAttributes;
 import io.github.sudoitir.openbroker.model.Verb;
 import io.github.sudoitir.openbroker.operation.AttributeChange;
 import io.github.sudoitir.openbroker.operation.Direction;
@@ -121,11 +124,7 @@ public final class ArtemisOperations implements Operations {
                         yield new Estimate(Count.exact(present.size()), RESOURCE);
                     }
                     case Operation.Close c ->
-                        new Estimate(
-                                Count.exact(present.stream()
-                                        .mapToLong(s -> s.num("ConsumerCount"))
-                                        .sum()),
-                                "consumer");
+                        new Estimate(Count.exact(consumersOf(resource, present, deadline)), "consumer");
                     default -> new Estimate(Count.exact(present.size()), RESOURCE);
                 };
         return new Preview(diff, replace, estimate, etag(resource, states), PreconditionEnforcement.CHECKED_BEFORE);
@@ -489,6 +488,24 @@ public final class ArtemisOperations implements Operations {
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 is always available", e);
         }
+    }
+
+    /** The consumers attached to an address on the nodes that hold it, as the broker's own list filter counts them. */
+    private long consumersOf(ResourceId address, List<NodeState> present, Deadline deadline) {
+        long total = 0;
+        for (NodeState state : present) {
+            total += ArtemisLists.fetch(
+                            cluster.jolokia(state.node(), deadline),
+                            "listConsumers",
+                            Filters.options(
+                                    ArtemisKinds.CONSUMER,
+                                    ResourceQuery.of(ArtemisKinds.CONSUMER)
+                                            .where(Map.of(StandardAttributes.DESTINATION.name(), address.toString()))),
+                            -1,
+                            -1)
+                    .count();
+        }
+        return total;
     }
 
     // ---- helpers ----------------------------------------------------------

@@ -172,7 +172,11 @@ public final class ListRows {
         put(a, ArtemisKinds.LOCAL_ADDRESS, text(row, "localAddress"));
         put(a, StandardAttributes.CLIENT_ID, text(row, "clientID"));
         String user = text(row, "validatedUser");
-        put(a, StandardAttributes.PRINCIPAL, user != null ? user : text(row, "user"));
+        if (user == null) {
+            user = text(row, "user");
+        }
+        // A connection names the users of its sessions instead.
+        put(a, StandardAttributes.PRINCIPAL, user != null ? user : text(row, "users"));
         Instant created = createdAt(text(row, "creationTime"));
         if (created != null) {
             a.put(StandardAttributes.CREATED_AT, created);
