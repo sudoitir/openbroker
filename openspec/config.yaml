@@ -1,0 +1,14 @@
+schema: spec-driven
+
+context: |
+  OpenBroker: a public, framework-free Java 25 SDK that is one vocabulary for every message broker
+  and queue service. Modules: openbroker-api (consumer API + driver SPI, depends only on JSpecify),
+  openbroker-support, openbroker-tck, openbroker-bom, openbroker-parent, and one driver per system
+  (openbroker-artemis first). Released to Maven Central under io.github.sudoitir on SemVer, 0.x
+  until 1.0. Written for any tool author; it never names a consumer product.
+
+rules:
+  proposal:
+    - State the drivers a change touches and whether it breaks the API (minor bump while 0.x).
+  specs:
+    - Every requirement is checkable by the TCK or a unit test.
