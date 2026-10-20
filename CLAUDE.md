@@ -39,7 +39,8 @@ Apache-2.0, public.
 - OpenSpec for every change (`openspec/`); ADRs in `docs/adr/` (Nygard, `000-template.md`).
 - Library facts through `npx ctx7@latest`, never memory.
 - SemVer. `0.x`: a breaking API change raises the minor version; japicmp checks it against
-  `openbroker.previous.version`. `@Incubating` types are exempt. A release is a `vX.Y.Z` tag.
+  `openbroker.previous.version`. `@Incubating` types are exempt. A maintainer releases by running the
+  `Release` workflow with the version; it publishes to Maven Central and tags `vX.Y.Z` (ADR-0009).
 - Commits: `.claude/rules/05-commits.md`.
 
 ## Commands

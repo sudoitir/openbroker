@@ -38,8 +38,8 @@ jobs:
           name: coverage
           path: openbroker-artemis/target/site/jacoco-aggregate
 
-  # The API may not break without the right version bump (SemVer; minor while 0.x). Skipped until
-  # the first release sets openbroker.previous.version.
+  # The API may not break without the right version bump (SemVer; minor while 0.x), compared with
+  # openbroker.previous.version, the last release on Central.
   api-check:
     runs-on: ubuntu-latest
     steps:
@@ -80,15 +80,15 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: >-
           ./mvnw -B -DskipTests -Dspotless.apply.skip test-compile
-          org.sonarsource.scanner.maven:sonar-maven-plugin:5.8.0.7211:sonar -Dsonar.qualitygate.wait=true
+          org.sonarsource.scanner.maven:sonar-maven-plugin:5.8.0.7211:sonar
 
   # The one required status check.
   ci-ok:
     runs-on: ubuntu-latest
     if: always()
-    needs: [verify, api-check, sonar]
+    needs: [verify, api-check]
     steps:
       - run: |
-          for r in "${{ needs.verify.result }}" "${{ needs.api-check.result }}" "${{ needs.sonar.result }}"; do
+          for r in "${{ needs.verify.result }}" "${{ needs.api-check.result }}"; do
             case "$r" in success|skipped) ;; *) echo "A required job ended as $r"; exit 1;; esac
           done

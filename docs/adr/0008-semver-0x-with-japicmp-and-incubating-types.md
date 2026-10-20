@@ -1,6 +1,6 @@
 # ADR-0008: SemVer `0.x`, checked by japicmp, with incubating types
 
-- **Status**: accepted
+- **Status**: accepted; how a release is started is amended by [ADR-0009](0009-a-maintainer-runs-each-release.md)
 - **Date**: 2026-10-20
 - **Deciders**: Mahdi Amirabdollahi
 
