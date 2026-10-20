@@ -29,6 +29,7 @@ import org.apache.activemq.artemis.api.core.ActiveMQException;
 import org.apache.activemq.artemis.api.core.ActiveMQInvalidFilterExpressionException;
 import org.apache.activemq.artemis.api.core.ActiveMQNonExistentQueueException;
 import org.apache.activemq.artemis.api.core.ActiveMQNotConnectedException;
+import org.apache.activemq.artemis.api.core.ActiveMQQueueMaxConsumerLimitReached;
 import org.apache.activemq.artemis.api.core.ActiveMQSecurityException;
 import org.apache.activemq.artemis.api.core.ActiveMQTransactionOutcomeUnknownException;
 import org.apache.activemq.artemis.api.core.ActiveMQTransactionRolledBackException;
@@ -254,6 +255,13 @@ final class CoreLinks implements AutoCloseable {
                         Dispatch.REJECTED,
                         node,
                         "The queue is not on this node: " + q.getMessage());
+            case ActiveMQQueueMaxConsumerLimitReached m ->
+                new BrokerException(
+                        Status.RESOURCE_EXHAUSTED,
+                        ErrorInfo.of(ErrorReasons.MAX_CONSUMERS_REACHED),
+                        Dispatch.REJECTED,
+                        node,
+                        "The queue already has as many consumers as it admits: " + m.getMessage());
             case ActiveMQDuplicateIdException d ->
                 new BrokerException(
                         Status.ALREADY_EXISTS,
