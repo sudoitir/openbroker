@@ -38,8 +38,8 @@ jobs:
           name: coverage
           path: openbroker-artemis/target/site/jacoco-aggregate
 
-  # The API may not break without the right version bump (SemVer; minor while 0.x). Skipped until
-  # the first release sets openbroker.previous.version.
+  # The API may not break without the right version bump (SemVer; minor while 0.x), compared with
+  # openbroker.previous.version, the last release on Central.
   api-check:
     runs-on: ubuntu-latest
     steps:
