@@ -14,6 +14,7 @@ import io.github.sudoitir.openbroker.model.KindId;
 import io.github.sudoitir.openbroker.model.ResourceId;
 import io.github.sudoitir.openbroker.model.ResourcePath;
 import io.github.sudoitir.openbroker.model.Scope;
+import io.github.sudoitir.openbroker.model.StandardAttributes;
 import io.github.sudoitir.openbroker.notification.BrokerEvent;
 import io.github.sudoitir.openbroker.notification.EventTypes;
 import io.github.sudoitir.openbroker.notification.Gap;
@@ -32,6 +33,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Enumeration;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -260,52 +262,50 @@ public final class ArtemisNotifications implements Notifications {
 
     /**
      * A notification as an event. Everything is read from its {@code _AMQ_} properties; a
-     * notification has no message id. A type this driver does not know still becomes an event.
+     * notification has no message id. What it involves goes under the standard keys, every property
+     * also under its own name, and a type this driver does not know still becomes an event.
      */
     static BrokerEvent event(NodeId node, Message message) throws JMSException {
-        Attributes.Builder data = Attributes.builder();
+        Map<String, Object> props = new LinkedHashMap<>();
         Enumeration<?> names = message.getPropertyNames();
-        String type = "";
-        String address = null;
-        String routingName = null;
-        String connection = null;
-        String session = null;
-        long millis = message.getJMSTimestamp();
         while (names.hasMoreElements()) {
             String name = (String) names.nextElement();
             Object value = message.getObjectProperty(name);
-            if (value == null) {
-                continue;
-            }
-            data.putRaw(
-                    PROPERTY_PREFIX + name,
-                    value instanceof Number || value instanceof Boolean ? value : value.toString());
-            switch (name) {
-                case "_AMQ_NotifType" -> type = value.toString();
-                case "_AMQ_Address" -> address = value.toString();
-                case "_AMQ_RoutingName" -> routingName = value.toString();
-                case "_AMQ_ConnectionName" -> connection = value.toString();
-                case "_AMQ_SessionName" -> session = value.toString();
-                case "_AMQ_NotifTimestamp" -> {
-                    if (value instanceof Number n) {
-                        millis = n.longValue();
-                    }
-                }
-                default -> {
-                    // kept in the data under its own name
-                }
+            if (value != null) {
+                props.put(name, value instanceof Number || value instanceof Boolean ? value : value.toString());
             }
         }
+        Attributes.Builder data = Attributes.builder();
+        props.forEach((name, value) -> data.putRaw(PROPERTY_PREFIX + name, value));
+        String type = text(props.get("_AMQ_NotifType")).orElse("");
         data.putRaw(TYPE, type);
+        Optional<ResourceId> address = id(ArtemisKinds.ADDRESS, props.get("_AMQ_Address"));
+        Optional<ResourceId> queue = id(ArtemisKinds.QUEUE, props.get("_AMQ_RoutingName"));
+        Optional<ResourceId> connection = id(ArtemisKinds.CONNECTION, props.get("_AMQ_ConnectionName"));
+        Optional<ResourceId> session = id(ArtemisKinds.SESSION, props.get("_AMQ_SessionName"));
+        Optional<ResourceId> consumer = session.flatMap(s -> text(props.get("_AMQ_ConsumerName"))
+                .map(c -> new ResourceId(ArtemisKinds.CONSUMER, ResourcePath.of(s.name(), c))));
+        address.ifPresent(v -> data.put(StandardAttributes.DESTINATION, v));
+        queue.ifPresent(v -> data.put(StandardAttributes.SUBSCRIPTION, v));
+        connection.ifPresent(v -> data.put(StandardAttributes.CONNECTION, v));
+        session.ifPresent(v -> data.put(StandardAttributes.CHANNEL, v));
+        consumer.ifPresent(v -> data.put(StandardAttributes.CONSUMER, v));
+        text(props.get("_AMQ_RemoteAddress")).ifPresent(v -> data.put(StandardAttributes.REMOTE_ADDRESS, v));
+        text(props.getOrDefault("_AMQ_ValidatedUser", props.get("_AMQ_User")))
+                .ifPresent(v -> data.put(StandardAttributes.PRINCIPAL, v));
+        text(props.get("_AMQ_Message_ID")).ifPresent(v -> data.put(StandardAttributes.MESSAGE_ID, v));
+        if (props.get("_AMQ_ConsumerCount") instanceof Number count) {
+            data.put(StandardAttributes.CONSUMER_COUNT, count.longValue());
+        }
         Optional<ResourceId> subject =
                 switch (type) {
-                    case "BINDING_ADDED", "BINDING_REMOVED", "CONSUMER_CREATED", "CONSUMER_CLOSED" ->
-                        id(ArtemisKinds.QUEUE, routingName);
-                    case "ADDRESS_ADDED", "ADDRESS_REMOVED" -> id(ArtemisKinds.ADDRESS, address);
-                    case "CONNECTION_CREATED", "CONNECTION_DESTROYED" -> id(ArtemisKinds.CONNECTION, connection);
-                    case "SESSION_CREATED", "SESSION_CLOSED" -> id(ArtemisKinds.SESSION, session);
-                    default -> id(ArtemisKinds.ADDRESS, address);
+                    case "BINDING_ADDED", "BINDING_REMOVED", "MESSAGE_EXPIRED" -> queue.or(() -> address);
+                    case "CONSUMER_CREATED", "CONSUMER_CLOSED", "CONSUMER_SLOW" -> consumer.or(() -> queue);
+                    case "CONNECTION_CREATED", "CONNECTION_DESTROYED" -> connection;
+                    case "SESSION_CREATED", "SESSION_CLOSED" -> session;
+                    default -> address;
                 };
+        long millis = props.get("_AMQ_NotifTimestamp") instanceof Number n ? n.longValue() : message.getJMSTimestamp();
         return new BrokerEvent(
                 UUID.randomUUID().toString(),
                 node,
@@ -321,15 +321,20 @@ public final class ArtemisNotifications implements Notifications {
             case "BINDING_REMOVED", "ADDRESS_REMOVED" -> EventTypes.RESOURCE_DELETED;
             case "CONNECTION_CREATED" -> EventTypes.CLIENT_CONNECTED;
             case "CONNECTION_DESTROYED" -> EventTypes.CLIENT_DISCONNECTED;
+            case "SESSION_CREATED" -> EventTypes.CHANNEL_OPENED;
+            case "SESSION_CLOSED" -> EventTypes.CHANNEL_CLOSED;
             case "CONSUMER_CREATED" -> EventTypes.CONSUMER_ATTACHED;
             case "CONSUMER_CLOSED" -> EventTypes.CONSUMER_DETACHED;
+            case "MESSAGE_EXPIRED" -> EventTypes.MESSAGE_EXPIRED;
             default -> "artemis." + (type.isEmpty() ? "unknown" : type.toLowerCase(Locale.ROOT));
         };
     }
 
-    private static Optional<ResourceId> id(KindId kind, @Nullable String name) {
-        return name == null || name.isBlank()
-                ? Optional.empty()
-                : Optional.of(new ResourceId(kind, ResourcePath.of(name)));
+    private static Optional<String> text(@Nullable Object value) {
+        return value == null || value.toString().isBlank() ? Optional.empty() : Optional.of(value.toString());
+    }
+
+    private static Optional<ResourceId> id(KindId kind, @Nullable Object name) {
+        return text(name).map(n -> new ResourceId(kind, ResourcePath.of(n)));
     }
 }

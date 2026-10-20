@@ -60,6 +60,17 @@ public final class StandardAttributes {
     public static final AttributeKey<String> CLIENT_ID = AttributeKey.of("openbroker.client_id", String.class);
     /** The authenticated principal a client acts as. */
     public static final AttributeKey<String> PRINCIPAL = AttributeKey.of("openbroker.principal", String.class);
+    /** The connection a channel, consumer or producer belongs to, or an event is about. */
+    public static final AttributeKey<ResourceId> CONNECTION =
+            AttributeKey.of("openbroker.connection", ResourceId.class);
+    /** The channel a consumer or producer belongs to, or an event is about. */
+    public static final AttributeKey<ResourceId> CHANNEL = AttributeKey.of("openbroker.channel", ResourceId.class);
+    /** The consumer an event is about. */
+    public static final AttributeKey<ResourceId> CONSUMER = AttributeKey.of("openbroker.consumer", ResourceId.class);
+    /** How many consumers a subscription has, as an event about one of them leaves it. */
+    public static final AttributeKey<Long> CONSUMER_COUNT = AttributeKey.of("openbroker.consumer_count", Long.class);
+    /** The id of the message an event is about, as the system gives it. */
+    public static final AttributeKey<String> MESSAGE_ID = AttributeKey.of("openbroker.message_id", String.class);
     /** When the resource was created. */
     public static final AttributeKey<Instant> CREATED_AT = AttributeKey.of("openbroker.created_at", Instant.class);
 

@@ -50,11 +50,13 @@ import io.github.sudoitir.openbroker.model.ResourcePage;
 import io.github.sudoitir.openbroker.model.ResourceQuery;
 import io.github.sudoitir.openbroker.model.Scope;
 import io.github.sudoitir.openbroker.model.Shard;
+import io.github.sudoitir.openbroker.model.StandardAttributes;
 import io.github.sudoitir.openbroker.model.Verb;
 import io.github.sudoitir.openbroker.notification.BrokerEvent;
 import io.github.sudoitir.openbroker.notification.EventTypes;
 import io.github.sudoitir.openbroker.notification.Gap;
 import io.github.sudoitir.openbroker.notification.NotificationListener;
+import io.github.sudoitir.openbroker.notification.StreamState;
 import io.github.sudoitir.openbroker.operation.Operation;
 import io.github.sudoitir.openbroker.operation.OperationResult;
 import io.github.sudoitir.openbroker.operation.Precondition;
@@ -559,6 +561,61 @@ public abstract class OpenBrokerTck {
             } finally {
                 delete(id);
             }
+        }
+    }
+
+    @Test
+    void aConsumerAttachedEventNamesItsSubscriptionUnderTheStandardKey() throws Exception {
+        assumeTrue(connection.notifications().isPresent(), "The driver offers no notifications");
+        assumeTrue(connection.transport().isPresent(), "The driver offers no transport");
+        BlockingQueue<BrokerEvent> received = new LinkedBlockingQueue<>();
+        ResourceId id = createSubscription();
+        try (AutoCloseable subscription = connection
+                .notifications()
+                .get()
+                .subscribe(Scope.whole(), new NotificationListener() {
+                    @Override
+                    public void onEvent(BrokerEvent event) {
+                        received.add(event);
+                    }
+
+                    @Override
+                    public void onGap(Gap gap) {
+                        // the stream's start is not what this case is about
+                    }
+                })) {
+            awaitStreams();
+            try (Receiver receiver =
+                    connection.transport().get().receiver(id, Scope.whole(), ReceiveOptions.consume())) {
+                long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+                BrokerEvent attached = null;
+                while (attached == null && System.nanoTime() < until) {
+                    BrokerEvent next = received.poll(1, TimeUnit.SECONDS);
+                    if (next != null
+                            && next.type().equals(EventTypes.CONSUMER_ATTACHED)
+                            && next.data()
+                                    .get(StandardAttributes.SUBSCRIPTION)
+                                    .filter(id::equals)
+                                    .isPresent()) {
+                        attached = next;
+                    }
+                }
+                assertThat(attached).as("a consumer attached to " + id).isNotNull();
+            }
+        } finally {
+            delete(id);
+        }
+    }
+
+    /** Waits until every node's notification stream is active, so what follows is seen. */
+    private void awaitStreams() throws InterruptedException {
+        long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+        while (System.nanoTime() < until) {
+            var states = connection.notifications().get().state();
+            if (!states.isEmpty() && states.values().stream().allMatch(st -> st.phase() == StreamState.Phase.ACTIVE)) {
+                return;
+            }
+            Thread.sleep(100);
         }
     }
 
