@@ -181,7 +181,7 @@ public final class ArtemisNotifications implements Notifications {
                     dispatcher.gap(new Gap(node.id(), since, cause));
                     while (running) {
                         Message message = consumer.receive(RECEIVE.toMillis());
-                        if (message != null) {
+                        if (message != null && !aboutItself(message)) {
                             dispatcher.event(event(node.id(), message));
                         }
                     }
@@ -261,6 +261,14 @@ public final class ArtemisNotifications implements Notifications {
     }
 
     /**
+     * Whether a notification is about the notification address itself: a subscriber's own queue coming
+     * and going, which is this stream's plumbing and nothing that happened on the broker.
+     */
+    static boolean aboutItself(Message message) throws JMSException {
+        return ADDRESS.equals(message.getStringProperty("_AMQ_Address"));
+    }
+
+    /**
      * A notification as an event. Everything is read from its {@code _AMQ_} properties; a
      * notification has no message id. What it involves goes under the standard keys, every property
      * also under its own name, and a type this driver does not know still becomes an event.
@@ -299,7 +307,8 @@ public final class ArtemisNotifications implements Notifications {
         }
         Optional<ResourceId> subject =
                 switch (type) {
-                    case "BINDING_ADDED", "BINDING_REMOVED", "MESSAGE_EXPIRED" -> queue.or(() -> address);
+                    case "BINDING_ADDED", "BINDING_REMOVED", "MESSAGE_DELIVERED", "MESSAGE_EXPIRED" ->
+                        queue.or(() -> address);
                     case "CONSUMER_CREATED", "CONSUMER_CLOSED", "CONSUMER_SLOW" -> consumer.or(() -> queue);
                     case "CONNECTION_CREATED", "CONNECTION_DESTROYED" -> connection;
                     case "SESSION_CREATED", "SESSION_CLOSED" -> session;
@@ -325,6 +334,7 @@ public final class ArtemisNotifications implements Notifications {
             case "SESSION_CLOSED" -> EventTypes.CHANNEL_CLOSED;
             case "CONSUMER_CREATED" -> EventTypes.CONSUMER_ATTACHED;
             case "CONSUMER_CLOSED" -> EventTypes.CONSUMER_DETACHED;
+            case "MESSAGE_DELIVERED" -> EventTypes.MESSAGE_DELIVERED;
             case "MESSAGE_EXPIRED" -> EventTypes.MESSAGE_EXPIRED;
             default -> "artemis." + (type.isEmpty() ? "unknown" : type.toLowerCase(Locale.ROOT));
         };
