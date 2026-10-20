@@ -27,6 +27,7 @@ public final class ArtemisConnection implements ClusterConnection {
     private final CorePool core;
     private final ArtemisMessages messages;
     private final ArtemisAccess access;
+    private final ArtemisNotifications notifications;
 
     public ArtemisConnection(
             BrokerSystem system, ClusterSpec spec, CredentialSource credentials, DriverContext context) {
@@ -38,6 +39,7 @@ public final class ArtemisConnection implements ClusterConnection {
         this.core = new CorePool(cluster);
         this.messages = new ArtemisMessages(cluster, core);
         this.access = new ArtemisAccess(cluster);
+        this.notifications = new ArtemisNotifications(cluster);
     }
 
     @Override
@@ -72,7 +74,7 @@ public final class ArtemisConnection implements ClusterConnection {
 
     @Override
     public Optional<Notifications> notifications() {
-        return Optional.empty();
+        return Optional.of(notifications);
     }
 
     @Override
@@ -97,6 +99,7 @@ public final class ArtemisConnection implements ClusterConnection {
 
     @Override
     public void close() {
+        notifications.closeAll();
         core.close();
     }
 }

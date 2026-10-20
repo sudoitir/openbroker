@@ -43,6 +43,10 @@ import io.github.sudoitir.openbroker.model.ResourcePage;
 import io.github.sudoitir.openbroker.model.ResourceQuery;
 import io.github.sudoitir.openbroker.model.Scope;
 import io.github.sudoitir.openbroker.model.Verb;
+import io.github.sudoitir.openbroker.notification.BrokerEvent;
+import io.github.sudoitir.openbroker.notification.EventTypes;
+import io.github.sudoitir.openbroker.notification.Gap;
+import io.github.sudoitir.openbroker.notification.NotificationListener;
 import io.github.sudoitir.openbroker.operation.Operation;
 import io.github.sudoitir.openbroker.operation.OperationResult;
 import io.github.sudoitir.openbroker.operation.Precondition;
@@ -53,6 +57,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -347,6 +354,47 @@ public abstract class OpenBrokerTck {
                             BrokerException.class, e -> assertThat(e.reason()).isEqualTo(ErrorReasons.INVALID_FILTER));
         } finally {
             delete(id);
+        }
+    }
+
+    // Notifications.
+
+    @Test
+    void aSubscriptionStartsWithAGapAndSeesACreatedSubscription() throws Exception {
+        assumeTrue(connection.notifications().isPresent(), "The driver offers no notifications");
+        BlockingQueue<Object> received = new LinkedBlockingQueue<>();
+        try (AutoCloseable subscription = connection
+                .notifications()
+                .get()
+                .subscribe(Scope.whole(), new NotificationListener() {
+                    @Override
+                    public void onEvent(BrokerEvent event) {
+                        received.add(event);
+                    }
+
+                    @Override
+                    public void onGap(Gap gap) {
+                        received.add(gap);
+                    }
+                })) {
+            Object first = received.poll(30, TimeUnit.SECONDS);
+            assertThat(first)
+                    .isInstanceOfSatisfying(
+                            Gap.class, g -> assertThat(g.cause()).isEqualTo(Gap.Cause.STARTED));
+            ResourceId id = createSubscription();
+            try {
+                long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+                boolean seen = false;
+                while (!seen && System.nanoTime() < until) {
+                    Object next = received.poll(1, TimeUnit.SECONDS);
+                    seen = next instanceof BrokerEvent e
+                            && e.type().equals(EventTypes.RESOURCE_CREATED)
+                            && e.subject().filter(id::equals).isPresent();
+                }
+                assertThat(seen).as("a created event about " + id).isTrue();
+            } finally {
+                delete(id);
+            }
         }
     }
 

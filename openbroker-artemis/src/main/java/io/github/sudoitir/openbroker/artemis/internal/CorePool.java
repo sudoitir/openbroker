@@ -119,7 +119,15 @@ final class CorePool implements AutoCloseable {
     }
 
     private JmsPoolConnectionFactory build(String endpoint, Optional<TlsMaterial> tls) {
-        ConnectOptions options = cluster.options();
+        JmsPoolConnectionFactory pool = new JmsPoolConnectionFactory();
+        pool.setConnectionFactory(factory(cluster.options(), endpoint, tls));
+        pool.setMaxConnections(1);
+        pool.setMaxSessionsPerConnection(SESSIONS);
+        return pool;
+    }
+
+    /** A Core connection factory for one endpoint, with the caller's timeouts and TLS material. */
+    static ActiveMQConnectionFactory factory(ConnectOptions options, String endpoint, Optional<TlsMaterial> tls) {
         StringBuilder url = new StringBuilder(endpoint)
                 .append(endpoint.contains("?") ? ";" : "?")
                 .append("useTopologyForLoadBalancing=false;consumerWindowSize=")
@@ -149,11 +157,7 @@ final class CorePool implements AutoCloseable {
         // so the TTL outlasts several pings.
         factory.setClientFailureCheckPeriod(call);
         factory.setConnectionTTL(call * 3);
-        JmsPoolConnectionFactory pool = new JmsPoolConnectionFactory();
-        pool.setConnectionFactory(factory);
-        pool.setMaxConnections(1);
-        pool.setMaxSessionsPerConnection(SESSIONS);
-        return pool;
+        return factory;
     }
 
     /** A Core failure in the SDK's terms. */
