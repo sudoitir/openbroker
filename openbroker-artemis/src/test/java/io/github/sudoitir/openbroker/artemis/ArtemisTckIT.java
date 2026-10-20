@@ -22,7 +22,6 @@ import io.github.sudoitir.openbroker.messaging.MessageFilter;
 import io.github.sudoitir.openbroker.messaging.MessageHeaders;
 import io.github.sudoitir.openbroker.messaging.OutboundMessage;
 import io.github.sudoitir.openbroker.messaging.SendTarget;
-import io.github.sudoitir.openbroker.messaging.Total;
 import io.github.sudoitir.openbroker.model.Attributes;
 import io.github.sudoitir.openbroker.model.KindId;
 import io.github.sudoitir.openbroker.model.ResourceId;
@@ -43,6 +42,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
@@ -152,11 +152,17 @@ class ArtemisTckIT extends OpenBrokerTck {
 
                 connection.messages().send(SendTarget.subscription(queue), message);
 
-                Total total = connection
-                        .messages()
-                        .count(queue, Scope.whole(), Optional.empty())
-                        .orThrow();
-                assertThat(total.count()).isEqualTo(Count.exact(1));
+                // The broker counts a durable message once its store has written it, a moment after the send.
+                long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+                Count count;
+                do {
+                    count = connection
+                            .messages()
+                            .count(queue, Scope.whole(), Optional.empty())
+                            .orThrow()
+                            .count();
+                } while (!count.equals(Count.exact(1)) && System.nanoTime() < until);
+                assertThat(count).isEqualTo(Count.exact(1));
             } finally {
                 connection
                         .operations()
