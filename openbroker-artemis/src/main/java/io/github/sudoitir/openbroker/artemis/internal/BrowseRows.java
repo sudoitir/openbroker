@@ -46,9 +46,10 @@ public final class BrowseRows {
     static final String GROUP_ID = "_AMQ_GROUP_ID";
     static final String DUPLICATE_ID = "_AMQ_DUPL_ID";
     static final String SCHEDULED_DELIVERY = "_AMQ_SCHED_DELIVERY";
+    static final String ORIGIN = "_AMQ_ORIG_ADDRESS";
 
     private static final Set<String> HEADER_PROPERTIES =
-            Set.of(CORRELATION_ID, TYPE, REPLY_TO, GROUP_ID, DUPLICATE_ID, SCHEDULED_DELIVERY);
+            Set.of(CORRELATION_ID, TYPE, REPLY_TO, GROUP_ID, DUPLICATE_ID, SCHEDULED_DELIVERY, ORIGIN);
 
     /** Extension keys under the {@code artemis} namespace. */
     public static final String MESSAGE_TYPE = "artemis.message_type";
@@ -124,6 +125,7 @@ public final class BrowseRows {
                 .replyTo(headerValues.get(REPLY_TO))
                 .groupId(first(text(row, "groupID"), headerValues.get(GROUP_ID)))
                 .deduplicationId(headerValues.get(DUPLICATE_ID))
+                .origin(headerValues.get(ORIGIN))
                 .priority((int) num(row, "priority"))
                 .durable(row.path("durable").asBoolean(false));
         long timestamp = num(row, "timestamp");

@@ -25,7 +25,12 @@ public final class ArtemisDriver implements BrokerDriver {
     public static final String SYSTEM = "artemis";
 
     private static final BrokerSystem DESCRIPTION = new BrokerSystem(
-            SYSTEM, "Apache ActiveMQ Artemis", "[2.33.0,)", 1, Set.of("org.apache.activemq.", "org.jolokia."));
+            SYSTEM,
+            "Apache ActiveMQ Artemis",
+            "[2.33.0,)",
+            1,
+            Set.of("org.apache.activemq.", "org.jolokia."),
+            List.of(ArtemisFilters.DIALECT));
 
     @Override
     public BrokerSystem system() {

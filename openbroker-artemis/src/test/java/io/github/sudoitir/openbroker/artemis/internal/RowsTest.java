@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.sudoitir.openbroker.NodeId;
 import io.github.sudoitir.openbroker.artemis.ArtemisKinds;
+import io.github.sudoitir.openbroker.messaging.Message;
 import io.github.sudoitir.openbroker.model.ConditionStatus;
 import io.github.sudoitir.openbroker.model.ConditionTypes;
 import io.github.sudoitir.openbroker.model.Delivery;
@@ -153,6 +154,19 @@ class RowsTest {
         assertThat(ListRows.delivery("ANYCAST,MULTICAST"))
                 .contains(DeliveryModes.of(Delivery.POINT_TO_POINT, Delivery.PUBLISH_SUBSCRIBE));
         assertThat(ListRows.delivery("")).isEmpty();
+    }
+
+    @Test
+    void aDeadLetteredMessageNamesWhereItWasFirstSent() {
+        Message m = BrowseRows.parse(
+                JSON.readTree("{\"messageID\":7,\"StringProperties\":{\"_AMQ_ORIG_ADDRESS\":\"orders\",\"k\":\"v\"}}"),
+                new ResourceId(ArtemisKinds.QUEUE, ResourcePath.of("DLQ")),
+                NODE,
+                -1,
+                1024);
+
+        assertThat(m.headers().origin()).contains("orders");
+        assertThat(m.properties()).containsOnlyKeys("k");
     }
 
     @Test

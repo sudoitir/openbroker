@@ -90,6 +90,7 @@ public final class PortableFilter implements Predicate<Message> {
             case "type" -> h.type();
             case "groupId" -> h.groupId();
             case "deduplicationId" -> h.deduplicationId();
+            case "origin" -> h.origin();
             case "priority" ->
                 h.priority().isPresent()
                         ? Optional.of(String.valueOf(h.priority().getAsInt()))

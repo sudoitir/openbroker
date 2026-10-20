@@ -70,6 +70,7 @@ public final class Selectors {
             case "durable" -> "JMSDeliveryMode";
             case "groupId" -> "JMSXGroupID";
             case "deduplicationId" -> "_AMQ_DUPL_ID";
+            case "origin" -> BrowseRows.ORIGIN;
             default -> throw invalid("Artemis cannot filter on the header " + name + ".");
         };
     }

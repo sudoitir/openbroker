@@ -1,5 +1,6 @@
 package io.github.sudoitir.openbroker;
 
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
@@ -12,14 +13,22 @@ import java.util.Set;
  * @param schemaVersion the version of the driver's {@link ConnectionSchema}
  * @param nativePackages the Java packages of the system's own client libraries; a host that runs
  *     untrusted code can deny them, so only the driver talks to the broker
+ * @param filterDialects the message filter dialects the system evaluates itself, its own first; the
+ *     portable dialect is always accepted besides these
  */
 public record BrokerSystem(
-        String id, String name, String supportedVersions, int schemaVersion, Set<String> nativePackages) {
+        String id,
+        String name,
+        String supportedVersions,
+        int schemaVersion,
+        Set<String> nativePackages,
+        List<String> filterDialects) {
 
     public BrokerSystem {
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(name, "name");
         Objects.requireNonNull(supportedVersions, "supportedVersions");
         nativePackages = Set.copyOf(nativePackages);
+        filterDialects = List.copyOf(filterDialects);
     }
 }

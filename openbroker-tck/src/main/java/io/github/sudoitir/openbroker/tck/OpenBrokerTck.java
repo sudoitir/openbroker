@@ -12,6 +12,7 @@ import io.github.sudoitir.openbroker.ClusterConnection;
 import io.github.sudoitir.openbroker.ConnectRequest;
 import io.github.sudoitir.openbroker.Deadline;
 import io.github.sudoitir.openbroker.ErrorReasons;
+import io.github.sudoitir.openbroker.NodeId;
 import io.github.sudoitir.openbroker.NodeOutcome;
 import io.github.sudoitir.openbroker.Outcome;
 import io.github.sudoitir.openbroker.Partial;
@@ -48,6 +49,7 @@ import io.github.sudoitir.openbroker.model.ResourceId;
 import io.github.sudoitir.openbroker.model.ResourcePage;
 import io.github.sudoitir.openbroker.model.ResourceQuery;
 import io.github.sudoitir.openbroker.model.Scope;
+import io.github.sudoitir.openbroker.model.Shard;
 import io.github.sudoitir.openbroker.model.Verb;
 import io.github.sudoitir.openbroker.notification.BrokerEvent;
 import io.github.sudoitir.openbroker.notification.EventTypes;
@@ -311,6 +313,30 @@ public abstract class OpenBrokerTck {
             assertThat(m.properties()).containsEntry("flag", PropertyValue.of(true));
             assertThat(m.body().bytes())
                     .hasValueSatisfying(b -> assertThat(b.asUtf8()).isEqualTo("tck-body"));
+        } finally {
+            delete(id);
+        }
+    }
+
+    @Test
+    void aBrowseFromAnOffsetSkipsWhatComesBefore() {
+        assumeVerb(Verb.BROWSE);
+        ResourceId id = createSubscription();
+        try {
+            for (int i = 0; i < 4; i++) {
+                send(id, 1, "n", String.valueOf(i));
+            }
+            NodeId node = env.request().cluster().nodes().getFirst().id();
+            BrowsePage second = connection
+                    .messages()
+                    .browse(
+                            id,
+                            Scope.node(node),
+                            new BrowseRequest(
+                                    new Position.AtOffsets(Map.of(Shard.node(node), 2L)), 2, Optional.empty(), 1024));
+            assertThat(second.messages())
+                    .extracting(m -> m.properties().get("n"))
+                    .containsExactly(PropertyValue.of("2"), PropertyValue.of("3"));
         } finally {
             delete(id);
         }

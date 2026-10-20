@@ -28,7 +28,8 @@ public record MessageHeaders(
         OptionalInt deliveryCount,
         Optional<Blob> key,
         Optional<String> groupId,
-        Optional<String> deduplicationId) {
+        Optional<String> deduplicationId,
+        Optional<String> origin) {
 
     private static final MessageHeaders EMPTY = builder().build();
 
@@ -47,6 +48,7 @@ public record MessageHeaders(
         Objects.requireNonNull(key, "key");
         Objects.requireNonNull(groupId, "groupId");
         Objects.requireNonNull(deduplicationId, "deduplicationId");
+        Objects.requireNonNull(origin, "origin");
     }
 
     public static MessageHeaders empty() {
@@ -73,6 +75,7 @@ public record MessageHeaders(
         b.key = key.orElse(null);
         b.groupId = groupId.orElse(null);
         b.deduplicationId = deduplicationId.orElse(null);
+        b.origin = origin.orElse(null);
         return b;
     }
 
@@ -91,6 +94,7 @@ public record MessageHeaders(
         private @Nullable Blob key;
         private @Nullable String groupId;
         private @Nullable String deduplicationId;
+        private @Nullable String origin;
 
         private Builder() {}
 
@@ -164,6 +168,12 @@ public record MessageHeaders(
             return this;
         }
 
+        /** Where a message the system moved aside (dead-lettered, expired) was first sent; a send ignores it. */
+        public Builder origin(@Nullable String origin) {
+            this.origin = origin;
+            return this;
+        }
+
         public MessageHeaders build() {
             return new MessageHeaders(
                     Optional.ofNullable(id),
@@ -179,7 +189,8 @@ public record MessageHeaders(
                     deliveryCount == null ? OptionalInt.empty() : OptionalInt.of(deliveryCount),
                     Optional.ofNullable(key),
                     Optional.ofNullable(groupId),
-                    Optional.ofNullable(deduplicationId));
+                    Optional.ofNullable(deduplicationId),
+                    Optional.ofNullable(origin));
         }
     }
 }

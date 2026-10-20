@@ -112,14 +112,15 @@ public final class ArtemisMessages implements Messages {
         NodeHandle node = oneNode(scope, "Browse reads one node; scope it to one node instance.");
         Deadline deadline = Deadlines.current(cluster.options());
         String selector = Selectors.of(request.filter());
+        int size = Math.min(request.limit(), PAGE_CAP);
         int page =
                 switch (request.position()) {
                     case Position.Earliest e -> 1;
                     case Position.After a -> page(a.cursor());
                     case Position.Latest l -> 0;
+                    case Position.AtOffsets o -> page(o, node, size);
                     default -> throw Unimplemented.of("browse an Artemis queue from " + request.position());
                 };
-        int size = Math.min(request.limit(), PAGE_CAP);
         if (page > 0 && node.core().isPresent() && (long) page * size <= PAGE_CAP) {
             Optional<BrowsePage> overCore = browseOverCore(node, subscription, selector, page, size, request, deadline);
             if (overCore.isPresent()) {
@@ -272,6 +273,23 @@ public final class ArtemisMessages implements Messages {
         }
     }
 
+    /**
+     * The page an offset starts: the broker browses by page, so the offset into the node's queue is a
+     * multiple of the limit.
+     */
+    private static int page(Position.AtOffsets at, NodeHandle node, int size) {
+        Long offset = at.offsets().get(Shard.node(node.id()));
+        if (offset == null || offset < 0 || offset % size != 0) {
+            throw Queries.invalid(
+                    "Browse an Artemis queue from an offset of this node that is a multiple of the limit.");
+        }
+        long page = offset / size + 1;
+        if (page > Integer.MAX_VALUE) {
+            throw Queries.invalid("That offset is past any queue Artemis can browse.");
+        }
+        return (int) page;
+    }
+
     private static int page(Cursor cursor) {
         if (!cursor.token().startsWith(CURSOR_PREFIX)) {
             throw Queries.invalid("Not an Artemis browse cursor.");
@@ -381,6 +399,7 @@ public final class ArtemisMessages implements Messages {
             case "replyTo" -> BrowseRows.REPLY_TO;
             case "groupId" -> BrowseRows.GROUP_ID;
             case "deduplicationId" -> BrowseRows.DUPLICATE_ID;
+            case "origin" -> BrowseRows.ORIGIN;
             default -> throw Queries.invalid("Artemis cannot count by the header " + header + ".");
         };
     }
