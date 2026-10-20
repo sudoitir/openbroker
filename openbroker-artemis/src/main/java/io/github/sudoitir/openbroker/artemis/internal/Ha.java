@@ -13,7 +13,9 @@ import tools.jackson.databind.JsonNode;
 public final class Ha {
 
     /** The attributes one read of the broker MBean asks for. */
-    public static final String[] ATTRIBUTES = {"Active", "Started", "Backup", "ReplicaSync", "NodeID", "Clustered", "Version"};
+    public static final String[] ATTRIBUTES = {
+        "Active", "Started", "Backup", "ReplicaSync", "NodeID", "Clustered", "Version"
+    };
 
     private Ha() {}
 

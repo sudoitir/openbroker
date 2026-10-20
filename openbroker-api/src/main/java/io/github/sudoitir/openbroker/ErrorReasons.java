@@ -5,6 +5,9 @@ public final class ErrorReasons {
 
     public static final String DOMAIN = "openbroker.io";
 
+    /** Metadata key: the plane, {@code MANAGEMENT} or {@code DATA}, whose account a failure is about. */
+    public static final String PLANE = "openbroker.plane";
+
     // Reaching the system.
     public static final String TLS_HANDSHAKE_FAILED = "TLS_HANDSHAKE_FAILED";
     public static final String CREDENTIALS_REJECTED = "CREDENTIALS_REJECTED";

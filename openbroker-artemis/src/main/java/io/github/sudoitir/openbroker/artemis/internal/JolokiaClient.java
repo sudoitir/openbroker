@@ -11,6 +11,9 @@ import io.github.sudoitir.openbroker.Outcome;
 import io.github.sudoitir.openbroker.Permit;
 import io.github.sudoitir.openbroker.Plane;
 import io.github.sudoitir.openbroker.Timeouts;
+import io.github.sudoitir.openbroker.artemis.ArtemisMBeans;
+import io.github.sudoitir.openbroker.artemis.JolokiaRequest;
+import io.github.sudoitir.openbroker.artemis.JolokiaResponse;
 import io.github.sudoitir.openbroker.model.ResourceId;
 import io.github.sudoitir.openbroker.support.Deadlines;
 import java.io.IOException;
@@ -146,7 +149,7 @@ public final class JolokiaClient {
         if (cached != null) {
             return cached;
         }
-        List<String> matches = search(BrokerMBeans.BROKER_SEARCH_PATTERN, deadline);
+        List<String> matches = search(ArtemisMBeans.BROKER_SEARCH_PATTERN, deadline);
         if (matches.isEmpty()) {
             throw Errors.notArtemis(node);
         }
@@ -158,7 +161,9 @@ public final class JolokiaClient {
     /** A call on the broker MBean; a broker that says the MBean is gone is resolved again next time. */
     public JolokiaResponse onBroker(JolokiaRequest request, Deadline deadline, Optional<ResourceId> target) {
         JolokiaResponse response = single(request, deadline, target);
-        if (!response.ok() && response.errorType() != null && response.errorType().contains(Errors.MBEAN_ABSENT)) {
+        if (!response.ok()
+                && response.errorType() != null
+                && response.errorType().contains(Errors.MBEAN_ABSENT)) {
             brokerNames.forget(endpoint);
         }
         return response;
@@ -168,7 +173,8 @@ public final class JolokiaClient {
         return onBroker(JolokiaRequest.read(brokerName(deadline), attributes), deadline, Optional.empty());
     }
 
-    public JolokiaResponse execOnBroker(Deadline deadline, Optional<ResourceId> target, String operation, Object... arguments) {
+    public JolokiaResponse execOnBroker(
+            Deadline deadline, Optional<ResourceId> target, String operation, Object... arguments) {
         return onBroker(JolokiaRequest.exec(brokerName(deadline), operation, arguments), deadline, target);
     }
 
@@ -195,7 +201,8 @@ public final class JolokiaClient {
             throw Deadlines.exceeded(node, Dispatch.NOT_SENT);
         }
         byte[] body = mapper.writeValueAsBytes(payload);
-        try (Permit permit = interceptor.admit(new CallInfo(node, endpoint, Plane.MANAGEMENT, operation, cost, target))) {
+        try (Permit permit =
+                interceptor.admit(new CallInfo(node, endpoint.toString(), Plane.MANAGEMENT, operation, cost, target))) {
             try {
                 JsonNode answer = exchange(body, deadline);
                 permit.complete(Outcome.succeeded(), serverTime(answer, batch));
@@ -243,7 +250,9 @@ public final class JolokiaClient {
         Credentials account = credentials.get();
         if (!account.isNone()) {
             String pair = account.username() + ":" + account.password().reveal();
-            request.header("Authorization", "Basic " + Base64.getEncoder().encodeToString(pair.getBytes(StandardCharsets.UTF_8)));
+            request.header(
+                    "Authorization",
+                    "Basic " + Base64.getEncoder().encodeToString(pair.getBytes(StandardCharsets.UTF_8)));
         }
         HttpResponse<InputStream> response;
         try {
@@ -265,21 +274,27 @@ public final class JolokiaClient {
             bytes = in.readNBytes((int) Math.min(Integer.MAX_VALUE - 8, maxResponseBytes + 1));
         } catch (IOException e) {
             brokerNames.forget(endpoint);
-            throw Errors.unreachable(node, "Could not reach the broker at " + NodeAddress.hostPort(endpoint) + ": "
-                    + describe(e), Dispatch.IN_DOUBT, e);
+            throw Errors.unreachable(
+                    node,
+                    "Could not reach the broker at " + NodeAddress.hostPort(endpoint) + ": " + describe(e),
+                    Dispatch.IN_DOUBT,
+                    e);
         }
         if (bytes.length > maxResponseBytes) {
             throw Errors.responseTooLarge(node, maxResponseBytes);
         }
         if (status >= 300 && status < 400) {
             String location = response.headers().firstValue("Location").orElse(null);
-            throw Errors.wrongPath(node, "The broker redirected the request"
-                    + (location != null && !location.isBlank() ? " to " + location : "")
-                    + " instead of answering it. That is the console UI, not the Jolokia agent"
-                    + " — the URL should end in /console/jolokia.");
+            throw Errors.wrongPath(
+                    node,
+                    "The broker redirected the request"
+                            + (location != null && !location.isBlank() ? " to " + location : "")
+                            + " instead of answering it. That is the console UI, not the Jolokia agent"
+                            + " — the URL should end in /console/jolokia.");
         }
         if (status == 401 || status == 403) {
-            throw Errors.credentialsRejected(node, Plane.MANAGEMENT, status, Errors.CREDENTIALS_MESSAGE + refusalHint(response));
+            throw Errors.credentialsRejected(
+                    node, Plane.MANAGEMENT, status, Errors.CREDENTIALS_MESSAGE + refusalHint(response));
         }
         if (status == 404) {
             throw Errors.wrongPath(node, Errors.WRONG_PATH_MESSAGE);
@@ -312,21 +327,28 @@ public final class JolokiaClient {
             return Errors.tls(node, Errors.TLS_MESSAGE, e);
         }
         if (hasCause(e, HttpConnectTimeoutException.class)) {
-            return Errors.unreachable(node,
-                    "The broker at " + at + " did not accept the connection within the connect timeout.", Dispatch.NOT_SENT, e);
+            return Errors.unreachable(
+                    node,
+                    "The broker at " + at + " did not accept the connection within the connect timeout.",
+                    Dispatch.NOT_SENT,
+                    e);
         }
         if (hasCause(e, HttpTimeoutException.class)) {
-            return Errors.unreachable(node,
+            return Errors.unreachable(
+                    node,
                     "The broker at " + at + " accepted the connection but did not answer within the read timeout.",
-                    Dispatch.IN_DOUBT, e);
+                    Dispatch.IN_DOUBT,
+                    e);
         }
         if (hasCause(e, ConnectException.class)) {
-            return Errors.unreachable(node, "Connection refused: nothing is listening at " + at + ".", Dispatch.NOT_SENT, e);
+            return Errors.unreachable(
+                    node, "Connection refused: nothing is listening at " + at + ".", Dispatch.NOT_SENT, e);
         }
         if (hasCause(e, UnknownHostException.class)) {
             return Errors.unreachable(node, "The host name of " + at + " does not resolve.", Dispatch.NOT_SENT, e);
         }
-        return Errors.unreachable(node, "Could not reach the broker at " + at + ": " + describe(e), Dispatch.IN_DOUBT, e);
+        return Errors.unreachable(
+                node, "Could not reach the broker at " + at + ": " + describe(e), Dispatch.IN_DOUBT, e);
     }
 
     private static String describe(Throwable e) {
@@ -361,7 +383,11 @@ public final class JolokiaClient {
     }
 
     private static @Nullable String header(HttpResponse<?> response, String name) {
-        return response.headers().firstValue(name).map(String::trim).filter(v -> !v.isBlank()).orElse(null);
+        return response.headers()
+                .firstValue(name)
+                .map(String::trim)
+                .filter(v -> !v.isBlank())
+                .orElse(null);
     }
 
     private static boolean hasCause(Throwable t, Class<? extends Throwable> type) {
@@ -377,8 +403,7 @@ public final class JolokiaClient {
     public static final class BrokerNames {
         private final Map<URI, String> names = new ConcurrentHashMap<>();
 
-        @Nullable
-        String get(URI endpoint) {
+        @Nullable String get(URI endpoint) {
             return names.get(endpoint);
         }
 

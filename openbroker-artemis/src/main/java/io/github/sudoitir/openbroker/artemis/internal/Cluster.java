@@ -4,6 +4,7 @@ import io.github.sudoitir.openbroker.BrokerException;
 import io.github.sudoitir.openbroker.ClusterSpec;
 import io.github.sudoitir.openbroker.ConnectOptions;
 import io.github.sudoitir.openbroker.CredentialSource;
+import io.github.sudoitir.openbroker.Deadline;
 import io.github.sudoitir.openbroker.Dispatch;
 import io.github.sudoitir.openbroker.ErrorInfo;
 import io.github.sudoitir.openbroker.ErrorReasons;
@@ -37,7 +38,8 @@ public final class Cluster {
     public Cluster(ClusterSpec spec, CredentialSource credentials, DriverContext context) {
         this.credentials = credentials;
         this.context = context;
-        this.brokerNames = context.shared("artemis.broker-names", NamesHolder.class, NamesHolder::new).names();
+        this.brokerNames = context.shared("artemis.broker-names", NamesHolder.class, NamesHolder::new)
+                .names();
         this.nodes = index(spec);
     }
 
@@ -73,8 +75,12 @@ public final class Cluster {
                 List<NodeHandle> out = new ArrayList<>();
                 for (Shard shard : s.shards()) {
                     if (!(shard instanceof Shard.NodeInstance n)) {
-                        throw new BrokerException(Status.INVALID_ARGUMENT, ErrorInfo.of(ErrorReasons.INVALID_ARGUMENT),
-                                Dispatch.NOT_SENT, null, "Artemis has no partitions; scope work to node instances.");
+                        throw new BrokerException(
+                                Status.INVALID_ARGUMENT,
+                                ErrorInfo.of(ErrorReasons.INVALID_ARGUMENT),
+                                Dispatch.NOT_SENT,
+                                null,
+                                "Artemis has no partitions; scope work to node instances.");
                     }
                     out.add(node(n.node()));
                 }
@@ -86,8 +92,12 @@ public final class Cluster {
     public NodeHandle node(NodeId id) {
         NodeHandle handle = nodes.get(id);
         if (handle == null) {
-            throw new BrokerException(Status.NOT_FOUND, ErrorInfo.of(ErrorReasons.INVALID_ARGUMENT),
-                    Dispatch.NOT_SENT, id, "This connection has no node " + id + ".");
+            throw new BrokerException(
+                    Status.NOT_FOUND,
+                    ErrorInfo.of(ErrorReasons.INVALID_ARGUMENT),
+                    Dispatch.NOT_SENT,
+                    id,
+                    "This connection has no node " + id + ".");
         }
         return handle;
     }
@@ -96,9 +106,13 @@ public final class Cluster {
     public JolokiaClient jolokia(NodeHandle node) {
         return new JolokiaClient(
                 Transports.http(context, context.options().tls().current()),
-                node.jolokia().orElseThrow(() -> new BrokerException(Status.FAILED_PRECONDITION,
-                        ErrorInfo.of(ErrorReasons.ENDPOINT_NOT_FOUND), Dispatch.NOT_SENT, node.id(),
-                        "This node has no management endpoint.")),
+                node.jolokia()
+                        .orElseThrow(() -> new BrokerException(
+                                Status.FAILED_PRECONDITION,
+                                ErrorInfo.of(ErrorReasons.ENDPOINT_NOT_FOUND),
+                                Dispatch.NOT_SENT,
+                                node.id(),
+                                "This node has no management endpoint.")),
                 node.id(),
                 () -> credentials.forPlane(Plane.MANAGEMENT),
                 mapper,
@@ -107,6 +121,11 @@ public final class Cluster {
                 context.options().clock(),
                 context.options().timeouts(),
                 context.options().maxResponseBytes());
+    }
+
+    /** The node's Jolokia agent, bound to one deadline: the one of the facet call it serves. */
+    public NodeJolokia jolokia(NodeHandle node, Deadline deadline) {
+        return new NodeJolokia(jolokia(node), () -> deadline);
     }
 
     private static Map<NodeId, NodeHandle> index(ClusterSpec spec) {

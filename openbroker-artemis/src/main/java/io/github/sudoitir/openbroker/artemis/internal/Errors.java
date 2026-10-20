@@ -7,6 +7,7 @@ import io.github.sudoitir.openbroker.ErrorReasons;
 import io.github.sudoitir.openbroker.NodeId;
 import io.github.sudoitir.openbroker.Plane;
 import io.github.sudoitir.openbroker.Status;
+import io.github.sudoitir.openbroker.artemis.JolokiaResponse;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -23,14 +24,13 @@ public final class Errors {
     public static final String NATIVE_ERROR = "artemis.error";
     /** Metadata key: the broker's error code ({@code AMQ229017}) or Java class name. */
     public static final String NATIVE_CODE = "artemis.code";
-    /** Metadata key: which account the failure is about. */
-    public static final String PLANE = "openbroker.plane";
     /** Metadata key: the address-setting a parse error names. */
     public static final String SETTING = "artemis.setting";
 
     public static final String UNREACHABLE_MESSAGE = "Nothing answered at this address.";
     public static final String CREDENTIALS_MESSAGE = "The broker rejected these credentials.";
-    public static final String NOT_ARTEMIS_MESSAGE = "This is a Jolokia agent, but no Artemis broker is registered on it.";
+    public static final String NOT_ARTEMIS_MESSAGE =
+            "This is a Jolokia agent, but no Artemis broker is registered on it.";
     public static final String WRONG_PATH_MESSAGE =
             "No Jolokia agent here. The Artemis console usually serves it at /console/jolokia.";
     public static final String TLS_MESSAGE = "The TLS connection to the broker could not be established.";
@@ -57,35 +57,53 @@ public final class Errors {
     private Errors() {}
 
     public static BrokerException of(
-            Status status, String reason, Dispatch dispatch, @Nullable NodeId node, String message, Map<String, String> metadata) {
+            Status status,
+            String reason,
+            Dispatch dispatch,
+            @Nullable NodeId node,
+            String message,
+            Map<String, String> metadata) {
         return new BrokerException(status, ErrorInfo.of(reason, metadata), dispatch, node, message);
     }
 
     public static BrokerException of(
-            Status status, String reason, Dispatch dispatch, @Nullable NodeId node, String message, @Nullable Throwable cause) {
+            Status status,
+            String reason,
+            Dispatch dispatch,
+            @Nullable NodeId node,
+            String message,
+            @Nullable Throwable cause) {
         return new BrokerException(status, ErrorInfo.of(reason), dispatch, node, message, cause);
     }
 
-    public static BrokerException unreachable(@Nullable NodeId node, String message, Dispatch dispatch, Throwable cause) {
+    public static BrokerException unreachable(
+            @Nullable NodeId node, String message, Dispatch dispatch, Throwable cause) {
         return of(Status.UNAVAILABLE, ErrorReasons.UNREACHABLE, dispatch, node, message, cause);
     }
 
-    public static BrokerException credentialsRejected(@Nullable NodeId node, Plane plane, int httpStatus, String message) {
+    public static BrokerException credentialsRejected(
+            @Nullable NodeId node, Plane plane, int httpStatus, String message) {
         return new BrokerException(
                 httpStatus == 403 ? Status.PERMISSION_DENIED : Status.UNAUTHENTICATED,
-                ErrorInfo.of(ErrorReasons.CREDENTIALS_REJECTED, Map.of(PLANE, plane.name())),
+                ErrorInfo.of(ErrorReasons.CREDENTIALS_REJECTED, Map.of(ErrorReasons.PLANE, plane.name())),
                 Dispatch.REJECTED,
                 node,
                 message);
     }
 
     public static BrokerException notArtemis(@Nullable NodeId node) {
-        return of(Status.FAILED_PRECONDITION, ErrorReasons.UNEXPECTED_SYSTEM, Dispatch.REJECTED, node, NOT_ARTEMIS_MESSAGE,
+        return of(
+                Status.FAILED_PRECONDITION,
+                ErrorReasons.UNEXPECTED_SYSTEM,
+                Dispatch.REJECTED,
+                node,
+                NOT_ARTEMIS_MESSAGE,
                 (Throwable) null);
     }
 
     public static BrokerException wrongPath(@Nullable NodeId node, String message) {
-        return of(Status.NOT_FOUND, ErrorReasons.ENDPOINT_NOT_FOUND, Dispatch.REJECTED, node, message, (Throwable) null);
+        return of(
+                Status.NOT_FOUND, ErrorReasons.ENDPOINT_NOT_FOUND, Dispatch.REJECTED, node, message, (Throwable) null);
     }
 
     public static BrokerException tls(@Nullable NodeId node, String message, @Nullable Throwable cause) {
@@ -97,8 +115,13 @@ public final class Errors {
     }
 
     public static BrokerException responseTooLarge(@Nullable NodeId node, long limit) {
-        return of(Status.RESOURCE_EXHAUSTED, ErrorReasons.RESPONSE_TOO_LARGE, Dispatch.IN_DOUBT, node,
-                "The broker's answer was larger than the " + limit + "-byte limit.", (Throwable) null);
+        return of(
+                Status.RESOURCE_EXHAUSTED,
+                ErrorReasons.RESPONSE_TOO_LARGE,
+                Dispatch.IN_DOUBT,
+                node,
+                "The broker's answer was larger than the " + limit + "-byte limit.",
+                (Throwable) null);
     }
 
     /**
@@ -113,7 +136,11 @@ public final class Errors {
                 return known;
             }
         }
-        return of(Status.INTERNAL, ErrorReasons.BAD_RESPONSE, Dispatch.REJECTED, node,
+        return of(
+                Status.INTERNAL,
+                ErrorReasons.BAD_RESPONSE,
+                Dispatch.REJECTED,
+                node,
                 operation + " failed: " + (error != null ? error : "status " + response.status()),
                 error == null ? Map.of() : Map.of(NATIVE_ERROR, error));
     }
@@ -121,32 +148,61 @@ public final class Errors {
     /** A known management refusal, or null. */
     public static @Nullable BrokerException classify(@Nullable NodeId node, String error) {
         if (error.contains(QUEUE_ABSENT) || error.contains(ADDRESS_ABSENT) || error.contains(DIVERT_ABSENT)) {
-            return refused(Status.NOT_FOUND, ErrorReasons.RESOURCE_GONE, node, "Already absent: " + error, error,
+            return refused(
+                    Status.NOT_FOUND,
+                    ErrorReasons.RESOURCE_GONE,
+                    node,
+                    "Already absent: " + error,
+                    error,
                     code(error, QUEUE_ABSENT, ADDRESS_ABSENT, DIVERT_ABSENT));
         }
         if (error.contains(MBEAN_ABSENT)) {
-            return refused(Status.NOT_FOUND, ErrorReasons.RESOURCE_GONE, node,
-                    "The queue or address is no longer on this node: " + error, error, MBEAN_ABSENT);
+            return refused(
+                    Status.NOT_FOUND,
+                    ErrorReasons.RESOURCE_GONE,
+                    node,
+                    "The queue or address is no longer on this node: " + error,
+                    error,
+                    MBEAN_ABSENT);
         }
         if (error.contains(QUEUE_EXISTS) || error.contains(ADDRESS_EXISTS)) {
-            return refused(Status.ALREADY_EXISTS, ErrorReasons.RESOURCE_EXISTS, node, "Already present: " + error, error,
+            return refused(
+                    Status.ALREADY_EXISTS,
+                    ErrorReasons.RESOURCE_EXISTS,
+                    node,
+                    "Already present: " + error,
+                    error,
                     code(error, QUEUE_EXISTS, ADDRESS_EXISTS));
         }
         if (error.contains(ADDRESS_HAS_BINDINGS)) {
-            return refused(Status.FAILED_PRECONDITION, ErrorReasons.HAS_CHILDREN, node, error, error, ADDRESS_HAS_BINDINGS);
+            return refused(
+                    Status.FAILED_PRECONDITION, ErrorReasons.HAS_CHILDREN, node, error, error, ADDRESS_HAS_BINDINGS);
         }
         if (error.contains(QUEUE_HAS_CONSUMERS)) {
-            return refused(Status.FAILED_PRECONDITION, ErrorReasons.HAS_CONSUMERS, node,
-                    "The queue has consumers attached, and the broker will not delete it while they are.", error,
+            return refused(
+                    Status.FAILED_PRECONDITION,
+                    ErrorReasons.HAS_CONSUMERS,
+                    node,
+                    "The queue has consumers attached, and the broker will not delete it while they are.",
+                    error,
                     QUEUE_HAS_CONSUMERS);
         }
         if (error.contains(ROUTING_TYPE_IMMUTABLE)) {
-            return refused(Status.INVALID_ARGUMENT, ErrorReasons.IMMUTABLE_FIELD, node,
-                    "A queue's routing type cannot be changed on a live queue. Recreate the queue instead.", error,
+            return refused(
+                    Status.INVALID_ARGUMENT,
+                    ErrorReasons.IMMUTABLE_FIELD,
+                    node,
+                    "A queue's routing type cannot be changed on a live queue. Recreate the queue instead.",
+                    error,
                     ROUTING_TYPE_IMMUTABLE);
         }
         if (error.contains(INVALID_FILTER)) {
-            return refused(Status.INVALID_ARGUMENT, ErrorReasons.INVALID_FILTER, node, "Invalid message filter.", error,
+            return refused(
+                    Status.INVALID_ARGUMENT,
+                    ErrorReasons.INVALID_FILTER,
+                    node,
+                    "Invalid message filter.",
+                    error,
                     INVALID_FILTER);
         }
         if (error.contains(SETTING_PARSE)) {
@@ -159,13 +215,22 @@ public final class Errors {
             if (field != null) {
                 metadata.put(SETTING, field);
             }
-            return of(Status.INVALID_ARGUMENT, ErrorReasons.INVALID_ARGUMENT, Dispatch.REJECTED, node,
-                    "The broker could not parse the value of " + (field == null ? "an address-setting key" : field) + ".",
+            return of(
+                    Status.INVALID_ARGUMENT,
+                    ErrorReasons.INVALID_ARGUMENT,
+                    Dispatch.REJECTED,
+                    node,
+                    "The broker could not parse the value of " + (field == null ? "an address-setting key" : field)
+                            + ".",
                     metadata);
         }
         if (error.contains(PAGE_SIZE_VS_MAX)) {
-            return refused(Status.INVALID_ARGUMENT, ErrorReasons.INVALID_ARGUMENT, node,
-                    "page-size-bytes must be lower than max-size-bytes; the broker refused the pair.", error,
+            return refused(
+                    Status.INVALID_ARGUMENT,
+                    ErrorReasons.INVALID_ARGUMENT,
+                    node,
+                    "page-size-bytes must be lower than max-size-bytes; the broker refused the pair.",
+                    error,
                     PAGE_SIZE_VS_MAX);
         }
         return null;

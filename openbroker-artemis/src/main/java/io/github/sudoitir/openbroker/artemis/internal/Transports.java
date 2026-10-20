@@ -24,12 +24,14 @@ public final class Transports {
     public static HttpClient http(DriverContext context, Optional<TlsMaterial> tls) {
         ConnectOptions options = context.options();
         String material = tls.map(TlsMaterial::id).orElse("plain");
-        String key = "artemis.http/" + material + "/" + options.timeouts().connect().toMillis();
+        String key =
+                "artemis.http/" + material + "/" + options.timeouts().connect().toMillis();
         String previous = CURRENT.put(material, key);
         if (previous != null && !previous.equals(key)) {
             context.evict(previous);
         }
-        return context.shared(key, Shared.class, () -> new Shared(build(options, tls))).client();
+        return context.shared(key, Shared.class, () -> new Shared(build(options, tls)))
+                .client();
     }
 
     /** Forgets the client built from this material, so the next call builds one from fresh material. */
@@ -43,8 +45,9 @@ public final class Transports {
     private static HttpClient build(ConnectOptions options, Optional<TlsMaterial> tls) {
         // A Jolokia agent never redirects; the Artemis console does, to its login page, and following
         // that turns a wrong path into an unreadable answer.
-        HttpClient.Builder builder =
-                HttpClient.newBuilder().connectTimeout(options.timeouts().connect()).followRedirects(HttpClient.Redirect.NEVER);
+        HttpClient.Builder builder = HttpClient.newBuilder()
+                .connectTimeout(options.timeouts().connect())
+                .followRedirects(HttpClient.Redirect.NEVER);
         tls.ifPresent(material -> {
             builder.sslContext(material.context());
             SSLParameters parameters = material.context().getDefaultSSLParameters();

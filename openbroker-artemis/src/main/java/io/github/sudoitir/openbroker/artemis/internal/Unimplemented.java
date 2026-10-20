@@ -12,6 +12,10 @@ public final class Unimplemented {
 
     public static BrokerException of(String what) {
         return new BrokerException(
-                Status.UNIMPLEMENTED, ErrorInfo.of("UNIMPLEMENTED"), Dispatch.NOT_SENT, null, "Artemis cannot " + what + ".");
+                Status.UNIMPLEMENTED,
+                ErrorInfo.of("UNIMPLEMENTED"),
+                Dispatch.NOT_SENT,
+                null,
+                "Artemis cannot " + what + ".");
     }
 }

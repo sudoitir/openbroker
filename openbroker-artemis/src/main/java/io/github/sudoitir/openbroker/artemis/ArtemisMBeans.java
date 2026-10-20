@@ -1,15 +1,15 @@
-package io.github.sudoitir.openbroker.artemis.internal;
+package io.github.sudoitir.openbroker.artemis;
 
 /**
  * Artemis JMX object names. The broker's {@code <name>} is not known up front, so it is resolved
  * with {@link #BROKER_SEARCH_PATTERN}, which matches only the top-level broker MBean.
  */
-public final class BrokerMBeans {
+public final class ArtemisMBeans {
 
     public static final String DOMAIN = "org.apache.activemq.artemis";
     public static final String BROKER_SEARCH_PATTERN = DOMAIN + ":broker=*";
 
-    private BrokerMBeans() {}
+    private ArtemisMBeans() {}
 
     public static String acceptorsPattern(String broker) {
         return broker + ",component=acceptors,name=*";

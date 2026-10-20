@@ -40,7 +40,9 @@ public final class ArtemisDriver implements BrokerDriver {
     @Override
     public ConnectionReport verify(ClusterSpec cluster, CredentialSource credentials, DriverContext context) {
         try (ArtemisConnection connection = new ArtemisConnection(DESCRIPTION, cluster, credentials, context)) {
-            return new ConnectionReport(connection.nodes().describe(Scope.whole()), connection.access().probe());
+            return new ConnectionReport(
+                    connection.nodes().describe(Scope.whole()),
+                    connection.access().probe());
         }
     }
 

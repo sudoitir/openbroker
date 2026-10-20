@@ -1,4 +1,4 @@
-package io.github.sudoitir.openbroker.artemis.internal;
+package io.github.sudoitir.openbroker.artemis;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import java.util.List;

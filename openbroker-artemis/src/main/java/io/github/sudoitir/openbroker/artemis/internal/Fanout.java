@@ -4,11 +4,11 @@ import io.github.sudoitir.openbroker.BrokerException;
 import io.github.sudoitir.openbroker.ConnectOptions;
 import io.github.sudoitir.openbroker.Dispatch;
 import io.github.sudoitir.openbroker.ErrorInfo;
+import io.github.sudoitir.openbroker.ErrorReasons;
 import io.github.sudoitir.openbroker.NodeId;
 import io.github.sudoitir.openbroker.NodeOutcome;
 import io.github.sudoitir.openbroker.Partial;
 import io.github.sudoitir.openbroker.Status;
-import io.github.sudoitir.openbroker.ErrorReasons;
 import io.github.sudoitir.openbroker.support.Deadlines;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -48,7 +48,9 @@ public final class Fanout {
             for (NodeHandle node : nodes) {
                 futures.put(node, pool.submit(() -> {
                     List<T>[] out = new List[1];
-                    options.contextPropagation().apply(() -> out[0] = call.apply(node)).run();
+                    options.contextPropagation()
+                            .apply(() -> out[0] = call.apply(node))
+                            .run();
                     return out[0];
                 }));
             }
@@ -60,8 +62,13 @@ public final class Fanout {
                 } catch (ExecutionException ex) {
                     BrokerException failure = ex.getCause() instanceof BrokerException b
                             ? b
-                            : new BrokerException(Status.INTERNAL, ErrorInfo.of(ErrorReasons.BAD_RESPONSE),
-                                    Dispatch.IN_DOUBT, id, String.valueOf(ex.getCause()), ex.getCause());
+                            : new BrokerException(
+                                    Status.INTERNAL,
+                                    ErrorInfo.of(ErrorReasons.BAD_RESPONSE),
+                                    Dispatch.IN_DOUBT,
+                                    id,
+                                    String.valueOf(ex.getCause()),
+                                    ex.getCause());
                     record(id, failure, outcomes, failures);
                 } catch (InterruptedException ex) {
                     Thread.currentThread().interrupt();

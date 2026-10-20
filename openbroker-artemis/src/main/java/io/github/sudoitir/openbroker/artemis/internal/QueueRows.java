@@ -2,6 +2,7 @@ package io.github.sudoitir.openbroker.artemis.internal;
 
 import io.github.sudoitir.openbroker.NodeId;
 import io.github.sudoitir.openbroker.artemis.ArtemisKinds;
+import io.github.sudoitir.openbroker.artemis.ArtemisLists;
 import io.github.sudoitir.openbroker.model.Attributes;
 import io.github.sudoitir.openbroker.model.MetricKeys;
 import io.github.sudoitir.openbroker.model.MetricValue;
@@ -30,26 +31,26 @@ public final class QueueRows {
             return out;
         }
         for (JsonNode row : data) {
-            if (ListOps.flag(row, "internalQueue")) {
+            if (ArtemisLists.flag(row, "internalQueue")) {
                 continue;
             }
-            String name = ListOps.str(row, "name");
-            String address = ListOps.str(row, "address");
+            String name = ArtemisLists.str(row, "name");
+            String address = ArtemisLists.str(row, "address");
             if (name == null || name.isEmpty()) {
                 continue;
             }
-            String routingType = ListOps.str(row, "routingType");
+            String routingType = ArtemisLists.str(row, "routingType");
             Attributes.Builder a = Attributes.builder()
-                    .put(StandardAttributes.DURABLE, ListOps.flag(row, "durable"))
-                    .put(StandardAttributes.PAUSED, ListOps.flag(row, "paused"))
+                    .put(StandardAttributes.DURABLE, ArtemisLists.flag(row, "durable"))
+                    .put(StandardAttributes.PAUSED, ArtemisLists.flag(row, "paused"))
                     .putRaw(ArtemisKinds.ROUTING_TYPE, routingType == null ? "ANYCAST" : routingType.toUpperCase())
-                    .put(MetricKeys.BACKLOG, MetricValue.exact(ListOps.num(row, "messageCount")))
-                    .put(MetricKeys.CONSUMER_COUNT, MetricValue.exact(ListOps.num(row, "consumerCount")))
-                    .put(MetricKeys.IN_FLIGHT, MetricValue.exact(ListOps.num(row, "deliveringCount")))
-                    .put(MetricKeys.SCHEDULED, MetricValue.exact(ListOps.num(row, "scheduledCount")))
-                    .put(MetricKeys.ENQUEUED, MetricValue.exact(ListOps.num(row, "messagesAdded")))
-                    .put(MetricKeys.ACKNOWLEDGED, MetricValue.exact(ListOps.num(row, "messagesAcked")))
-                    .put(MetricKeys.EXPIRED, MetricValue.exact(ListOps.num(row, "messagesExpired")));
+                    .put(MetricKeys.BACKLOG, MetricValue.exact(ArtemisLists.num(row, "messageCount")))
+                    .put(MetricKeys.CONSUMER_COUNT, MetricValue.exact(ArtemisLists.num(row, "consumerCount")))
+                    .put(MetricKeys.IN_FLIGHT, MetricValue.exact(ArtemisLists.num(row, "deliveringCount")))
+                    .put(MetricKeys.SCHEDULED, MetricValue.exact(ArtemisLists.num(row, "scheduledCount")))
+                    .put(MetricKeys.ENQUEUED, MetricValue.exact(ArtemisLists.num(row, "messagesAdded")))
+                    .put(MetricKeys.ACKNOWLEDGED, MetricValue.exact(ArtemisLists.num(row, "messagesAcked")))
+                    .put(MetricKeys.EXPIRED, MetricValue.exact(ArtemisLists.num(row, "messagesExpired")));
             if (address != null && !address.isEmpty()) {
                 a.put(StandardAttributes.DESTINATION, new ResourceId(ArtemisKinds.ADDRESS, ResourcePath.of(address)));
             }

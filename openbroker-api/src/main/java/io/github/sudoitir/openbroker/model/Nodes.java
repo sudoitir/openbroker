@@ -12,4 +12,11 @@ public interface Nodes {
      * the others.
      */
     Partial<List<NodeDescription>> describe(Scope scope);
+
+    /**
+     * The cluster's members as each node in scope knows them, including members this connection has
+     * not been given: how a caller discovers a cluster from a seed. Each node's answer is listed in
+     * scope order.
+     */
+    Partial<List<ClusterMember>> members(Scope scope);
 }

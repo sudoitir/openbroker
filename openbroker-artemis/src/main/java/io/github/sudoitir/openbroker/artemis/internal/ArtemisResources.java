@@ -1,11 +1,12 @@
 package io.github.sudoitir.openbroker.artemis.internal;
 
+import io.github.sudoitir.openbroker.BrokerException;
 import io.github.sudoitir.openbroker.Deadline;
 import io.github.sudoitir.openbroker.NodeId;
 import io.github.sudoitir.openbroker.NodeOutcome;
 import io.github.sudoitir.openbroker.Partial;
-import io.github.sudoitir.openbroker.BrokerException;
 import io.github.sudoitir.openbroker.artemis.ArtemisKinds;
+import io.github.sudoitir.openbroker.artemis.ArtemisLists;
 import io.github.sudoitir.openbroker.model.Kind;
 import io.github.sudoitir.openbroker.model.KindId;
 import io.github.sudoitir.openbroker.model.Resource;
@@ -76,8 +77,8 @@ public final class ArtemisResources implements Resources {
         int size = paged ? (query.limit() > 0 ? query.limit() : 200) : -1;
         Optional<String>[] next = new Optional[] {Optional.empty()};
         Partial<List<Resource>> rows = Fanout.each(nodes, cluster.options(), node -> {
-            JolokiaClient client = cluster.jolokia(node);
-            ListOps.Page p = ListOps.fetch(client, deadline, "listQueues", ListOps.ALL, page, size);
+            ArtemisLists.Page p =
+                    ArtemisLists.fetch(cluster.jolokia(node, deadline), "listQueues", ArtemisLists.ALL, page, size);
             Instant now = cluster.options().clock().instant();
             List<Resource> parsed = QueueRows.parse(p.data(), node.id(), now);
             if (paged && !parsed.isEmpty() && (long) page * size < p.count()) {
