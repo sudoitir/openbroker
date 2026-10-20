@@ -20,7 +20,8 @@ public final class Deadlines {
      * the connection's call timeout from now. Read it on the calling thread, then carry it.
      */
     public static Deadline current(ConnectOptions options) {
-        return CallScope.deadline().orElseGet(() -> Deadline.after(options.callTimeout(), options.clock()));
+        return CallScope.deadline()
+                .orElseGet(() -> Deadline.after(options.timeouts().call(), options.clock()));
     }
 
     /** The failure for a call that ran out of time. */

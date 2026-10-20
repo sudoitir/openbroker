@@ -19,6 +19,7 @@ public final class ErrorReasons {
 
     // Resources.
     public static final String RESOURCE_GONE = "RESOURCE_GONE";
+    public static final String RESOURCE_EXISTS = "RESOURCE_EXISTS";
     public static final String HAS_CHILDREN = "HAS_CHILDREN";
     public static final String HAS_CONSUMERS = "HAS_CONSUMERS";
     public static final String MAX_CONSUMERS_REACHED = "MAX_CONSUMERS_REACHED";

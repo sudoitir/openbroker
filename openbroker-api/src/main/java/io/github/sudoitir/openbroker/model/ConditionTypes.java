@@ -11,6 +11,8 @@ public final class ConditionTypes {
     public static final String UNDER_REPLICATED = "openbroker.under_replicated";
     /** A node's replica has fallen behind. */
     public static final String OUT_OF_SYNC = "openbroker.out_of_sync";
+    /** The node's broker has started. */
+    public static final String STARTED = "openbroker.started";
     /** The node or resource is serving. */
     public static final String SERVING = "openbroker.serving";
 

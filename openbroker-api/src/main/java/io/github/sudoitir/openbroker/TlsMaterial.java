@@ -1,27 +1,33 @@
 package io.github.sudoitir.openbroker;
 
-import java.security.NoSuchAlgorithmException;
+import java.util.List;
 import java.util.Objects;
 import javax.net.ssl.SSLContext;
 
 /**
- * The TLS a connection uses: an {@link SSLContext} and whether host names are verified. The {@code
- * id} names this material; connections with the same id share their transports, and a new id means
- * new material (a reloaded bundle gets a new id).
+ * The TLS a connection uses. The {@code id} names this material: connections with the same id share
+ * their transports, and new material (a reloaded bundle) gets a new id.
+ *
+ * @param hostnameVerification whether the server's certificate must match its host name; a driver
+ *     whose transport cannot turn it off verifies regardless and says so
+ * @param protocols the TLS protocol versions allowed; empty means the context's defaults
+ * @param cipherSuites the cipher suites allowed; empty means the context's defaults
  */
-public record TlsMaterial(String id, SSLContext context, boolean hostnameVerification) {
+public record TlsMaterial(
+        String id,
+        SSLContext context,
+        boolean hostnameVerification,
+        List<String> protocols,
+        List<String> cipherSuites) {
 
     public TlsMaterial {
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(context, "context");
+        protocols = List.copyOf(protocols);
+        cipherSuites = List.copyOf(cipherSuites);
     }
 
-    /** The JVM's default trust and key material, with host names verified. */
-    public static TlsMaterial systemDefault() {
-        try {
-            return new TlsMaterial("system-default", SSLContext.getDefault(), true);
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("The JVM has no default TLS context", e);
-        }
+    public static TlsMaterial of(String id, SSLContext context) {
+        return new TlsMaterial(id, context, true, List.of(), List.of());
     }
 }
