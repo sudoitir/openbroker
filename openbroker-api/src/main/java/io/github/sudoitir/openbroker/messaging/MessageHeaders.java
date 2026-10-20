@@ -13,6 +13,8 @@ import org.jspecify.annotations.Nullable;
  * @param groupId the ordering group: messages with the same group are delivered in order to one
  *     consumer (JMSXGroupID, SQS MessageGroupId, Service Bus SessionId, Pub/Sub orderingKey)
  * @param deduplicationId the id the system deduplicates sends by, where it does
+ * @param origin where a message the system moved aside (dead-lettered, expired) was first sent
+ * @param originId the id the message had there
  */
 public record MessageHeaders(
         Optional<String> id,
@@ -29,7 +31,8 @@ public record MessageHeaders(
         Optional<Blob> key,
         Optional<String> groupId,
         Optional<String> deduplicationId,
-        Optional<String> origin) {
+        Optional<String> origin,
+        Optional<String> originId) {
 
     private static final MessageHeaders EMPTY = builder().build();
 
@@ -49,6 +52,7 @@ public record MessageHeaders(
         Objects.requireNonNull(groupId, "groupId");
         Objects.requireNonNull(deduplicationId, "deduplicationId");
         Objects.requireNonNull(origin, "origin");
+        Objects.requireNonNull(originId, "originId");
     }
 
     public static MessageHeaders empty() {
@@ -76,6 +80,7 @@ public record MessageHeaders(
         b.groupId = groupId.orElse(null);
         b.deduplicationId = deduplicationId.orElse(null);
         b.origin = origin.orElse(null);
+        b.originId = originId.orElse(null);
         return b;
     }
 
@@ -95,6 +100,7 @@ public record MessageHeaders(
         private @Nullable String groupId;
         private @Nullable String deduplicationId;
         private @Nullable String origin;
+        private @Nullable String originId;
 
         private Builder() {}
 
@@ -174,6 +180,12 @@ public record MessageHeaders(
             return this;
         }
 
+        /** The id the message had where it was first sent; a send ignores it. */
+        public Builder originId(@Nullable String originId) {
+            this.originId = originId;
+            return this;
+        }
+
         public MessageHeaders build() {
             return new MessageHeaders(
                     Optional.ofNullable(id),
@@ -190,7 +202,8 @@ public record MessageHeaders(
                     Optional.ofNullable(key),
                     Optional.ofNullable(groupId),
                     Optional.ofNullable(deduplicationId),
-                    Optional.ofNullable(origin));
+                    Optional.ofNullable(origin),
+                    Optional.ofNullable(originId));
         }
     }
 }

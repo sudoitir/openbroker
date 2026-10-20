@@ -72,10 +72,11 @@ final class CoreBodies {
     private static final SimpleString DUPLICATE_ID = SimpleString.of(BrowseRows.DUPLICATE_ID);
     private static final SimpleString SCHEDULED_DELIVERY = SimpleString.of(BrowseRows.SCHEDULED_DELIVERY);
     private static final SimpleString ORIGIN = SimpleString.of(BrowseRows.ORIGIN);
+    private static final SimpleString ORIGIN_ID = SimpleString.of(BrowseRows.ORIGIN_ID);
     private static final SimpleString LARGE_BODY_SIZE = SimpleString.of("_AMQ_LARGE_SIZE");
 
     private static final Set<SimpleString> HEADERS =
-            Set.of(CORRELATION_ID, TYPE, REPLY_TO, GROUP_ID, DUPLICATE_ID, SCHEDULED_DELIVERY, ORIGIN);
+            Set.of(CORRELATION_ID, TYPE, REPLY_TO, GROUP_ID, DUPLICATE_ID, SCHEDULED_DELIVERY, ORIGIN, ORIGIN_ID);
 
     /** The broker's bookkeeping about where a message was; never copied to a message sent anew. */
     static final Set<String> BOOKKEEPING = Set.of(
@@ -117,6 +118,7 @@ final class CoreBodies {
                 .groupId(text(m.getObjectProperty(GROUP_ID)))
                 .deduplicationId(text(m.getObjectProperty(DUPLICATE_ID)))
                 .origin(text(m.getObjectProperty(ORIGIN)))
+                .originId(text(m.getObjectProperty(ORIGIN_ID)))
                 .priority((int) m.getPriority())
                 .durable(m.isDurable())
                 .deliveryCount(m.getDeliveryCount());
