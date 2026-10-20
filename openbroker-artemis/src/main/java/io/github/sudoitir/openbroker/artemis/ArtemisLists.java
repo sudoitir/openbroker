@@ -20,12 +20,20 @@ public final class ArtemisLists {
      */
     public static final String ALL = "{\"field\":\"\",\"operation\":\"\",\"value\":\"\"}";
 
+    /**
+     * The page and page size that read every row: the first page of an unbounded one. A page and size of
+     * -1 mean the same on current brokers, but older ones (2.33.0 among them) answer them with no rows.
+     */
+    public static final int FIRST_PAGE = 1;
+
+    public static final int EVERY_ROW = Integer.MAX_VALUE;
+
     /** How many MBeans one {@link #readAll} request reads. */
     public static final int BATCH = 200;
 
     private ArtemisLists() {}
 
-    /** One page of one op on one node; {@code page} and {@code size} of -1 disable paging. */
+    /** One page of one op on one node. */
     public record Page(@Nullable JsonNode data, long count) {}
 
     public static Page fetch(ArtemisJolokia client, String op, String options, int page, int size) {

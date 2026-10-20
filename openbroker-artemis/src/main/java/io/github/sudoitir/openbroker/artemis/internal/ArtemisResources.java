@@ -128,8 +128,8 @@ public final class ArtemisResources implements Resources {
                                     broker,
                                     ListRows.listing(kind).orElseThrow().operation() + "(java.lang.String,int,int)",
                                     Filters.options(kind, q),
-                                    -1,
-                                    -1));
+                                    ArtemisLists.FIRST_PAGE,
+                                    ArtemisLists.EVERY_ROW));
                         }
                     }
                     List<JolokiaResponse> responses = jolokia.batch(requests);
@@ -191,8 +191,8 @@ public final class ArtemisResources implements Resources {
             boolean paged,
             Predicate<String> names,
             Deadline deadline) {
-        int page = paged ? Queries.page(query) : -1;
-        int size = paged ? (query.limit() > 0 ? query.limit() : DEFAULT_PAGE) : -1;
+        int page = paged ? Queries.page(query) : ArtemisLists.FIRST_PAGE;
+        int size = paged ? (query.limit() > 0 ? query.limit() : DEFAULT_PAGE) : ArtemisLists.EVERY_ROW;
         AtomicReference<Optional<String>> next = new AtomicReference<>(Optional.empty());
         Partial<List<Resource>> rows = Fanout.each(nodes, cluster.options(), node -> {
             ArtemisLists.Page p = ArtemisLists.fetch(

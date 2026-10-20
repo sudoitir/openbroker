@@ -438,8 +438,8 @@ public final class ArtemisOperations implements Operations {
                 Filters.options(
                         ArtemisKinds.SESSION,
                         ResourceQuery.of(ArtemisKinds.SESSION).named(session)),
-                -1,
-                -1);
+                ArtemisLists.FIRST_PAGE,
+                ArtemisLists.EVERY_ROW);
         JsonNode rows = page.data();
         if (rows == null || !rows.isArray() || rows.isEmpty()) {
             return null;
@@ -527,8 +527,8 @@ public final class ArtemisOperations implements Operations {
                                     ArtemisKinds.CONSUMER,
                                     ResourceQuery.of(ArtemisKinds.CONSUMER)
                                             .where(Map.of(StandardAttributes.DESTINATION.name(), address.toString()))),
-                            -1,
-                            -1)
+                            ArtemisLists.FIRST_PAGE,
+                            ArtemisLists.EVERY_ROW)
                     .count();
         }
         return total;
