@@ -413,7 +413,7 @@ public final class ArtemisMessages implements Messages {
         for (NodeHandle node : cluster.nodes(scope)) {
             try {
                 return node.core().isPresent()
-                        ? sendOverCore(node, target, message, deadline)
+                        ? sendOverCoreOrManagement(node, target, message, deadline)
                         : sendOverJolokia(node, target, message, deadline);
             } catch (BrokerException e) {
                 if (!ErrorReasons.RESOURCE_GONE.equals(e.reason())) {
@@ -423,6 +423,24 @@ public final class ArtemisMessages implements Messages {
             }
         }
         throw last != null ? last : Queries.invalid("The scope names no node.");
+    }
+
+    /**
+     * Over Core, or over management when Core could not be reached and the message never left: a node
+     * whose Core endpoint is not reachable from here still takes the send, as text properties.
+     */
+    private SendReceipt sendOverCoreOrManagement(
+            NodeHandle node, SendTarget target, OutboundMessage message, Deadline deadline) {
+        try {
+            return sendOverCore(node, target, message, deadline);
+        } catch (BrokerException e) {
+            if (e.dispatch() != Dispatch.NOT_SENT
+                    || !ErrorReasons.UNREACHABLE.equals(e.reason())
+                    || node.jolokia().isEmpty()) {
+                throw e;
+            }
+            return sendOverJolokia(node, target, message, deadline);
+        }
     }
 
     /** Over Core: the message as it was given, typed properties and all. */

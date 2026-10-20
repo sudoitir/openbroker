@@ -18,6 +18,8 @@ import io.github.sudoitir.openbroker.model.ResourceId;
 import io.github.sudoitir.openbroker.support.Deadlines;
 import java.net.ConnectException;
 import java.net.UnknownHostException;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -58,6 +60,13 @@ final class CoreLinks implements AutoCloseable {
     /** Bytes a consumer buffers ahead of reading, unless it asked for none. */
     static final int WINDOW_BYTES = 64 * 1024;
 
+    /**
+     * How long an endpoint that could not be connected to is left alone. Calls in that time fail at
+     * once as not sent, so a caller with another way to the node takes it without waiting out a
+     * connect each time.
+     */
+    static final Duration REST = Duration.ofSeconds(30);
+
     /** What a link is for. */
     enum Purpose {
         OPERATOR,
@@ -86,6 +95,7 @@ final class CoreLinks implements AutoCloseable {
 
     private final Cluster cluster;
     private final Map<String, Link> links = new ConcurrentHashMap<>();
+    private final Map<String, Instant> resting = new ConcurrentHashMap<>();
 
     CoreLinks(Cluster cluster) {
         this.cluster = cluster;
@@ -131,6 +141,16 @@ final class CoreLinks implements AutoCloseable {
     ClientSession session(NodeHandle node, Purpose purpose, boolean transacted, boolean buffered)
             throws ActiveMQException {
         String endpoint = endpoint(node);
+        Instant now = cluster.options().clock().instant();
+        Instant until = resting.get(endpoint);
+        if (until != null && now.isBefore(until)) {
+            throw new BrokerException(
+                    Status.UNAVAILABLE,
+                    ErrorInfo.of(ErrorReasons.UNREACHABLE),
+                    Dispatch.NOT_SENT,
+                    node.id(),
+                    "The node's Core endpoint did not answer a moment ago; it is tried again from " + until + ".");
+        }
         Optional<TlsMaterial> tls = cluster.options().tls().current();
         String key = endpoint + "|" + tls.map(TlsMaterial::id).orElse("plain") + "|" + purpose + "|" + buffered;
         Link link = links.compute(key, (k, existing) -> {
@@ -177,9 +197,12 @@ final class CoreLinks implements AutoCloseable {
             locator.setConsumerWindowSize(0);
         }
         try {
-            return new Link(locator, locator.createSessionFactory());
+            Link link = new Link(locator, locator.createSessionFactory());
+            resting.remove(endpoint);
+            return link;
         } catch (Exception e) {
             locator.close();
+            resting.put(endpoint, cluster.options().clock().instant().plus(REST));
             throw e instanceof ActiveMQException a
                     ? failure(node.id(), a)
                     : Errors.unreachable(
