@@ -254,6 +254,7 @@ public final class ArtemisOperations implements Operations {
                                 false),
                         queue,
                         deadline);
+                cluster.forgetQueue(state.node(), name);
                 yield goneIsAlready(res, state, "destroyQueue");
             }
             case Operation.Pause p -> {

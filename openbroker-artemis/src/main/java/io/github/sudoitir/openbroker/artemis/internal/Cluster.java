@@ -21,7 +21,6 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -31,13 +30,24 @@ import tools.jackson.databind.json.JsonMapper;
  */
 public final class Cluster {
 
+    private static final int MAX_KNOWN_QUEUES = 10_000;
+
     private final CredentialSource credentials;
     private final DriverContext context;
     private final ObjectMapper mapper = JsonMapper.builder().build();
     private final JolokiaClient.BrokerNames brokerNames;
     private volatile Map<NodeId, NodeHandle> nodes;
-    /** A queue's MBean per node, learned with a search and forgotten when the broker says it is gone. */
-    private final Map<String, String> queueMBeans = new ConcurrentHashMap<>();
+    /**
+     * A queue's MBean per node, learned with a search and forgotten when the queue is deleted or the
+     * broker says it is gone. Bounded, least recently used out first, so a long-lived connection over
+     * short-lived queues does not grow without end.
+     */
+    private final Map<String, String> queueMBeans = Collections.synchronizedMap(new LinkedHashMap<>(256, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
+            return size() > MAX_KNOWN_QUEUES;
+        }
+    });
 
     public Cluster(ClusterSpec spec, CredentialSource credentials, DriverContext context) {
         this.credentials = credentials;

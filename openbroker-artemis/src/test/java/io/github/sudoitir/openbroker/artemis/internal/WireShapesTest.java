@@ -13,10 +13,15 @@ import io.github.sudoitir.openbroker.Endpoint;
 import io.github.sudoitir.openbroker.NodeId;
 import io.github.sudoitir.openbroker.NodeSpec;
 import io.github.sudoitir.openbroker.Plane;
+import io.github.sudoitir.openbroker.artemis.ArtemisKinds;
 import io.github.sudoitir.openbroker.model.ResourceClass;
+import io.github.sudoitir.openbroker.model.ResourceId;
 import io.github.sudoitir.openbroker.model.ResourceQuery;
 import io.github.sudoitir.openbroker.model.Scope;
+import io.github.sudoitir.openbroker.operation.Operation;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
@@ -41,6 +46,8 @@ class WireShapesTest {
 
     /** The recording kept no key order, so the bodies are compared as JSON. */
     private static final JsonMapper JSON = JsonMapper.builder().build();
+
+    private static final Map<String, String> JSON_TYPE = Map.of("Content-Type", "application/json");
 
     private final FixtureServer server = new FixtureServer();
     private final BrokerDrivers drivers = BrokerDrivers.load();
@@ -77,6 +84,37 @@ class WireShapesTest {
         assertThat(server.received())
                 .extracting(r -> JSON.readTree(r.body()))
                 .containsExactly(JSON.readTree(SEARCH), JSON.readTree(HA_READ));
+    }
+
+    @Test
+    void aQueueIsLookedUpOnceAndAgainAfterTheDriverDeletedIt() {
+        String mbean = "org.apache.activemq.artemis:address=\\\"q\\\",broker=\\\"primary\\\",component=addresses,"
+                + "queue=\\\"q\\\",routing-type=\\\"anycast\\\",subcomponent=queues";
+        String found = "{\"status\":200,\"value\":[\"" + mbean + "\"]}";
+        String count = "{\"status\":200,\"value\":{\"MessageCount\":0}}";
+        server.json("search-broker.json")
+                .respond(200, JSON_TYPE, found)
+                .respond(200, JSON_TYPE, count)
+                .respond(200, JSON_TYPE, count)
+                .respond(200, JSON_TYPE, found)
+                .respond(200, JSON_TYPE, "{\"status\":200,\"value\":{\"MessageCount\":0,\"ID\":5}}")
+                .respond(200, JSON_TYPE, "{\"status\":200,\"value\":null}")
+                .respond(200, JSON_TYPE, found)
+                .respond(200, JSON_TYPE, count);
+        ResourceId queue = ResourceId.of(ArtemisKinds.QUEUE.value(), "q");
+
+        try (ClusterConnection cluster = connect()) {
+            cluster.messages().count(queue, Scope.whole(), Optional.empty()).orThrow();
+            cluster.messages().count(queue, Scope.whole(), Optional.empty()).orThrow();
+            cluster.operations()
+                    .execute(queue, new Operation.Delete(false, false), Scope.whole())
+                    .orThrow();
+            cluster.messages().count(queue, Scope.whole(), Optional.empty()).orThrow();
+        }
+
+        assertThat(server.received())
+                .extracting(r -> JSON.readTree(r.body()).path("type").asString())
+                .containsExactly("search", "search", "read", "read", "search", "read", "exec", "search", "read");
     }
 
     private ClusterConnection connect() {
