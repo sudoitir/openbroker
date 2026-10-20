@@ -16,8 +16,7 @@ import javax.net.ssl.SSLParameters;
  */
 public final class Transports {
 
-    /** The key last used per TLS material, so a client built for an old connect timeout is released. */
-    private static final Map<String, String> CURRENT = new ConcurrentHashMap<>();
+    private static final String CURRENT = "artemis.http.current";
 
     private Transports() {}
 
@@ -26,7 +25,7 @@ public final class Transports {
         String material = tls.map(TlsMaterial::id).orElse("plain");
         String key =
                 "artemis.http/" + material + "/" + options.timeouts().connect().toMillis();
-        String previous = CURRENT.put(material, key);
+        String previous = current(context).put(material, key);
         if (previous != null && !previous.equals(key)) {
             context.evict(previous);
         }
@@ -36,10 +35,16 @@ public final class Transports {
 
     /** Forgets the client built from this material, so the next call builds one from fresh material. */
     public static void evict(DriverContext context, String materialId) {
-        String key = CURRENT.remove(materialId);
+        String key = current(context).remove(materialId);
         if (key != null) {
             context.evict(key);
         }
+    }
+
+    /** The key last used per TLS material in this context, so a client built for an old connect timeout is released. */
+    private static Map<String, String> current(DriverContext context) {
+        return context.shared(CURRENT, Current.class, () -> new Current(new ConcurrentHashMap<>()))
+                .keys();
     }
 
     private static HttpClient build(ConnectOptions options, Optional<TlsMaterial> tls) {
@@ -60,6 +65,11 @@ public final class Transports {
             builder.sslParameters(parameters);
         });
         return builder.build();
+    }
+
+    record Current(Map<String, String> keys) implements AutoCloseable {
+        @Override
+        public void close() {}
     }
 
     /** A shared client, closed when the registry is. */
