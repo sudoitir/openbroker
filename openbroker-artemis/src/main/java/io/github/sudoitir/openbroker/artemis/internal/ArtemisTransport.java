@@ -75,7 +75,7 @@ public final class ArtemisTransport implements Transport {
         }
         NodeHandle node = nodes.getFirst();
         Deadline deadline = Deadlines.current(cluster.options());
-        String selector = Selectors.of(options.filter());
+        String selector = Selectors.bounded(Selectors.of(options.filter()), options.producedAtOrBefore());
         String destination = Destinations.of(cluster, node, subscription, deadline);
         boolean browse = options.mode() == ReceiveMode.BROWSE;
         boolean buffered = options.prefetch().isEmpty() || options.prefetch().getAsInt() > 0;

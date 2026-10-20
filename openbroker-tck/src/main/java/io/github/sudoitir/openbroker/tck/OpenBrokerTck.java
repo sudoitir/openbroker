@@ -424,6 +424,29 @@ public abstract class OpenBrokerTck {
     }
 
     @Test
+    void aReceiverBoundedByProductionTimeReadsOnlyWhatWasProducedBefore() {
+        Transport transport = transport();
+        ResourceId id = createSubscription();
+        try {
+            send(id, 2, "k", "v");
+            Instant before = Instant.now().minusSeconds(3600);
+            try (Receiver receiver = transport.receiver(
+                    id, Scope.whole(), ReceiveOptions.browse(Optional.empty()).producedAtOrBefore(before))) {
+                assertThat(receiver.receive(10, Duration.ofSeconds(2))).isEmpty();
+            }
+            try (Receiver receiver = transport.receiver(
+                    id,
+                    Scope.whole(),
+                    ReceiveOptions.browse(Optional.empty())
+                            .producedAtOrBefore(Instant.now().plusSeconds(3600)))) {
+                assertThat(receiver.receive(10, Duration.ofSeconds(5))).hasSize(2);
+            }
+        } finally {
+            delete(id);
+        }
+    }
+
+    @Test
     void aBrowsingReceiverLeavesTheMessagesWhereTheyAre() {
         Transport transport = transport();
         ResourceId id = createSubscription();
