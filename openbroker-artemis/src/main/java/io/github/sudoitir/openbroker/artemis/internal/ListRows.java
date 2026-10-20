@@ -5,6 +5,8 @@ import io.github.sudoitir.openbroker.artemis.ArtemisKinds;
 import io.github.sudoitir.openbroker.artemis.ArtemisLists;
 import io.github.sudoitir.openbroker.model.AttributeKey;
 import io.github.sudoitir.openbroker.model.Attributes;
+import io.github.sudoitir.openbroker.model.Delivery;
+import io.github.sudoitir.openbroker.model.DeliveryModes;
 import io.github.sudoitir.openbroker.model.KindId;
 import io.github.sudoitir.openbroker.model.MetricKeys;
 import io.github.sudoitir.openbroker.model.MetricValue;
@@ -18,10 +20,12 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.BiFunction;
 import org.jspecify.annotations.Nullable;
 import tools.jackson.databind.JsonNode;
@@ -86,6 +90,7 @@ public final class ListRows {
                 .putRaw(
                         ArtemisKinds.ROUTING_TYPE,
                         routingType == null ? "ANYCAST" : routingType.toUpperCase(Locale.ROOT));
+        delivery(routingType == null ? "ANYCAST" : routingType).ifPresent(d -> a.put(StandardAttributes.DELIVERY, d));
         metric(a, MetricKeys.BACKLOG, row, "messageCount");
         metric(a, MetricKeys.CONSUMER_COUNT, row, "consumerCount");
         metric(a, MetricKeys.IN_FLIGHT, row, "deliveringCount");
@@ -103,7 +108,9 @@ public final class ListRows {
         if (name == null) {
             return null;
         }
-        put(a, ArtemisKinds.ROUTING_TYPES, text(row, "routingTypes"));
+        String routingTypes = text(row, "routingTypes");
+        put(a, ArtemisKinds.ROUTING_TYPES, routingTypes);
+        delivery(routingTypes).ifPresent(d -> a.put(StandardAttributes.DELIVERY, d));
         metric(a, MetricKeys.SUBSCRIPTION_COUNT, row, "queueCount");
         metric(a, MetricKeys.BACKLOG, row, "messageCount");
         return ResourcePath.of(name);
@@ -163,6 +170,24 @@ public final class ListRows {
         put(a, ArtemisKinds.PRODUCER_NAME, text(row, "name"));
         metric(a, MetricKeys.SENT, row, "msgSent");
         return ResourcePath.of(session, id);
+    }
+
+    /** Artemis routing types as delivery modes: anycast is point to point, multicast publish-subscribe. */
+    static Optional<DeliveryModes> delivery(@Nullable String routingTypes) {
+        if (routingTypes == null) {
+            return Optional.empty();
+        }
+        Set<Delivery> modes = EnumSet.noneOf(Delivery.class);
+        for (String type : routingTypes.split(",")) {
+            switch (type.strip().toUpperCase(Locale.ROOT)) {
+                case "ANYCAST" -> modes.add(Delivery.POINT_TO_POINT);
+                case "MULTICAST" -> modes.add(Delivery.PUBLISH_SUBSCRIBE);
+                default -> {
+                    // an empty or unknown routing type says nothing
+                }
+            }
+        }
+        return modes.isEmpty() ? Optional.empty() : Optional.of(new DeliveryModes(modes));
     }
 
     /** What every client-side row carries: protocol, addresses, client id, principal and creation time. */

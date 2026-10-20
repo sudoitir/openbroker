@@ -6,6 +6,8 @@ import io.github.sudoitir.openbroker.NodeId;
 import io.github.sudoitir.openbroker.artemis.ArtemisKinds;
 import io.github.sudoitir.openbroker.model.ConditionStatus;
 import io.github.sudoitir.openbroker.model.ConditionTypes;
+import io.github.sudoitir.openbroker.model.Delivery;
+import io.github.sudoitir.openbroker.model.DeliveryModes;
 import io.github.sudoitir.openbroker.model.KindId;
 import io.github.sudoitir.openbroker.model.MetricKeys;
 import io.github.sudoitir.openbroker.model.MetricValue;
@@ -65,6 +67,8 @@ class RowsTest {
         assertThat(address.id()).isEqualTo(id(ArtemisKinds.ADDRESS, "orders.in"));
         assertThat(address.attributes().raw(ArtemisKinds.ROUTING_TYPES)).contains("ANYCAST");
         assertThat(address.attributes().get(MetricKeys.SUBSCRIPTION_COUNT)).contains(MetricValue.exact(1));
+        assertThat(address.attributes().get(StandardAttributes.DELIVERY))
+                .contains(DeliveryModes.of(Delivery.POINT_TO_POINT));
     }
 
     @Test
@@ -142,6 +146,13 @@ class RowsTest {
                 .containsExactly(
                         ConditionTypes.STARTED + "=" + ConditionStatus.TRUE,
                         ConditionTypes.CONNECTED + "=" + ConditionStatus.FALSE);
+    }
+
+    @Test
+    void routingTypesAreDeliveryModes() {
+        assertThat(ListRows.delivery("ANYCAST,MULTICAST"))
+                .contains(DeliveryModes.of(Delivery.POINT_TO_POINT, Delivery.PUBLISH_SUBSCRIBE));
+        assertThat(ListRows.delivery("")).isEmpty();
     }
 
     @Test

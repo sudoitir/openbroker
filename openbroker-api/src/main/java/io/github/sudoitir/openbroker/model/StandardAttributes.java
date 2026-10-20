@@ -8,6 +8,9 @@ public final class StandardAttributes {
     /** A subscription's destination, when it has one. */
     public static final AttributeKey<ResourceId> DESTINATION =
             AttributeKey.of("openbroker.destination", ResourceId.class);
+    /** How a destination or subscription delivers: point to point, publish-subscribe, or both. */
+    public static final AttributeKey<DeliveryModes> DELIVERY =
+            AttributeKey.of("openbroker.delivery", DeliveryModes.class);
     /** Whether the resource survives a restart. */
     public static final AttributeKey<Boolean> DURABLE = AttributeKey.of("openbroker.durable", Boolean.class);
     /** Whether the resource was created for a client and goes with it. */
