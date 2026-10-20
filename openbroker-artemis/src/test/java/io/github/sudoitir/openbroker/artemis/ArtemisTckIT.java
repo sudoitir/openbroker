@@ -12,7 +12,9 @@ import io.github.sudoitir.openbroker.Credentials;
 import io.github.sudoitir.openbroker.Endpoint;
 import io.github.sudoitir.openbroker.NodeId;
 import io.github.sudoitir.openbroker.NodeSpec;
+import io.github.sudoitir.openbroker.Partial;
 import io.github.sudoitir.openbroker.Plane;
+import io.github.sudoitir.openbroker.Status;
 import io.github.sudoitir.openbroker.messaging.Blob;
 import io.github.sudoitir.openbroker.messaging.Count;
 import io.github.sudoitir.openbroker.messaging.MessageBody;
@@ -25,9 +27,13 @@ import io.github.sudoitir.openbroker.model.Attributes;
 import io.github.sudoitir.openbroker.model.KindId;
 import io.github.sudoitir.openbroker.model.ResourceId;
 import io.github.sudoitir.openbroker.model.ResourcePath;
+import io.github.sudoitir.openbroker.model.ResourceQuery;
+import io.github.sudoitir.openbroker.model.RouteEndpoint;
 import io.github.sudoitir.openbroker.model.Scope;
 import io.github.sudoitir.openbroker.model.StandardAttributes;
 import io.github.sudoitir.openbroker.operation.Operation;
+import io.github.sudoitir.openbroker.operation.OperationResult;
+import io.github.sudoitir.openbroker.operation.Operations;
 import io.github.sudoitir.openbroker.spi.BrokerDriver;
 import io.github.sudoitir.openbroker.tck.OpenBrokerTck;
 import io.github.sudoitir.openbroker.tck.TckEnvironment;
@@ -158,6 +164,79 @@ class ArtemisTckIT extends OpenBrokerTck {
                         .orThrow();
             }
         }
+    }
+
+    /** A divert is created once, refused when it would differ, and deleted, each with an honest outcome. */
+    @Test
+    void aDivertIsDeployedOnceRefusedWhenDifferentAndDeleted() {
+        String run = UUID.randomUUID().toString().substring(0, 8);
+        ResourceId from = new ResourceId(ArtemisKinds.ADDRESS, ResourcePath.of("divert.from." + run));
+        ResourceId to = new ResourceId(ArtemisKinds.ADDRESS, ResourcePath.of("divert.to." + run));
+        ResourceId other = new ResourceId(ArtemisKinds.ADDRESS, ResourcePath.of("divert.other." + run));
+        ResourceId divert = new ResourceId(ArtemisKinds.DIVERT, ResourcePath.of("divert." + run));
+        try (BrokerDrivers drivers = BrokerDrivers.of(List.of(new ArtemisDriver()));
+                ClusterConnection connection = drivers.connect(connectTo(PASSWORD))) {
+            Operations operations = connection.operations();
+            Attributes multicast = Attributes.builder()
+                    .putRaw(ArtemisKinds.ROUTING_TYPES, "MULTICAST")
+                    .build();
+            for (ResourceId address : List.of(from, to, other)) {
+                operations
+                        .execute(address, new Operation.Create(multicast), Scope.whole())
+                        .orThrow();
+            }
+            try {
+                Operation create = new Operation.Create(divertTo(from, to));
+
+                assertThat(operations
+                                .execute(divert, create, Scope.whole())
+                                .orThrow()
+                                .alreadyInState())
+                        .isFalse();
+                assertThat(operations
+                                .execute(divert, create, Scope.whole())
+                                .orThrow()
+                                .alreadyInState())
+                        .as("the same divert again is already in place")
+                        .isTrue();
+                Partial<OperationResult> different =
+                        operations.execute(divert, new Operation.Create(divertTo(from, other)), Scope.whole());
+                assertThat(different.failures().values()).singleElement().satisfies(e -> {
+                    assertThat(e.status()).isEqualTo(Status.ALREADY_EXISTS);
+                    assertThat(e.info().metadata()).containsEntry("differing", "forwarding-address");
+                });
+                assertThat(connection
+                                .resources()
+                                .read(ResourceQuery.of(ArtemisKinds.DIVERT))
+                                .orThrow()
+                                .items())
+                        .anySatisfy(r -> assertThat(r.id()).isEqualTo(divert));
+
+                assertThat(operations
+                                .execute(divert, new Operation.Delete(false, false), Scope.whole())
+                                .orThrow()
+                                .alreadyInState())
+                        .isFalse();
+                assertThat(operations
+                                .execute(divert, new Operation.Delete(false, false), Scope.whole())
+                                .orThrow()
+                                .alreadyInState())
+                        .isTrue();
+            } finally {
+                operations.execute(divert, new Operation.Delete(false, false), Scope.whole());
+                for (ResourceId address : List.of(from, to, other)) {
+                    operations.execute(address, new Operation.Delete(false, true), Scope.whole());
+                }
+            }
+        }
+    }
+
+    private static Attributes divertTo(ResourceId from, ResourceId to) {
+        return Attributes.builder()
+                .put(StandardAttributes.ROUTE_SOURCE, new RouteEndpoint.Local(from))
+                .put(StandardAttributes.ROUTE_TARGET, new RouteEndpoint.Local(to))
+                .putRaw(ArtemisKinds.ROUTING_TYPE, "STRIP")
+                .build();
     }
 
     private static ConnectRequest connectTo(String password) {

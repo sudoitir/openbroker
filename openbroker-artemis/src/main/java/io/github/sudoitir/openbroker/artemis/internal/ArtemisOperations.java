@@ -157,6 +157,9 @@ public final class ArtemisOperations implements Operations {
         if (kind.equals(ArtemisKinds.ADDRESS)) {
             return onAddress(resource, operation, state(resource, node, deadline), deadline);
         }
+        if (kind.equals(ArtemisKinds.DIVERT)) {
+            return Diverts.on(cluster, resource, operation, node, deadline);
+        }
         return close(resource, node, deadline);
     }
 

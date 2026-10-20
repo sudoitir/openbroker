@@ -88,12 +88,7 @@ public final class Catalog {
                     Set.of(LIST, GET, CREATE, DELETE),
                     Optional.of(ArtemisKinds.ADDRESS),
                     List.of()),
-            kind(
-                    ArtemisKinds.BRIDGE,
-                    ResourceClass.ROUTE,
-                    Set.of(LIST, GET, CREATE, DELETE),
-                    Optional.empty(),
-                    List.of()),
+            kind(ArtemisKinds.BRIDGE, ResourceClass.ROUTE, Set.of(LIST, GET), Optional.empty(), List.of()),
             kind(ArtemisKinds.CONNECTION, ResourceClass.CONNECTION, Set.of(LIST, CLOSE), Optional.empty(), List.of()),
             kind(
                     ArtemisKinds.SESSION,
