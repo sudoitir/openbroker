@@ -2,6 +2,7 @@ package io.github.sudoitir.openbroker.artemis.internal;
 
 import io.github.sudoitir.openbroker.NodeId;
 import io.github.sudoitir.openbroker.messaging.Blob;
+import io.github.sudoitir.openbroker.messaging.JmsExtension;
 import io.github.sudoitir.openbroker.messaging.Message;
 import io.github.sudoitir.openbroker.messaging.MessageBody;
 import io.github.sudoitir.openbroker.messaging.MessageHeaders;
@@ -60,9 +61,8 @@ final class CoreBodies {
     static final byte BYTES = 4;
 
     /** Extension keys under the {@code artemis} namespace. */
-    static final String MESSAGE_TYPE = BrowseRows.MESSAGE_TYPE;
-
     static final String LARGE = "artemis.large";
+
     static final String ADDRESS = BrowseRows.ADDRESS;
 
     private static final SimpleString CORRELATION_ID = SimpleString.of(BrowseRows.CORRELATION_ID);
@@ -169,8 +169,7 @@ final class CoreBodies {
             }
             body = MessageBody.of(Blob.of(bytes));
         }
-        Attributes.Builder artemis =
-                Attributes.builder().putRaw(MESSAGE_TYPE, (int) m.getType()).putRaw(LARGE, m.isLargeMessage());
+        Attributes.Builder artemis = Attributes.builder().putRaw(LARGE, m.isLargeMessage());
         if (m.getAddress() != null) {
             artemis.putRaw(ADDRESS, m.getAddress());
         }
@@ -180,7 +179,13 @@ final class CoreBodies {
                 properties,
                 body,
                 truncated,
-                Map.of("artemis", artemis.build()));
+                Map.of(
+                        "artemis",
+                        artemis.build(),
+                        JmsExtension.NAMESPACE,
+                        Attributes.builder()
+                                .putRaw(JmsExtension.MESSAGE_TYPE, (int) m.getType())
+                                .build()));
     }
 
     /**
@@ -267,8 +272,8 @@ final class CoreBodies {
 
     private static byte type(OutboundMessage out, Optional<byte[]> bytes) {
         Object declared = out.extensions()
-                .getOrDefault("artemis", Attributes.empty())
-                .raw(MESSAGE_TYPE)
+                .getOrDefault(JmsExtension.NAMESPACE, Attributes.empty())
+                .raw(JmsExtension.MESSAGE_TYPE)
                 .orElse(null);
         if (declared instanceof Number n) {
             return n.byteValue();

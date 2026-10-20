@@ -2,6 +2,7 @@ package io.github.sudoitir.openbroker.artemis.internal;
 
 import io.github.sudoitir.openbroker.NodeId;
 import io.github.sudoitir.openbroker.messaging.Blob;
+import io.github.sudoitir.openbroker.messaging.JmsExtension;
 import io.github.sudoitir.openbroker.messaging.Message;
 import io.github.sudoitir.openbroker.messaging.MessageBody;
 import io.github.sudoitir.openbroker.messaging.MessageHeaders;
@@ -52,9 +53,8 @@ public final class BrowseRows {
             Set.of(CORRELATION_ID, TYPE, REPLY_TO, GROUP_ID, DUPLICATE_ID, SCHEDULED_DELIVERY, ORIGIN);
 
     /** Extension keys under the {@code artemis} namespace. */
-    public static final String MESSAGE_TYPE = "artemis.message_type";
-
     public static final String PERSISTENT_SIZE = "artemis.persistent_size";
+
     public static final String ADDRESS = "artemis.address";
     public static final String CUT_AT = "artemis.cut_at";
 
@@ -141,9 +141,7 @@ public final class BrowseRows {
             headers.deliverAt(Instant.ofEpochMilli(Long.parseLong(scheduled)));
         }
 
-        Attributes.Builder artemis = Attributes.builder()
-                .putRaw(MESSAGE_TYPE, (int) num(row, "type"))
-                .putRaw(PERSISTENT_SIZE, num(row, "persistentSize"));
+        Attributes.Builder artemis = Attributes.builder().putRaw(PERSISTENT_SIZE, num(row, "persistentSize"));
         String address = text(row, "address");
         if (address != null) {
             artemis.putRaw(ADDRESS, address);
@@ -158,7 +156,13 @@ public final class BrowseRows {
                 properties,
                 MessageBody.of(Blob.of(body)),
                 truncated,
-                Map.of("artemis", artemis.build()));
+                Map.of(
+                        "artemis",
+                        artemis.build(),
+                        JmsExtension.NAMESPACE,
+                        Attributes.builder()
+                                .putRaw(JmsExtension.MESSAGE_TYPE, (int) num(row, "type"))
+                                .build()));
     }
 
     /** Adds one typed property map; returns where the broker cut the first string it cut, or null. */
