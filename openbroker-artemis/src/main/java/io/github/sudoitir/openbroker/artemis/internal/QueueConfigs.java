@@ -69,9 +69,11 @@ public final class QueueConfigs {
                 case "openbroker.temporary" -> config.put("temporary", value);
                 case "openbroker.filter" -> config.put("filter-string", value);
                 case "openbroker.max_consumers" -> config.put("max-consumers", value);
-                case "openbroker.dead_letter" -> {
-                    // Applied through address settings when the queue is created; see ArtemisOperations.
-                }
+                case "openbroker.dead_letter" ->
+                    // Artemis keeps a queue's dead-letter address in the address settings that match it,
+                    // which this driver does not write; accepting the attribute would ignore it.
+                    throw Queries.invalid("This driver cannot set an Artemis queue's dead-letter address yet;"
+                            + " set it in the broker's address settings.");
                 case ArtemisKinds.ROUTING_TYPE ->
                     config.put("routing-type", String.valueOf(value).toUpperCase(Locale.ROOT));
                 case ArtemisKinds.AUTO_CREATE_ADDRESS -> {
