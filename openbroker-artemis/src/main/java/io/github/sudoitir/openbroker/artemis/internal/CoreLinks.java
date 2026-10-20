@@ -217,7 +217,9 @@ final class CoreLinks implements AutoCloseable {
                 .append(endpoint.contains("?") ? ";" : "?")
                 .append("useTopologyForLoadBalancing=false;consumerWindowSize=")
                 .append(WINDOW_BYTES)
-                .append(";connectTimeoutMillis=")
+                .append(';')
+                .append(TransportConstants.NETTY_CONNECT_TIMEOUT)
+                .append('=')
                 .append(options.timeouts().connect().toMillis());
         tls.ifPresent(material -> {
             url.append(";sslEnabled=true;")
