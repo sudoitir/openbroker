@@ -26,7 +26,11 @@ import java.util.function.Predicate;
  */
 public final class PortableFilter implements Predicate<Message> {
 
-    private record Clause(boolean header, String name, String op, String text) {}
+    /**
+     * One clause: a header or property, an operator ({@code =}, {@code ^=} prefix, {@code $=}
+     * suffix) and the text it compares with. A driver that filters on the server translates these.
+     */
+    public record Clause(boolean header, String name, String op, String text) {}
 
     private final List<Clause> clauses;
 
@@ -45,6 +49,11 @@ public final class PortableFilter implements Predicate<Message> {
             throw invalid("Not the portable dialect: " + filter.dialect());
         }
         return new PortableFilter(new Parser(filter.expression()).clauses());
+    }
+
+    /** The clauses, all of which must hold. */
+    public List<Clause> clauses() {
+        return clauses;
     }
 
     @Override

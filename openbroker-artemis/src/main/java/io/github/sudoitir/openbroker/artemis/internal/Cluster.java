@@ -12,6 +12,7 @@ import io.github.sudoitir.openbroker.NodeId;
 import io.github.sudoitir.openbroker.NodeSpec;
 import io.github.sudoitir.openbroker.Plane;
 import io.github.sudoitir.openbroker.Status;
+import io.github.sudoitir.openbroker.artemis.ArtemisMBeans;
 import io.github.sudoitir.openbroker.model.Scope;
 import io.github.sudoitir.openbroker.model.Shard;
 import io.github.sudoitir.openbroker.spi.DriverContext;
@@ -20,6 +21,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -34,6 +36,8 @@ public final class Cluster {
     private final ObjectMapper mapper = JsonMapper.builder().build();
     private final JolokiaClient.BrokerNames brokerNames;
     private volatile Map<NodeId, NodeHandle> nodes;
+    /** A queue's MBean per node, learned with a search and forgotten when the broker says it is gone. */
+    private final Map<String, String> queueMBeans = new ConcurrentHashMap<>();
 
     public Cluster(ClusterSpec spec, CredentialSource credentials, DriverContext context) {
         this.credentials = credentials;
@@ -126,6 +130,36 @@ public final class Cluster {
     /** The node's Jolokia agent, bound to one deadline: the one of the facet call it serves. */
     public NodeJolokia jolokia(NodeHandle node, Deadline deadline) {
         return new NodeJolokia(jolokia(node), () -> deadline);
+    }
+
+    /**
+     * The MBean of the queue named {@code queue} on this node, whatever its address and routing type.
+     *
+     * @throws BrokerException with {@code NOT_FOUND} and {@code RESOURCE_GONE} when the node has none
+     */
+    public String queueMBean(NodeHandle node, String queue, Deadline deadline) {
+        String key = node.id().value() + "\u0000" + queue;
+        String known = queueMBeans.get(key);
+        if (known != null) {
+            return known;
+        }
+        JolokiaClient client = jolokia(node);
+        List<String> found = client.search(ArtemisMBeans.queuePattern(client.brokerName(deadline), queue), deadline);
+        if (found.isEmpty()) {
+            throw new BrokerException(
+                    Status.NOT_FOUND,
+                    ErrorInfo.of(ErrorReasons.RESOURCE_GONE),
+                    Dispatch.NOT_SENT,
+                    node.id(),
+                    "Queue " + queue + " is not on this node.");
+        }
+        queueMBeans.put(key, found.getFirst());
+        return found.getFirst();
+    }
+
+    /** Forgets a queue's MBean after the broker said it is not registered: it was deleted or recreated. */
+    public void forgetQueue(NodeHandle node, String queue) {
+        queueMBeans.remove(node.id().value() + "\u0000" + queue);
     }
 
     private static Map<NodeId, NodeHandle> index(ClusterSpec spec) {

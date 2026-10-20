@@ -121,14 +121,16 @@ public final class ListRows {
 
     private static @Nullable ResourcePath session(JsonNode row, Attributes.Builder a) {
         String id = text(row, "id");
-        if (id == null) {
+        String connection = text(row, "connectionID");
+        if (id == null || connection == null) {
             return null;
         }
         client(row, a);
-        id(a, StandardAttributes.PARENT, ArtemisKinds.CONNECTION, text(row, "connectionID"));
+        id(a, StandardAttributes.PARENT, ArtemisKinds.CONNECTION, connection);
         metric(a, MetricKeys.CONSUMER_COUNT, row, "consumerCount");
         metric(a, MetricKeys.PRODUCER_COUNT, row, "producerCount");
-        return ResourcePath.of(id);
+        // A session is named within its connection, which closing it needs.
+        return ResourcePath.of(connection, id);
     }
 
     private static @Nullable ResourcePath consumer(JsonNode row, Attributes.Builder a) {

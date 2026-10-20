@@ -29,6 +29,8 @@ public final class ErrorReasons {
     public static final String IMMUTABLE_FIELD = "IMMUTABLE_FIELD";
     public static final String INVALID_ARGUMENT = "INVALID_ARGUMENT";
     public static final String PRECONDITION_FAILED = "PRECONDITION_FAILED";
+    /** A delete asked for an empty resource and it still holds messages. */
+    public static final String NOT_EMPTY = "NOT_EMPTY";
 
     // Messages.
     public static final String DUPLICATE_REJECTED = "DUPLICATE_REJECTED";

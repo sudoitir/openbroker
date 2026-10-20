@@ -104,7 +104,7 @@ public final class Catalog {
             kind(
                     ArtemisKinds.CONSUMER,
                     ResourceClass.CONSUMER,
-                    Set.of(LIST),
+                    Set.of(LIST, CLOSE),
                     Optional.of(ArtemisKinds.SESSION),
                     List.of()),
             kind(

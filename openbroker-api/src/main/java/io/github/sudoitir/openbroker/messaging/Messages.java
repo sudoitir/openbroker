@@ -18,8 +18,16 @@ public interface Messages {
     /** The number of messages per value of a field, for triage. */
     Partial<Map<String, Long>> countBy(ResourceId subscription, Scope scope, MessageField field);
 
-    /** Sends one message. */
-    SendReceipt send(SendTarget target, OutboundMessage message);
+    /**
+     * Sends one message through the nodes of {@code scope}: the first that holds the target takes it.
+     * Where the system routes between nodes itself, the scope only says where to enter.
+     */
+    SendReceipt send(SendTarget target, Scope scope, OutboundMessage message);
+
+    /** Sends one message through any node. */
+    default SendReceipt send(SendTarget target, OutboundMessage message) {
+        return send(target, Scope.whole(), message);
+    }
 
     /** Applies an action to the selected messages. */
     Partial<BulkOutcome> bulk(ResourceId subscription, Scope scope, Selection selection, MessageAction action);

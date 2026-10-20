@@ -23,6 +23,10 @@ public final class ArtemisConnection implements ClusterConnection {
     private final Cluster cluster;
     private final ArtemisNodes nodes;
     private final ArtemisResources resources;
+    private final ArtemisOperations operations;
+    private final CorePool core;
+    private final ArtemisMessages messages;
+    private final ArtemisAccess access;
 
     public ArtemisConnection(
             BrokerSystem system, ClusterSpec spec, CredentialSource credentials, DriverContext context) {
@@ -30,6 +34,10 @@ public final class ArtemisConnection implements ClusterConnection {
         this.cluster = new Cluster(spec, credentials, context);
         this.nodes = new ArtemisNodes(cluster);
         this.resources = new ArtemisResources(cluster);
+        this.operations = new ArtemisOperations(cluster);
+        this.core = new CorePool(cluster);
+        this.messages = new ArtemisMessages(cluster, core);
+        this.access = new ArtemisAccess(cluster);
     }
 
     @Override
@@ -49,17 +57,17 @@ public final class ArtemisConnection implements ClusterConnection {
 
     @Override
     public Operations operations() {
-        throw Unimplemented.of("operate on resources through this driver yet");
+        return operations;
     }
 
     @Override
     public Messages messages() {
-        throw Unimplemented.of("handle messages through this driver yet");
+        return messages;
     }
 
     @Override
     public Access access() {
-        throw Unimplemented.of("assess access through this driver yet");
+        return access;
     }
 
     @Override
@@ -88,5 +96,7 @@ public final class ArtemisConnection implements ClusterConnection {
     }
 
     @Override
-    public void close() {}
+    public void close() {
+        core.close();
+    }
 }
