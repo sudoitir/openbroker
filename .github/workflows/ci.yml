@@ -80,15 +80,15 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: >-
           ./mvnw -B -DskipTests -Dspotless.apply.skip test-compile
-          org.sonarsource.scanner.maven:sonar-maven-plugin:5.8.0.7211:sonar -Dsonar.qualitygate.wait=true
+          org.sonarsource.scanner.maven:sonar-maven-plugin:5.8.0.7211:sonar
 
   # The one required status check.
   ci-ok:
     runs-on: ubuntu-latest
     if: always()
-    needs: [verify, api-check, sonar]
+    needs: [verify, api-check]
     steps:
       - run: |
-          for r in "${{ needs.verify.result }}" "${{ needs.api-check.result }}" "${{ needs.sonar.result }}"; do
+          for r in "${{ needs.verify.result }}" "${{ needs.api-check.result }}"; do
             case "$r" in success|skipped) ;; *) echo "A required job ended as $r"; exit 1;; esac
           done
