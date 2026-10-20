@@ -1,0 +1,10 @@
+OpenBroker
+Copyright 2026 The OpenBroker Authors
+
+This product includes software developed by
+The OpenBroker Authors (https://github.com/sudoitir/openbroker).
+
+Apache ActiveMQ, ActiveMQ Artemis and Artemis are trademarks of The Apache
+Software Foundation. OpenBroker is not affiliated with or endorsed by The
+Apache Software Foundation; the names are used only to identify the broker a
+driver connects to.

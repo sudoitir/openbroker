@@ -1,0 +1,7 @@
+target/
+*.iml
+.idea/
+.vscode/
+.DS_Store
+.claude/settings.local.json
+.flattened-pom.xml
