@@ -231,6 +231,38 @@ class ArtemisTckIT extends OpenBrokerTck {
         }
     }
 
+    /** A queue asked to create its address gets one; the same request again is already in place. */
+    @Test
+    void aQueueCanCreateItsAddressAndIsAlreadyThereTheSecondTime() {
+        String run = UUID.randomUUID().toString().substring(0, 8);
+        ResourceId address = new ResourceId(ArtemisKinds.ADDRESS, ResourcePath.of("auto.address." + run));
+        ResourceId queue = new ResourceId(ArtemisKinds.QUEUE, ResourcePath.of("auto.queue." + run));
+        Operation create = new Operation.Create(Attributes.builder()
+                .put(StandardAttributes.DESTINATION, address)
+                .putRaw(ArtemisKinds.ROUTING_TYPE, "ANYCAST")
+                .putRaw(ArtemisKinds.AUTO_CREATE_ADDRESS, true)
+                .build());
+        try (BrokerDrivers drivers = BrokerDrivers.of(List.of(new ArtemisDriver()));
+                ClusterConnection connection = drivers.connect(connectTo(PASSWORD))) {
+            Operations operations = connection.operations();
+            try {
+                assertThat(operations
+                                .execute(queue, create, Scope.whole())
+                                .orThrow()
+                                .alreadyInState())
+                        .isFalse();
+                assertThat(operations
+                                .execute(queue, create, Scope.whole())
+                                .orThrow()
+                                .alreadyInState())
+                        .isTrue();
+            } finally {
+                operations.execute(queue, new Operation.Delete(false, true), Scope.whole());
+                operations.execute(address, new Operation.Delete(false, true), Scope.whole());
+            }
+        }
+    }
+
     private static Attributes divertTo(ResourceId from, ResourceId to) {
         return Attributes.builder()
                 .put(StandardAttributes.ROUTE_SOURCE, new RouteEndpoint.Local(from))

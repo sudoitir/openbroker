@@ -74,6 +74,12 @@ public final class QueueConfigs {
                 }
                 case ArtemisKinds.ROUTING_TYPE ->
                     config.put("routing-type", String.valueOf(value).toUpperCase(Locale.ROOT));
+                case ArtemisKinds.AUTO_CREATE_ADDRESS -> {
+                    if (!forCreate) {
+                        throw Queries.invalid("Whether a queue creates its address is decided when it is created.");
+                    }
+                    config.put("auto-create-address", value);
+                }
                 default -> config.put(nativeKey(key), value);
             }
         });
@@ -108,7 +114,9 @@ public final class QueueConfigs {
 
     /** The requested keys whose values the existing queue does not have. */
     static List<String> differences(Map<String, Object> requested, Map<String, Object> existing) {
+        // Only what the broker reports back can be compared; a create directive is not a property.
         return requested.entrySet().stream()
+                .filter(e -> KEYS.contains(e.getKey()))
                 .filter(e -> !same(e.getValue(), existing.get(e.getKey())))
                 .map(Map.Entry::getKey)
                 .sorted()

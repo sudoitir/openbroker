@@ -28,8 +28,13 @@ public final class ArtemisKinds {
     public static final KindId USER = KindId.of("artemis.user");
     public static final KindId TRANSACTION = KindId.of("artemis.transaction");
 
-    /** Native attribute keys. */
+    // Native attribute keys.
+
     public static final String ROUTING_TYPE = "artemis.routing_type";
+
+    /** On a queue create: make the queue's address when it has none, rather than refusing the queue. */
+    public static final String AUTO_CREATE_ADDRESS = "artemis.auto_create_address";
+
     /** The routing types an address accepts, comma-separated. */
     public static final String ROUTING_TYPES = "artemis.routing_types";
     /** A consumer's state as the broker reports it ({@code OK}, {@code SUSPENDED}). */
