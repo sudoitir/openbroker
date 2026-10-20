@@ -334,6 +334,7 @@ public final class ArtemisNotifications implements Notifications {
             case "SESSION_CLOSED" -> EventTypes.CHANNEL_CLOSED;
             case "CONSUMER_CREATED" -> EventTypes.CONSUMER_ATTACHED;
             case "CONSUMER_CLOSED" -> EventTypes.CONSUMER_DETACHED;
+            case "CONSUMER_SLOW" -> EventTypes.CONSUMER_SLOW;
             case "MESSAGE_DELIVERED" -> EventTypes.MESSAGE_DELIVERED;
             case "MESSAGE_EXPIRED" -> EventTypes.MESSAGE_EXPIRED;
             default -> "artemis." + (type.isEmpty() ? "unknown" : type.toLowerCase(Locale.ROOT));

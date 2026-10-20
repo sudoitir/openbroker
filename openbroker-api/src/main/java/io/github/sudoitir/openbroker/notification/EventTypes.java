@@ -9,6 +9,9 @@ public final class EventTypes {
     public static final String CLIENT_DISCONNECTED = "openbroker.client.disconnected";
     public static final String CONSUMER_ATTACHED = "openbroker.consumer.attached";
     public static final String CONSUMER_DETACHED = "openbroker.consumer.detached";
+    /** The system itself judged a consumer too slow, by its own policy. */
+    public static final String CONSUMER_SLOW = "openbroker.consumer.slow";
+
     public static final String CHANNEL_OPENED = "openbroker.channel.opened";
     public static final String CHANNEL_CLOSED = "openbroker.channel.closed";
     /** A message was handed to a consumer. */
