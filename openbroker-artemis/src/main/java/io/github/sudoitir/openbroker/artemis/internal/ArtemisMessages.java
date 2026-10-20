@@ -37,15 +37,15 @@ import io.github.sudoitir.openbroker.model.ResourceId;
 import io.github.sudoitir.openbroker.model.Scope;
 import io.github.sudoitir.openbroker.model.Shard;
 import io.github.sudoitir.openbroker.support.Deadlines;
-import jakarta.jms.Queue;
-import jakarta.jms.QueueBrowser;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
-import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -55,6 +55,11 @@ import java.util.function.LongFunction;
 import java.util.function.Supplier;
 import javax.management.MalformedObjectNameException;
 import javax.management.ObjectName;
+import org.apache.activemq.artemis.api.core.ActiveMQException;
+import org.apache.activemq.artemis.api.core.SimpleString;
+import org.apache.activemq.artemis.api.core.client.ClientConsumer;
+import org.apache.activemq.artemis.api.core.client.ClientMessage;
+import org.apache.activemq.artemis.api.core.client.ClientProducer;
 import org.jspecify.annotations.Nullable;
 import tools.jackson.databind.JsonNode;
 
@@ -73,6 +78,10 @@ public final class ArtemisMessages implements Messages {
     static final int BY_ID_BATCH = 50;
 
     private static final String CURSOR_PREFIX = "artemis.page:";
+
+    /** How long a browse waits for the first message of a page. */
+    private static final Duration FIRST_WAIT = Duration.ofSeconds(1);
+
     private static final String MESSAGE_COUNT = "MessageCount";
 
     /** Artemis message types: the broker writes text for 3 and base64-decodes the body for 4. */
@@ -88,9 +97,9 @@ public final class ArtemisMessages implements Messages {
             "sendMessage(java.util.Map,int,java.lang.String,boolean,java.lang.String,java.lang.String,boolean)";
 
     private final Cluster cluster;
-    private final CorePool core;
+    private final CoreLinks core;
 
-    ArtemisMessages(Cluster cluster, CorePool core) {
+    ArtemisMessages(Cluster cluster, CoreLinks core) {
         this.cluster = cluster;
         this.core = core;
     }
@@ -179,19 +188,19 @@ public final class ArtemisMessages implements Messages {
         long skip = (long) (page - 1) * size;
         List<Message> rows;
         try {
-            String destination = destination(node, subscription, deadline);
+            String destination = Destinations.of(cluster, node, subscription, deadline);
             rows = core.call(node, "browse", Optional.of(subscription), deadline, session -> {
                 List<Message> out = new ArrayList<>(size);
-                Queue queue = session.createQueue(destination);
-                try (QueueBrowser browser =
-                        selector.isEmpty() ? session.createBrowser(queue) : session.createBrowser(queue, selector)) {
-                    Enumeration<?> e = browser.getEnumeration();
+                try (ClientConsumer browser = session.createConsumer(
+                        SimpleString.of(destination), selector.isEmpty() ? null : SimpleString.of(selector), true)) {
                     long index = 0;
-                    while (out.size() < size && e.hasMoreElements()) {
-                        jakarta.jms.Message m = (jakarta.jms.Message) e.nextElement();
+                    // The first message may take a moment to arrive; the rest are already buffered or close.
+                    ClientMessage m = browser.receive(FIRST_WAIT.toMillis());
+                    while (m != null && out.size() < size) {
                         if (index++ >= skip) {
-                            out.add(CoreMessages.read(m, subscription, node.id(), request.maxBodyBytes()));
+                            out.add(read(m, subscription, node, request.maxBodyBytes()));
                         }
+                        m = browser.receiveImmediate();
                     }
                 }
                 return out;
@@ -254,19 +263,12 @@ public final class ArtemisMessages implements Messages {
         }
     }
 
-    /**
-     * The JMS name of a queue: its fully qualified {@code address::queue}, so a browse or send reaches
-     * this queue and not every queue of its address.
-     */
-    private String destination(NodeHandle node, ResourceId queue, Deadline deadline) {
-        if (node.jolokia().isEmpty()) {
-            return queue.name() + "::" + queue.name();
-        }
-        String mbean = cluster.queueMBean(node, queue.name(), deadline);
+    private static Message read(ClientMessage m, ResourceId subscription, NodeHandle node, long maxBodyBytes)
+            throws ActiveMQException {
         try {
-            return ObjectName.unquote(ObjectName.getInstance(mbean).getKeyProperty("address")) + "::" + queue.name();
-        } catch (MalformedObjectNameException e) {
-            throw new IllegalStateException("Not a queue MBean: " + mbean, e);
+            return CoreBodies.read(m, subscription, node.id(), maxBodyBytes, Optional.empty());
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
         }
     }
 
@@ -412,7 +414,7 @@ public final class ArtemisMessages implements Messages {
             case SendTarget.ToSubscription s -> {
                 requireQueue(s.subscription());
                 resource = s.subscription();
-                destination = destination(node, resource, deadline);
+                destination = Destinations.of(cluster, node, resource, deadline);
             }
             case SendTarget.ToDestination d -> {
                 requireAddress(d);
@@ -420,13 +422,17 @@ public final class ArtemisMessages implements Messages {
                 destination = resource.name();
             }
         }
-        String id = core.call(
-                node,
-                "send",
-                Optional.of(resource),
-                deadline,
-                session -> CoreMessages.send(
-                        session, destination, message, cluster.options().clock()));
+        String id = core.call(node, "send", Optional.of(resource), deadline, session -> {
+            try (CoreBodies.Built built =
+                            CoreBodies.write(session, message, cluster.options().clock(), Optional.empty());
+                    ClientProducer producer = session.createProducer()) {
+                producer.send(SimpleString.of(destination), built.message());
+                Object userId = built.message().getUserID();
+                return userId == null ? null : "ID:" + userId;
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        });
         return new SendReceipt(Optional.ofNullable(id), Optional.empty(), Optional.of(node.id()));
     }
 

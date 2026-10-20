@@ -24,10 +24,11 @@ public final class ArtemisConnection implements ClusterConnection {
     private final ArtemisNodes nodes;
     private final ArtemisResources resources;
     private final ArtemisOperations operations;
-    private final CorePool core;
+    private final CoreLinks core;
     private final ArtemisMessages messages;
     private final ArtemisAccess access;
     private final ArtemisNotifications notifications;
+    private final ArtemisTransport transport;
 
     public ArtemisConnection(
             BrokerSystem system, ClusterSpec spec, CredentialSource credentials, DriverContext context) {
@@ -36,10 +37,11 @@ public final class ArtemisConnection implements ClusterConnection {
         this.nodes = new ArtemisNodes(cluster);
         this.resources = new ArtemisResources(cluster);
         this.operations = new ArtemisOperations(cluster);
-        this.core = new CorePool(cluster);
+        this.core = new CoreLinks(cluster);
         this.messages = new ArtemisMessages(cluster, core);
         this.access = new ArtemisAccess(cluster);
         this.notifications = new ArtemisNotifications(cluster);
+        this.transport = new ArtemisTransport(cluster, core);
     }
 
     @Override
@@ -79,7 +81,7 @@ public final class ArtemisConnection implements ClusterConnection {
 
     @Override
     public Optional<Transport> transport() {
-        return Optional.empty();
+        return Optional.of(transport);
     }
 
     @Override

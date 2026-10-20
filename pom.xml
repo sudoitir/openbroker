@@ -55,7 +55,6 @@
         <artemis.version>2.57.0</artemis.version>
         <!-- The Artemis client's own tree asks for two slf4j versions; this one is Artemis's. -->
         <slf4j.version>2.0.18</slf4j.version>
-        <pooled-jms.version>3.2.3</pooled-jms.version>
         <jackson-bom.version>3.1.7</jackson-bom.version>
         <junit.version>6.0.3</junit.version>
         <assertj.version>3.27.7</assertj.version>
@@ -117,11 +116,6 @@
                 <groupId>org.slf4j</groupId>
                 <artifactId>slf4j-api</artifactId>
                 <version>${slf4j.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.messaginghub</groupId>
-                <artifactId>pooled-jms</artifactId>
-                <version>${pooled-jms.version}</version>
             </dependency>
             <dependency>
                 <groupId>tools.jackson</groupId>

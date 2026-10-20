@@ -23,6 +23,7 @@ import io.github.sudoitir.openbroker.access.Capability;
 import io.github.sudoitir.openbroker.messaging.BrowsePage;
 import io.github.sudoitir.openbroker.messaging.BrowseRequest;
 import io.github.sudoitir.openbroker.messaging.Count;
+import io.github.sudoitir.openbroker.messaging.Disposition;
 import io.github.sudoitir.openbroker.messaging.Message;
 import io.github.sudoitir.openbroker.messaging.MessageAction;
 import io.github.sudoitir.openbroker.messaging.MessageBody;
@@ -31,9 +32,14 @@ import io.github.sudoitir.openbroker.messaging.MessageHeaders;
 import io.github.sudoitir.openbroker.messaging.OutboundMessage;
 import io.github.sudoitir.openbroker.messaging.Position;
 import io.github.sudoitir.openbroker.messaging.PropertyValue;
+import io.github.sudoitir.openbroker.messaging.ReceiveOptions;
+import io.github.sudoitir.openbroker.messaging.Receiver;
 import io.github.sudoitir.openbroker.messaging.Selection;
 import io.github.sudoitir.openbroker.messaging.SendTarget;
+import io.github.sudoitir.openbroker.messaging.Sender;
+import io.github.sudoitir.openbroker.messaging.SenderOptions;
 import io.github.sudoitir.openbroker.messaging.Total;
+import io.github.sudoitir.openbroker.messaging.Transport;
 import io.github.sudoitir.openbroker.model.Kind;
 import io.github.sudoitir.openbroker.model.NodeDescription;
 import io.github.sudoitir.openbroker.model.Ordering;
@@ -51,11 +57,16 @@ import io.github.sudoitir.openbroker.operation.Operation;
 import io.github.sudoitir.openbroker.operation.OperationResult;
 import io.github.sudoitir.openbroker.operation.Precondition;
 import io.github.sudoitir.openbroker.operation.Preview;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -354,6 +365,133 @@ public abstract class OpenBrokerTck {
                             BrokerException.class, e -> assertThat(e.reason()).isEqualTo(ErrorReasons.INVALID_FILTER));
         } finally {
             delete(id);
+        }
+    }
+
+    // Transport.
+
+    @Test
+    void aTransactedReceiveTakesMessagesOnlyOnCommit() {
+        Transport transport = transport();
+        ResourceId id = createSubscription();
+        try {
+            send(id, 3, "k", "v");
+            try (Receiver receiver = transport.receiver(
+                    id, Scope.whole(), ReceiveOptions.consume().asTransacted())) {
+                List<Message> first = receiver.receive(10, Duration.ofSeconds(5));
+                assertThat(first).hasSize(3);
+                first.forEach(m -> receiver.settle(m, Disposition.accept()));
+                receiver.rollback();
+                assertThat(exactCount(id)).isEqualTo(3);
+
+                List<Message> again = receiver.receive(10, Duration.ofSeconds(5));
+                assertThat(again).hasSize(3);
+                again.forEach(m -> receiver.settle(m, Disposition.accept()));
+                receiver.commit();
+            }
+            assertThat(exactCount(id)).isZero();
+        } finally {
+            delete(id);
+        }
+    }
+
+    @Test
+    void aBrowsingReceiverLeavesTheMessagesWhereTheyAre() {
+        Transport transport = transport();
+        ResourceId id = createSubscription();
+        try {
+            send(id, 2, "k", "v");
+            try (Receiver receiver = transport.receiver(id, Scope.whole(), ReceiveOptions.browse(Optional.empty()))) {
+                assertThat(receiver.receive(10, Duration.ofSeconds(5))).hasSize(2);
+            }
+            assertThat(exactCount(id)).isEqualTo(2);
+        } finally {
+            delete(id);
+        }
+    }
+
+    @Test
+    void aTransactedSendDeliversOnlyOnCommitAndACopyKeepsEverything() {
+        Transport transport = transport();
+        ResourceId from = createSubscription();
+        ResourceId to = createSubscription();
+        try {
+            byte[] large = new byte[300 * 1024];
+            new Random(7).nextBytes(large);
+            String text = "é".repeat(150 * 1024);
+            List<OutboundMessage> originals = List.of(
+                    new OutboundMessage(
+                            MessageHeaders.builder()
+                                    .correlationId("c-1")
+                                    .type("t-1")
+                                    .build(),
+                            Map.of("number", PropertyValue.of(42L), "flag", PropertyValue.of(true)),
+                            MessageBody.of("small".getBytes(StandardCharsets.UTF_8)),
+                            Map.of()),
+                    new OutboundMessage(
+                            MessageHeaders.builder()
+                                    .contentType("application/octet-stream")
+                                    .build(),
+                            Map.of(),
+                            MessageBody.of(large),
+                            Map.of()),
+                    new OutboundMessage(
+                            MessageHeaders.empty(),
+                            Map.of(),
+                            MessageBody.of(text.getBytes(StandardCharsets.UTF_8)),
+                            Map.of()));
+            originals.forEach(m -> connection.messages().send(SendTarget.subscription(from), m));
+
+            try (Receiver receiver = transport.receiver(
+                            from, Scope.whole(), ReceiveOptions.consume().asTransacted());
+                    Sender sender =
+                            transport.sender(SendTarget.subscription(to), Scope.whole(), new SenderOptions(true))) {
+                List<Message> received = receiver.receive(10, Duration.ofSeconds(5));
+                assertThat(received).hasSize(3);
+                for (Message m : received) {
+                    sender.send(OutboundMessage.copyOf(m));
+                    receiver.settle(m, Disposition.accept());
+                }
+                assertThat(exactCount(to))
+                        .as("nothing is delivered before the commit")
+                        .isZero();
+                sender.commit();
+                receiver.commit();
+            }
+            assertThat(exactCount(from)).isZero();
+            try (Receiver check = transport.receiver(to, Scope.whole(), ReceiveOptions.consume())) {
+                List<Message> copies = check.receive(10, Duration.ofSeconds(5));
+                assertThat(copies).hasSize(3);
+                Message small = copies.stream()
+                        .filter(m -> m.headers().correlationId().isPresent())
+                        .findFirst()
+                        .orElseThrow();
+                assertThat(small.headers().correlationId()).contains("c-1");
+                assertThat(small.headers().type()).contains("t-1");
+                assertThat(small.properties()).containsEntry("number", PropertyValue.of(42L));
+                assertThat(small.properties()).containsEntry("flag", PropertyValue.of(true));
+                assertThat(copies).anySatisfy(m -> assertThat(readAll(m)).isEqualTo(large));
+                assertThat(copies)
+                        .anySatisfy(m -> assertThat(new String(readAll(m), StandardCharsets.UTF_8))
+                                .isEqualTo(text));
+                copies.forEach(m -> check.settle(m, Disposition.accept()));
+            }
+        } finally {
+            delete(from);
+            delete(to);
+        }
+    }
+
+    private Transport transport() {
+        assumeTrue(connection.transport().isPresent(), "The driver offers no transport");
+        return connection.transport().get();
+    }
+
+    private static byte[] readAll(Message m) {
+        try (InputStream in = m.body().openStream()) {
+            return in.readAllBytes();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
         }
     }
 

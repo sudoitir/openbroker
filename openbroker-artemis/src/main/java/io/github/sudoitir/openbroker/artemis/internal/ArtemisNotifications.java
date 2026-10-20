@@ -160,7 +160,7 @@ public final class ArtemisNotifications implements Notifications {
 
         /** Subscribes and delivers until the stream fails or closes. */
         private void consume(Instant since, Gap.Cause cause) {
-            ActiveMQConnectionFactory factory = CorePool.factory(
+            ActiveMQConnectionFactory factory = CoreLinks.connectionFactory(
                     cluster.options(),
                     node.core().orElseThrow(),
                     cluster.options().tls().current());

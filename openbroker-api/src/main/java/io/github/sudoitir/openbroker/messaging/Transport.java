@@ -12,7 +12,9 @@ import io.github.sudoitir.openbroker.model.Scope;
 @Incubating
 public interface Transport {
 
+    /** A receiver on one node of the subscription; a scope of more than one node is refused. */
     Receiver receiver(ResourceId subscription, Scope scope, ReceiveOptions options);
 
-    Sender sender(SendTarget target, SenderOptions options);
+    /** A sender entering through the first node of {@code scope} that holds the target. */
+    Sender sender(SendTarget target, Scope scope, SenderOptions options);
 }
