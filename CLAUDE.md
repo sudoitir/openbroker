@@ -47,6 +47,6 @@ Apache-2.0, public.
 ```bash
 ./mvnw verify                          # build, unit tests, TCK against Artemis (needs Docker)
 ./mvnw -pl openbroker-api test         # one module
-./mvnw spotless:apply                  # format (Palantir)
+./mvnw process-sources                 # format (Palantir; the BOM has no formatter, so not spotless:apply)
 ./mvnw -DskipTests install             # install a local SNAPSHOT for a consumer under development
 ```
