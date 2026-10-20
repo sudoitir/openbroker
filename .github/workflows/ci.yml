@@ -55,7 +55,7 @@ jobs:
         run: |
           previous=$(./mvnw -B -q help:evaluate -Dexpression=openbroker.previous.version -DforceStdout)
           if [ -z "$previous" ]; then echo "No release yet; nothing to compare."; exit 0; fi
-          ./mvnw -B -Papi-check -DskipTests -pl openbroker-api -am verify
+          ./mvnw -B -Papi-check -DskipTests verify
 
   sonar:
     runs-on: ubuntu-latest

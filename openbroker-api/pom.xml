@@ -32,48 +32,4 @@
         </dependency>
     </dependencies>
 
-    <profiles>
-        <!-- `-Papi-check`: the API may not break without a new minor version while 0.x, or a new
-             major version after it. @Incubating types are exempt. Needs openbroker.previous.version. -->
-        <profile>
-            <id>api-check</id>
-            <build>
-                <plugins>
-                    <plugin>
-                        <groupId>com.github.siom79.japicmp</groupId>
-                        <artifactId>japicmp-maven-plugin</artifactId>
-                        <version>${japicmp.version}</version>
-                        <configuration>
-                            <oldVersion>
-                                <dependency>
-                                    <groupId>${project.groupId}</groupId>
-                                    <artifactId>${project.artifactId}</artifactId>
-                                    <version>${openbroker.previous.version}</version>
-                                </dependency>
-                            </oldVersion>
-                            <newVersion>
-                                <file>
-                                    <path>${project.build.directory}/${project.build.finalName}.jar</path>
-                                </file>
-                            </newVersion>
-                            <parameter>
-                                <excludes>
-                                    <exclude>@io.github.sudoitir.openbroker.Incubating</exclude>
-                                </excludes>
-                                <breakBuildBasedOnSemanticVersioning>true</breakBuildBasedOnSemanticVersioning>
-                                <breakBuildBasedOnSemanticVersioningForMajorVersionZero>true</breakBuildBasedOnSemanticVersioningForMajorVersionZero>
-                                <onlyModified>true</onlyModified>
-                            </parameter>
-                        </configuration>
-                        <executions>
-                            <execution>
-                                <phase>verify</phase>
-                                <goals><goal>cmp</goal></goals>
-                            </execution>
-                        </executions>
-                    </plugin>
-                </plugins>
-            </build>
-        </profile>
-    </profiles>
 </project>
