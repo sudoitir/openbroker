@@ -106,7 +106,7 @@ final class CoreBodies {
             if (!HEADERS.contains(name)) {
                 PropertyValue value = typed(m.getObjectProperty(name));
                 if (value != null) {
-                    properties.put(name.toString(), value);
+                    properties.put(JmsNames.read(name.toString()), value);
                 }
             }
         }
@@ -215,7 +215,7 @@ final class CoreBodies {
         }
         for (Map.Entry<String, PropertyValue> p : out.properties().entrySet()) {
             if (!BOOKKEEPING.contains(p.getKey())) {
-                m.putObjectProperty(SimpleString.of(p.getKey()), coreValue(p.getValue()));
+                m.putObjectProperty(SimpleString.of(JmsNames.stored(p.getKey())), coreValue(p.getValue()));
             }
         }
         h.correlationId().ifPresent(v -> m.putStringProperty(CORRELATION_ID, SimpleString.of(v)));

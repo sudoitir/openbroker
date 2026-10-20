@@ -172,7 +172,7 @@ public final class BrowseRows {
         Integer cut = null;
         if (node != null && node.isObject()) {
             for (Map.Entry<String, JsonNode> e : node.properties()) {
-                into.put(e.getKey(), as.apply(e.getValue()));
+                into.put(JmsNames.read(e.getKey()), as.apply(e.getValue()));
                 if (cut == null && e.getValue().isString()) {
                     Matcher marker = TRUNCATION_MARKER.matcher(e.getValue().asString());
                     if (marker.find()) {

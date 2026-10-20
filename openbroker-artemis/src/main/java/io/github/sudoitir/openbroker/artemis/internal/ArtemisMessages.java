@@ -548,7 +548,7 @@ public final class ArtemisMessages implements Messages {
                     "A message sent over Jolokia cannot set its id, priority, expiry or key; send it over Core.");
         }
         Map<String, Object> out = new HashMap<>();
-        message.properties().forEach((name, value) -> out.put(name, value.asText()));
+        message.properties().forEach((name, value) -> out.put(JmsNames.stored(name), value.asText()));
         // Headers last: a header wins over a property of the same broker name.
         h.correlationId().ifPresent(v -> out.put(BrowseRows.CORRELATION_ID, v));
         h.type().ifPresent(v -> out.put(BrowseRows.TYPE, v));
