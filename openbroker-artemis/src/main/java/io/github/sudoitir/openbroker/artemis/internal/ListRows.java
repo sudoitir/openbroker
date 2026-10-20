@@ -136,8 +136,7 @@ public final class ListRows {
         id(a, StandardAttributes.PARENT, ArtemisKinds.CONNECTION, connection);
         metric(a, MetricKeys.CONSUMER_COUNT, row, "consumerCount");
         metric(a, MetricKeys.PRODUCER_COUNT, row, "producerCount");
-        // A session is named within its connection, which closing it needs.
-        return ResourcePath.of(connection, id);
+        return ResourcePath.of(id);
     }
 
     private static @Nullable ResourcePath consumer(JsonNode row, Attributes.Builder a) {

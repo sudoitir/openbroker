@@ -386,9 +386,14 @@ public final class ArtemisOperations implements Operations {
         JolokiaRequest request;
         if (kind.equals(ArtemisKinds.CONNECTION)) {
             request = JolokiaRequest.exec(broker, "closeConnectionWithID(java.lang.String)", path.getLast());
-        } else if (kind.equals(ArtemisKinds.SESSION) && path.size() == 2) {
+        } else if (kind.equals(ArtemisKinds.SESSION)) {
+            // The broker closes a session by its connection's id too, which only a session row names.
+            String connection = connectionOfSession(node, path.getLast(), deadline);
+            if (connection == null) {
+                return OperationResult.already();
+            }
             request = JolokiaRequest.exec(
-                    broker, "closeSessionWithID(java.lang.String,java.lang.String)", path.get(0), path.get(1));
+                    broker, "closeSessionWithID(java.lang.String,java.lang.String)", connection, path.getLast());
         } else if (kind.equals(ArtemisKinds.CONSUMER) && path.size() == 2) {
             request = JolokiaRequest.exec(
                     broker, "closeConsumerWithID(java.lang.String,java.lang.String)", path.get(0), path.get(1));
@@ -419,6 +424,23 @@ public final class ArtemisOperations implements Operations {
                             message));
         }
         return new Partial<>(OperationResult.done(), outcomes, failures);
+    }
+
+    /** The connection a session belongs to, or null when the node no longer has the session. */
+    private @Nullable String connectionOfSession(NodeHandle node, String session, Deadline deadline) {
+        ArtemisLists.Page page = ArtemisLists.fetch(
+                cluster.jolokia(node, deadline),
+                "listSessions",
+                Filters.options(
+                        ArtemisKinds.SESSION,
+                        ResourceQuery.of(ArtemisKinds.SESSION).named(session)),
+                -1,
+                -1);
+        JsonNode rows = page.data();
+        if (rows == null || !rows.isArray() || rows.isEmpty()) {
+            return null;
+        }
+        return ArtemisLists.str(rows.get(0), "connectionID");
     }
 
     // ---- state ------------------------------------------------------------

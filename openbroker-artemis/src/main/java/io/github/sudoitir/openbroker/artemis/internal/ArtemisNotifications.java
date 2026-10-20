@@ -303,11 +303,7 @@ public final class ArtemisNotifications implements Notifications {
                         id(ArtemisKinds.QUEUE, routingName);
                     case "ADDRESS_ADDED", "ADDRESS_REMOVED" -> id(ArtemisKinds.ADDRESS, address);
                     case "CONNECTION_CREATED", "CONNECTION_DESTROYED" -> id(ArtemisKinds.CONNECTION, connection);
-                    case "SESSION_CREATED", "SESSION_CLOSED" ->
-                        connection != null && session != null
-                                ? Optional.of(
-                                        new ResourceId(ArtemisKinds.SESSION, ResourcePath.of(connection, session)))
-                                : Optional.empty();
+                    case "SESSION_CREATED", "SESSION_CLOSED" -> id(ArtemisKinds.SESSION, session);
                     default -> id(ArtemisKinds.ADDRESS, address);
                 };
         return new BrokerEvent(
