@@ -25,6 +25,17 @@ public final class MetricKeys {
     /** Consumers attached. UpDownCounter, {@code {consumer}}. */
     public static final AttributeKey<MetricValue> CONSUMER_COUNT = key("openbroker.consumer.count");
 
+    /** Subscriptions attached to a destination. UpDownCounter, {@code {subscription}}. */
+    public static final AttributeKey<MetricValue> SUBSCRIPTION_COUNT = key("openbroker.subscription.count");
+    /** Producers attached. UpDownCounter, {@code {producer}}. */
+    public static final AttributeKey<MetricValue> PRODUCER_COUNT = key("openbroker.producer.count");
+    /** Channels open on a connection. UpDownCounter, {@code {channel}}. */
+    public static final AttributeKey<MetricValue> CHANNEL_COUNT = key("openbroker.channel.count");
+    /** Messages ever delivered to a consumer. Counter, {@code {message}}. */
+    public static final AttributeKey<MetricValue> DELIVERED = key("openbroker.delivered");
+    /** Messages ever sent by a producer. Counter, {@code {message}}. */
+    public static final AttributeKey<MetricValue> SENT = key("openbroker.sent");
+
     private MetricKeys() {}
 
     private static AttributeKey<MetricValue> key(String name) {

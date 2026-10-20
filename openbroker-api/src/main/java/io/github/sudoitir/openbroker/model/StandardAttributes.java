@@ -1,5 +1,7 @@
 package io.github.sudoitir.openbroker.model;
 
+import java.time.Instant;
+
 /** Standard attribute keys every driver uses for the same meaning. */
 public final class StandardAttributes {
 
@@ -37,6 +39,26 @@ public final class StandardAttributes {
     public static final AttributeKey<String> DERIVED_FROM = AttributeKey.of("openbroker.derived_from", String.class);
     /** The number of consumers a subscription allows, or -1 for no limit. */
     public static final AttributeKey<Long> MAX_CONSUMERS = AttributeKey.of("openbroker.max_consumers", Long.class);
+
+    /**
+     * The resource this one belongs to: a channel's connection, a consumer's or producer's channel, a
+     * policy's destination.
+     */
+    public static final AttributeKey<ResourceId> PARENT = AttributeKey.of("openbroker.parent", ResourceId.class);
+    /** The subscription a consumer reads from. */
+    public static final AttributeKey<ResourceId> SUBSCRIPTION =
+            AttributeKey.of("openbroker.subscription", ResourceId.class);
+    /** The wire protocol a client speaks ({@code AMQP}, {@code CORE}, {@code KAFKA}, {@code MQTT}). */
+    public static final AttributeKey<String> PROTOCOL = AttributeKey.of("openbroker.protocol", String.class);
+    /** Where a client connects from, as the broker sees it. */
+    public static final AttributeKey<String> REMOTE_ADDRESS =
+            AttributeKey.of("openbroker.remote_address", String.class);
+    /** The identifier a client gave itself. */
+    public static final AttributeKey<String> CLIENT_ID = AttributeKey.of("openbroker.client_id", String.class);
+    /** The authenticated principal a client acts as. */
+    public static final AttributeKey<String> PRINCIPAL = AttributeKey.of("openbroker.principal", String.class);
+    /** When the resource was created. */
+    public static final AttributeKey<Instant> CREATED_AT = AttributeKey.of("openbroker.created_at", Instant.class);
 
     private StandardAttributes() {}
 }

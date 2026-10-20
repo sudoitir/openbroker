@@ -7,6 +7,7 @@ import io.github.sudoitir.openbroker.NodeOutcome;
 import io.github.sudoitir.openbroker.Partial;
 import io.github.sudoitir.openbroker.artemis.ArtemisKinds;
 import io.github.sudoitir.openbroker.artemis.ArtemisLists;
+import io.github.sudoitir.openbroker.artemis.ArtemisMBeans;
 import io.github.sudoitir.openbroker.model.Kind;
 import io.github.sudoitir.openbroker.model.KindId;
 import io.github.sudoitir.openbroker.model.Resource;
@@ -21,6 +22,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 
 /**
@@ -28,6 +30,9 @@ import java.util.function.Predicate;
  * limit every page of every node in scope is read.
  */
 public final class ArtemisResources implements Resources {
+
+    /** The page size when a paged query sets no limit. */
+    private static final int DEFAULT_PAGE = 200;
 
     private final Cluster cluster;
 
@@ -65,28 +70,65 @@ public final class ArtemisResources implements Resources {
             throw Queries.invalid("A paged Artemis list reads one node; scope the query to one node.");
         }
         Predicate<String> names = Queries.names(query);
-        if (kind.equals(ArtemisKinds.QUEUE)) {
-            return queues(nodes, query, paged, names, deadline);
+        Optional<ListRows.Listing> listing = ListRows.listing(kind);
+        if (listing.isPresent()) {
+            return listed(kind, listing.get().operation(), nodes, query, paged, names, deadline);
         }
-        throw Unimplemented.of("list " + kind + " yet");
+        if (paged) {
+            throw Queries.invalid("Artemis lists " + kind + " in one page; leave out the limit.");
+        }
+        if (kind.equals(ArtemisKinds.DIVERT) || kind.equals(ArtemisKinds.BRIDGE)) {
+            return routes(kind, nodes, names, deadline);
+        }
+        throw Unimplemented.of("list " + kind + "; read it through ArtemisManagement");
     }
 
-    private Partial<ResourcePage> queues(
-            List<NodeHandle> nodes, ResourceQuery query, boolean paged, Predicate<String> names, Deadline deadline) {
+    private Partial<ResourcePage> listed(
+            KindId kind,
+            String operation,
+            List<NodeHandle> nodes,
+            ResourceQuery query,
+            boolean paged,
+            Predicate<String> names,
+            Deadline deadline) {
         int page = paged ? Queries.page(query) : -1;
-        int size = paged ? (query.limit() > 0 ? query.limit() : 200) : -1;
-        Optional<String>[] next = new Optional[] {Optional.empty()};
+        int size = paged ? (query.limit() > 0 ? query.limit() : DEFAULT_PAGE) : -1;
+        AtomicReference<Optional<String>> next = new AtomicReference<>(Optional.empty());
         Partial<List<Resource>> rows = Fanout.each(nodes, cluster.options(), node -> {
             ArtemisLists.Page p =
-                    ArtemisLists.fetch(cluster.jolokia(node, deadline), "listQueues", ArtemisLists.ALL, page, size);
-            Instant now = cluster.options().clock().instant();
-            List<Resource> parsed = QueueRows.parse(p.data(), node.id(), now);
+                    ArtemisLists.fetch(cluster.jolokia(node, deadline), operation, ArtemisLists.ALL, page, size);
+            List<Resource> parsed = ListRows.parse(
+                    kind, p.data(), node.id(), cluster.options().clock().instant());
             if (paged && !parsed.isEmpty() && (long) page * size < p.count()) {
-                next[0] = Optional.of(String.valueOf(page + 1));
+                next.set(Optional.of(String.valueOf(page + 1)));
             }
             return parsed.stream().filter(r -> names.test(r.id().name())).toList();
         });
-        return rows.map(items -> new ResourcePage(items, next[0]));
+        return rows.map(items -> new ResourcePage(items, next.get()));
+    }
+
+    private Partial<ResourcePage> routes(
+            KindId kind, List<NodeHandle> nodes, Predicate<String> names, Deadline deadline) {
+        boolean diverts = kind.equals(ArtemisKinds.DIVERT);
+        Partial<List<Resource>> rows = Fanout.each(nodes, cluster.options(), node -> {
+            NodeJolokia jolokia = cluster.jolokia(node, deadline);
+            String broker = jolokia.brokerName();
+            List<String> mbeans = jolokia.search(
+                    diverts ? ArtemisMBeans.divertsPattern(broker) : ArtemisMBeans.bridgesPattern(broker));
+            Instant now = cluster.options().clock().instant();
+            return ArtemisLists.readAll(
+                            jolokia,
+                            mbeans,
+                            m -> Optional.ofNullable(
+                                    diverts
+                                            ? RouteRows.divert(m, node.id(), now)
+                                            : RouteRows.bridge(m, node.id(), now)))
+                    .stream()
+                    .flatMap(Optional::stream)
+                    .filter(r -> names.test(r.id().name()))
+                    .toList();
+        });
+        return rows.map(items -> new ResourcePage(items, Optional.empty()));
     }
 
     private static KindId kindOf(ResourceClass resourceClass) {

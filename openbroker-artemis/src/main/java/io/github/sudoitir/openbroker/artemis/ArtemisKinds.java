@@ -30,6 +30,14 @@ public final class ArtemisKinds {
 
     /** Native attribute keys. */
     public static final String ROUTING_TYPE = "artemis.routing_type";
+    /** The routing types an address accepts, comma-separated. */
+    public static final String ROUTING_TYPES = "artemis.routing_types";
+    /** A consumer's state as the broker reports it ({@code OK}, {@code SUSPENDED}). */
+    public static final String STATUS = "artemis.status";
+    /** The name a producer was given. */
+    public static final String PRODUCER_NAME = "artemis.producer_name";
+    /** The acceptor address a client connected to. */
+    public static final String LOCAL_ADDRESS = "artemis.local_address";
 
     private ArtemisKinds() {}
 }
