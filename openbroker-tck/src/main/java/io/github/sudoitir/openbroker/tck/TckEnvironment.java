@@ -6,6 +6,7 @@ import io.github.sudoitir.openbroker.model.Attributes;
 import io.github.sudoitir.openbroker.model.KindId;
 import io.github.sudoitir.openbroker.model.ResourceId;
 import io.github.sudoitir.openbroker.spi.BrokerDriver;
+import java.util.Optional;
 
 /**
  * What a driver gives the TCK: itself, a request that reaches a real test cluster, and how to make
@@ -38,4 +39,23 @@ public interface TckEnvironment {
 
     /** The driver's own dialect, to test that an escape from a composed filter is refused. */
     String nativeDialect();
+
+    /**
+     * The same cluster, with an account that may send to and receive from subscriptions named {@code
+     * tck.*}, except those named {@code tck.denied.*}, which it may neither send to nor receive from.
+     * Empty (the default) when the driver cannot give such an account; the authorization cases are
+     * then skipped.
+     */
+    default Optional<ConnectRequest> restrictedRequest() {
+        return Optional.empty();
+    }
+
+    /**
+     * A request that reaches the cluster through an endpoint that requires a client certificate, and
+     * authenticates with one. Empty (the default) when the driver cannot give one; the mutual TLS
+     * case is then skipped.
+     */
+    default Optional<ConnectRequest> mutualTlsRequest() {
+        return Optional.empty();
+    }
 }

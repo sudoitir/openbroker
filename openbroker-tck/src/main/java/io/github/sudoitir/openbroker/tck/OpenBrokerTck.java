@@ -42,6 +42,7 @@ import io.github.sudoitir.openbroker.messaging.Sender;
 import io.github.sudoitir.openbroker.messaging.SenderOptions;
 import io.github.sudoitir.openbroker.messaging.Total;
 import io.github.sudoitir.openbroker.messaging.Transport;
+import io.github.sudoitir.openbroker.model.Delivery;
 import io.github.sudoitir.openbroker.model.Kind;
 import io.github.sudoitir.openbroker.model.NodeDescription;
 import io.github.sudoitir.openbroker.model.Ordering;
@@ -203,6 +204,26 @@ public abstract class OpenBrokerTck {
                     .orThrow();
             assertThat(page.items()).extracting(r -> r.id()).contains(id);
             assertThat(kind(env.subscriptionKind().value()).resourceClass()).isEqualTo(ResourceClass.SUBSCRIPTION);
+        } finally {
+            delete(id);
+        }
+    }
+
+    @Test
+    void listedDestinationReportsDeliveryModes() {
+        ResourceId id = createSubscription();
+        try {
+            ResourcePage page = connection
+                    .resources()
+                    .read(ResourceQuery.of(ResourceClass.DESTINATION).named(id.name()))
+                    .orThrow();
+            assumeTrue(!page.items().isEmpty(), "The driver lists no destination for a created subscription");
+            assertThat(page.items())
+                    .allSatisfy(destination -> assertThat(
+                                    destination.attributes().get(StandardAttributes.DELIVERY))
+                            .as("the delivery modes of %s", destination.id())
+                            .hasValueSatisfying(modes -> assertThat(modes.includes(Delivery.POINT_TO_POINT))
+                                    .isTrue()));
         } finally {
             delete(id);
         }
@@ -401,7 +422,7 @@ public abstract class OpenBrokerTck {
 
     @Test
     void aTransactedReceiveTakesMessagesOnlyOnCommit() {
-        Transport transport = transport();
+        Transport transport = transport(Guarantee.TRANSACTED);
         ResourceId id = createSubscription();
         try {
             send(id, 3, "k", "v");
@@ -464,7 +485,7 @@ public abstract class OpenBrokerTck {
 
     @Test
     void aTransactedSendDeliversOnlyOnCommitAndACopyKeepsEverything() {
-        Transport transport = transport();
+        Transport transport = transport(Guarantee.TRANSACTED);
         ResourceId from = createSubscription();
         ResourceId to = createSubscription();
         try {
@@ -539,6 +560,13 @@ public abstract class OpenBrokerTck {
     private Transport transport() {
         assumeTrue(connection.transport().isPresent(), "The driver offers no transport");
         return connection.transport().get();
+    }
+
+    /** The transport, when it declares that it keeps {@code guarantee}; the case is skipped otherwise. */
+    private Transport transport(Guarantee guarantee) {
+        Transport transport = transport();
+        assumeTrue(transport.capabilities().guarantees().contains(guarantee), "The transport declares no " + guarantee);
+        return transport;
     }
 
     private static byte[] readAll(Message m) {

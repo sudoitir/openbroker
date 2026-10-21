@@ -38,10 +38,10 @@ Order and parallelism:
 - Check: `./mvnw -B -pl openbroker-opentelemetry -am test`
 
 ## 4. TCK (unit D, parallel; files: openbroker-tck/**)
-- [ ] 4.1 `MessagingTck` cases 1–21 (design §TCK), skipping what the capabilities declare unavailable; `TckEnvironment.restrictedRequest()` and `mutualTlsRequest()`
-- [ ] 4.2 `TckChaos` and `ChaosTck` cases 1–12
-- [ ] 4.3 Port the existing transport cases in `OpenBrokerTck` to the new API
-- [ ] 4.4 Case `listedDestinationReportsDeliveryModes` in `OpenBrokerTck` (the regression guard for commit 06aa372)
+- [x] 4.1 `MessagingTck` cases 1–21 (design §TCK), skipping what the capabilities declare unavailable; `TckEnvironment.restrictedRequest()` and `mutualTlsRequest()`
+- [x] 4.2 `TckChaos` and `ChaosTck` cases 1–12
+- [x] 4.3 Port the existing transport cases in `OpenBrokerTck` to the new API
+- [x] 4.4 Case `listedDestinationReportsDeliveryModes` in `OpenBrokerTck` (the regression guard for commit 06aa372)
 - Check: `./mvnw -B -pl openbroker-tck -am compile`
 
 ## 5. ADRs and docs (unit G, parallel; files: docs/adr/0010–0017, README.md, package-info.java of messaging)
