@@ -72,11 +72,22 @@ class HaGroupsTest {
     void aBackupThatIsStillStandingByIsTriedAfterTheNodeItself() {
         List<NodeDescription> answers = List.of(
                 described(PRIMARY, Optional.of("node-1"), Designation.PRIMARY, Serving.ACTIVE),
-                described(BACKUP, Optional.empty(), Designation.BACKUP, Serving.STANDBY),
+                described(BACKUP, Optional.empty(), Designation.BACKUP, Serving.STANDBY));
+        HaGroups groups = new HaGroups(() -> List.of(PRIMARY, BACKUP), () -> answers);
+
+        assertThat(groups.candidates(PRIMARY, PRIMARY)).containsExactly(PRIMARY, BACKUP);
+    }
+
+    @Test
+    void aBackupWithNoGroupIsNotACandidateWhileAnotherGroupIsKnown() {
+        // It could be the other pair's backup: a link that moved there would read another journal.
+        List<NodeDescription> answers = List.of(
+                described(PRIMARY, Optional.of("node-1"), Designation.PRIMARY, Serving.ACTIVE),
+                described(BACKUP, Optional.empty(), Designation.BACKUP, Serving.ACTIVE),
                 described(OTHER, Optional.of("node-2"), Designation.PRIMARY, Serving.ACTIVE));
         HaGroups groups = new HaGroups(() -> List.of(PRIMARY, BACKUP, OTHER), () -> answers);
 
-        assertThat(groups.candidates(PRIMARY, PRIMARY)).containsExactly(PRIMARY, BACKUP);
+        assertThat(groups.candidates(PRIMARY, PRIMARY)).containsExactly(PRIMARY);
     }
 
     @Test

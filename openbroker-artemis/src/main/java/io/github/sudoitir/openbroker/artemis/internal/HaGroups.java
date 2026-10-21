@@ -67,6 +67,11 @@ final class HaGroups {
         }
         Map<NodeId, NodeDescription> described = described();
         String group = groups.get(origin.id());
+        // A standby backup reports no group, so it is counted in the origin's only when no other group
+        // is known for it to belong to; once it serves, it reports the group it took over.
+        boolean onlyGroup = group != null
+                && described.values().stream()
+                        .allMatch(d -> d.membership().group().map(group::equals).orElse(true));
         Set<NodeHandle> serving = new LinkedHashSet<>();
         Set<NodeHandle> others = new LinkedHashSet<>();
         others.add(lastServed);
@@ -74,7 +79,7 @@ final class HaGroups {
         for (NodeHandle n : all) {
             NodeDescription d = described.get(n.id());
             boolean member = n.id().equals(origin.id())
-                    || (group != null && (group.equals(groups.get(n.id())) || unnamedBackup(d)));
+                    || (group != null && (group.equals(groups.get(n.id())) || (onlyGroup && unnamedBackup(d))));
             if (!member) {
                 continue;
             }
