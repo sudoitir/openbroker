@@ -55,7 +55,14 @@ jobs:
         run: |
           previous=$(./mvnw -B -q help:evaluate -Dexpression=openbroker.previous.version -DforceStdout)
           if [ -z "$previous" ]; then echo "No release yet; nothing to compare."; exit 0; fi
-          ./mvnw -B -Papi-check -DskipTests verify
+          current=$(./mvnw -B -q help:evaluate -Dexpression=project.version -DforceStdout)
+          strict=true
+          # While 0.x, raising the minor version declares a break (ADR-0008).
+          if [ "${current%%.*}" = 0 ] && [ "$(echo "$current" | cut -d. -f2)" -gt "$(echo "$previous" | cut -d. -f2)" ]; then
+            echo "$previous -> $current raises the minor version: breaking changes are declared."
+            strict=false
+          fi
+          ./mvnw -B -Papi-check -DskipTests -Dopenbroker.api.strictZero="$strict" verify
 
   # The chaos TCK: brokers are killed, partitioned and healed. It takes minutes per image, so verify
   # leaves *ChaosIT out and the chaos profile runs it alone.

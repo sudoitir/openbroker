@@ -52,6 +52,10 @@
 
         <!-- The last version on Central; japicmp compares against it. Raise it after each release. -->
         <openbroker.previous.version>0.1.0</openbroker.previous.version>
+        <!-- While 0.x a breaking change raises the minor version (ADR-0008), which japicmp cannot
+             express: it holds 0.x to full SemVer or not at all. CI sets this to false when the minor
+             version is above the previous release's, so that bump declares the break. -->
+        <openbroker.api.strictZero>true</openbroker.api.strictZero>
 
         <jspecify.version>1.0.0</jspecify.version>
         <artemis.version>2.57.0</artemis.version>
@@ -342,7 +346,7 @@
                                     <exclude>io.github.sudoitir.openbroker.artemis.internal</exclude>
                                 </excludes>
                                 <breakBuildBasedOnSemanticVersioning>true</breakBuildBasedOnSemanticVersioning>
-                                <breakBuildBasedOnSemanticVersioningForMajorVersionZero>true</breakBuildBasedOnSemanticVersioningForMajorVersionZero>
+                                <breakBuildBasedOnSemanticVersioningForMajorVersionZero>${openbroker.api.strictZero}</breakBuildBasedOnSemanticVersioningForMajorVersionZero>
                                 <onlyModified>true</onlyModified>
                             </parameter>
                         </configuration>
