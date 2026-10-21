@@ -16,11 +16,15 @@ The driver SHALL register the system `kafka` through `ServiceLoader`, declare Ka
 - **THEN** verify fails with `FAILED_PRECONDITION`, and the reason names the version found and the supported range
 
 ### Requirement: Kafka is modelled honestly
-The driver SHALL map a topic to a destination, a partition to a partition, a group to a consumer group with its type (classic, consumer, share or streams) and state, streams groups read-only, a consumer group or share group on a topic to a subscription of its own kind, an ACL to an access rule and a transactional id to a transaction. A topic's configuration SHALL be its config attributes. Every kind SHALL carry Kafka's own label.
+The driver SHALL map a topic to a destination, a partition to a partition, a group to a consumer group with its type (classic, consumer, share or streams) and state, classic and streams groups read-only with no subscription, a consumer group or share group on a topic to a subscription of its own kind, an ACL to an access rule and a transactional id to a transaction. A topic's configuration SHALL be its config attributes. Every kind SHALL carry Kafka's own label.
 
 #### Scenario: Native labels
 - **WHEN** a consumer lists the driver's kinds
-- **THEN** each kind carries Kafka's label, for example "Topic", "Consumer group" and "Group on topic"
+- **THEN** each kind carries Kafka's label, for example "Topic", "Group" and "Group on topic"
+
+#### Scenario: A streams group is read-only
+- **WHEN** a consumer lists the groups of a cluster that runs a Kafka Streams application
+- **THEN** the streams group is listed with its type and state, offers no subscription, and purge and seek are unavailable on it with the reason that its offsets belong to the application
 
 ### Requirement: A subscription's backlog is its lag, as an estimate
 A subscription's backlog SHALL be reported as an estimate with a per-partition breakdown. For a consumer group it SHALL be the partition's end offset minus the committed offset, and the estimate's reason SHALL say that transaction markers and compaction can make it overcount. For a share group it SHALL be the records not yet acknowledged.
@@ -121,11 +125,18 @@ The driver SHALL declare idempotent sending with the session scope: the client's
 - **THEN** it is refused with `UNIMPLEMENTED`, naming the session scope the driver offers
 
 ### Requirement: Consumer-group retries are client-enforced
-For a consumer group, the driver SHALL declare delay, attempts and dead-lettering as enforced by the client. An ordered processor SHALL retry in place, holding its partition and keeping order. An unordered processor SHALL release a failed record through a retry topic carrying its attempt count and due time, so that the partition keeps moving.
+For a consumer group, the driver SHALL declare that the system enforces none of delay, attempts and dead-lettering. The default policy SHALL resolve to a managed policy that retries in place and creates no retry topic. An ordered processor SHALL retry in place, holding its partition and keeping order. An explicitly managed, unordered processor SHALL release a failed record through a retry topic per backoff step, carrying its attempt count and due time, so that the partition keeps moving.
 
 #### Scenario: An unordered retry does not block the partition
 - **WHEN** an unordered processor's handler fails once on a record and later records of its partition succeed
 - **THEN** the later records are handled and committed while the failed record waits its backoff in the retry topic, then is handled again
+
+### Requirement: A missing retry or dead-letter topic refuses the open
+A retry or dead-letter topic that does not exist and that the account may not create SHALL refuse the processor's open with `FAILED_PRECONDITION`, naming the topic and the remedy, before the group is joined.
+
+#### Scenario: A default processor that cannot create its dead-letter topic
+- **WHEN** a processor opens with default options on a consumer group, its topic's dead-letter topic does not exist, and the account may not create topics
+- **THEN** it is refused with `FAILED_PRECONDITION`, naming the dead-letter topic and how to create it or name another, and no group is joined
 
 ### Requirement: Dead letters keep their origin
 After the last attempt, or on a rejection, a consumer-group record SHALL be sent to the policy's dead-letter topic with its origin topic, partition, offset, attempt count and reason as headers, before its offset is committed.
@@ -135,7 +146,7 @@ After the last attempt, or on a rejection, a consumer-group record SHALL be sent
 - **THEN** the dead-letter topic holds the record with headers naming the origin topic, partition 3, offset 120 and the reason, and the group's offset moves past it
 
 ### Requirement: Share groups are a queue subscription
-On a cluster with share groups enabled, the driver SHALL offer a share-group subscription kind, declared dynamically from the cluster's features. A processor on it SHALL be unordered, SHALL settle each record by accepting, releasing or rejecting it, and SHALL use the broker's delivery count for the system retry policy. Any ordering but none SHALL be refused with `UNIMPLEMENTED`.
+On a cluster where share groups are enabled at a production feature level, the driver SHALL offer a share-group subscription kind, declared from the cluster's features at connect. A processor on it SHALL be unordered, SHALL settle each record by accepting, releasing or rejecting it, and SHALL use the broker's delivery count for the system retry policy. It SHALL renew a record's acquisition lock while its handler runs. Any ordering but none SHALL be refused with `UNIMPLEMENTED`.
 
 #### Scenario: Release and redeliver
 - **WHEN** a handler releases a share-group record
@@ -146,11 +157,22 @@ On a cluster with share groups enabled, the driver SHALL offer a share-group sub
 - **THEN** the share-group subscription kind is unavailable, with the reason and the feature that enables it as the remedy
 
 ### Requirement: Share groups dead-letter through the broker
-A rejected share-group record, or one past its delivery limit, SHALL go to the broker's dead-letter topic where the cluster supports one. Where it does not, system dead-lettering SHALL be declared unavailable with the reason, and a managed policy SHALL dead-letter by sending the record to its dead-letter topic before rejecting it.
+System dead-lettering SHALL be declared only where the cluster's `share.version` feature is at level 2 or higher (Kafka 4.4.0 and later). There, a rejected share-group record, or one past its delivery limit, SHALL go to the group's dead-letter topic. Elsewhere, system dead-lettering SHALL be declared unavailable with the reason and the feature that enables it, and a managed policy SHALL dead-letter by sending the record to its dead-letter topic before rejecting it.
 
 #### Scenario: A record past its delivery limit
 - **WHEN** a share-group record is released more times than the group's delivery limit on a cluster with share-group dead-lettering
 - **THEN** the broker moves it to the dead-letter topic, and it is not delivered again
+
+#### Scenario: A cluster without share-group dead-lettering
+- **WHEN** a processor opens with a managed policy on a share-group subscription of a cluster whose `share.version` is below 2, and a record fails every attempt
+- **THEN** system dead-lettering is reported unavailable with the feature as the remedy, and the record is sent to the policy's dead-letter topic and then rejected
+
+### Requirement: System dead-lettering needs a configured topic
+A processor with the system policy on a share group SHALL be refused at open with `FAILED_PRECONDITION` when the cluster dead-letters share groups but the group names no dead-letter topic, with a remedy naming the group and topic configs.
+
+#### Scenario: A system policy on a group with no dead-letter topic
+- **WHEN** a processor opens with the system policy on a share group of a cluster with share-group dead-lettering, but the group names no dead-letter topic
+- **THEN** it is refused with `FAILED_PRECONDITION`, and the remedy names the group config for the dead-letter topic
 
 ### Requirement: Kafka messaging is secure
 The driver SHALL authenticate with SASL PLAIN, SASL SCRAM, SASL OAUTHBEARER and mutual TLS. It SHALL ask for credentials and TLS material on every new connection to a broker, so that rotation needs no restart. Hostname verification SHALL stay on. A topic the account may not use SHALL fail with `PERMISSION_DENIED`, naming the topic, without closing the client.
@@ -160,7 +182,7 @@ The driver SHALL authenticate with SASL PLAIN, SASL SCRAM, SASL OAUTHBEARER and 
 - **THEN** new broker connections use it, and the processor keeps running
 
 ### Requirement: The Kafka driver passes the TCK
-The driver SHALL pass every TCK, messaging TCK and chaos TCK case for the capabilities it declares, against a real three-broker cluster of the oldest and the newest supported Kafka. The chaos cases SHALL kill a partition's leader mid-flight, cut the network to it, and check that at least once loses no acknowledged record when the topic has three replicas and two in-sync replicas are required.
+The driver SHALL pass every TCK, messaging TCK and chaos TCK case for the capabilities it declares, against a real three-broker cluster of the oldest and the newest supported Kafka, and SHALL prove share-group dead-lettering against a cluster that supports it. The chaos cases SHALL kill a partition's leader mid-flight, cut the network to it, and check that at least once loses no acknowledged record when the topic has three replicas and two in-sync replicas are required.
 
 #### Scenario: A leader is killed mid-flight
 - **WHEN** the leader of a partition is killed while an at-least-once sender and processor are running

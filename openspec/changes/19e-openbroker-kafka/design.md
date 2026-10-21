@@ -61,7 +61,7 @@ Its two core ideas, contiguous offset commits and per-key queues, are small and 
 4.0 is KRaft-only and has the KIP-848 consumer group protocol. That gives one rebalance path to build and to test under chaos, with no ZooKeeper code.
 - **Supporting 3.9 was rejected.** It needs the classic protocol beside the consumer protocol, which means two rebalance paths and double the chaos matrix, for clusters that are leaving support.
 
-Verify reads the cluster's version and features and refuses older clusters. CI runs `apache/kafka` at 4.0.x and the newest release.
+Verify reads the cluster's version and features and refuses older clusters. CI runs `apache/kafka` at 4.0.2 and at the newest final image (4.3.2 on 2026-10-21). The driver builds on `kafka-clients` 4.4.0 (checked on Maven Central), whose clients talk to 4.0 and later brokers. Testcontainers stays at the repository's 2.0.5, with `testcontainers-kafka`.
 
 ### D3. The resource model
 | Kind id | Class | Label | Notes |
@@ -74,7 +74,9 @@ Verify reads the cluster's version and features and refuses older clusters. CI r
 | `kafka.acl` | ACCESS_RULE | ACL / ACLs | `describeAcls`, create, delete |
 | `kafka.transactional-id` | TRANSACTION | Transactional ID / Transactional IDs | List, describe, abort a hanging transaction |
 
-Brokers are nodes. The controller quorum (`describeMetadataQuorum`) and under-replicated partitions feed health. Streams groups are listed read-only, because their offsets belong to the Streams application.
+Brokers are nodes. The controller quorum (`describeMetadataQuorum`) and under-replicated partitions feed health. Classic and streams groups are listed read-only, with no subscription kind, because their offsets belong to the applications that run them. Only consumer and share groups get subscriptions.
+
+Seek reuses the SDK's existing `Position` and `Seek` (`Earliest`, `Latest`, `AtOffsets`, `AtTime`, `After`); `AtSnapshot` is unavailable on Kafka.
 
 ### D4. Lag is an estimate
 Lag is the end offset minus the committed offset, summed per subscription. A group's isolation level is a client setting that Admin cannot see, so the end offset is always the high watermark. It is always marked an estimate:
@@ -138,9 +140,26 @@ Kafka's idempotent producer deduplicates its own retries within a producer sessi
 - **Rejected: declaring idempotence unavailable.** Today's binary declaration would force this, and then ordering at least once (which needs idempotence) would be refused on the system where ordering matters most.
 - **Rejected: declaring it available.** That would promise caller-id deduplication Kafka cannot keep.
 
-The SDK gains a `DeduplicationScope` (`NONE`, `SESSION`, `WINDOW`) in `TransportCapabilities`, and a sender may ask for a minimum scope:
+The SDK gains `enum DeduplicationScope { NONE, SESSION, WINDOW }`:
+- `SESSION`: the system drops the sender's own re-sends while its producer session lasts.
+- `WINDOW`: the system drops any repeat of a caller-set deduplication id within a window.
+
+The shape:
+- `TransportCapabilities.deduplication` changes from a `boolean` to the strongest `DeduplicationScope` the transport offers.
+- `SenderOptions.idempotent` is replaced by `SenderOptions.deduplication`, the minimum scope the sender asks for. It defaults to `NONE` and is set with `withDeduplication`.
+- An ask above the declared scope is refused with `UNIMPLEMENTED`, not sent.
+- `Sender.deduplication()` (`DeduplicationWindow`) stays, and is set only under `WINDOW`.
+- The ordering rule in `Failures` and `SendPipeline` becomes "ordered at least once needs `SESSION` or stronger", and `SendPipeline` stamps a deduplication id whenever the scope asked for is not `NONE`.
+
+Declarations:
 - Artemis declares `WINDOW`, with its duplicate-id cache as the window.
 - Kafka declares `SESSION`.
+- The javadoc gives the mapping for the other systems:
+  - `SESSION`: Pulsar (a sequence per named producer) and ActiveMQ Classic (the producer audit).
+  - `WINDOW`: SQS FIFO, JetStream `Nats-Msg-Id` and Azure Service Bus duplicate detection.
+  - `NONE`: RabbitMQ, Pub/Sub and Solace.
+
+The scopes are not strictly nested: a `WINDOW` system meets a `SESSION` ask only for re-sends that arrive within the window, and the javadoc says so.
 
 `SendReceipt.resent` is true only for the driver's own re-sends after a producer reset. The client's internal retries are invisible and deduplicated.
 
@@ -149,19 +168,42 @@ A Kafka consumer group has no system retry. Under today's default (`RetryMode.SY
 - **Rejected: emulating "system" in the client.** That would hide where enforcement happens, which ADR 0014 made explicit.
 
 The default instead becomes the transport's declared enforcement, per subscription kind:
-- system where the system enforces;
+- system where the system counts attempts;
 - managed otherwise.
 
-In code, `RetryPolicy.defaults()` stops naming a mode, and the processor resolves it against `TransportCapabilities` at open.
+**What a system enforces, per subscription kind.** In `0.2.0`, `RetrySupport(Enforcement delay, attempts, deadLetter)` is declared once per transport. Artemis declares `CLIENT` for all three, although its javadoc and ADR-0014 say the broker enforces `SYSTEM` retries. In practice the value only says "under `MANAGED` the client does it", which is true on every system. Its one reader, the TCK's `assumeClientDeadLetter`, misreads it as "a dead-letter destination may be named". The shape that replaces it:
+- `RetrySupport` and `Enforcement` are removed. In their place, `record SystemRetry(boolean delays, boolean countsAttempts, boolean deadLetters)`, with `SystemRetry.NONE`, says what the system itself enforces under `SYSTEM`. `MANAGED` is always available, in the client.
+- `record SubscriptionCapabilities(Set<OrderingScope> orderings, SettlementScope pullSettlement, boolean joinedTransactions, SystemRetry retry)`.
+- `TransportCapabilities(guarantees, deduplication, orderings, prefetchBounds, Map<KindId, SubscriptionCapabilities> subscriptions, failover)`:
+  - `orderings` now applies to senders;
+  - `subscription(KindId)` throws `IllegalArgumentException` for a kind the transport does not offer.
+- Ordering, pull settlement and joined transactions move into the per-kind record with retry, because a share group differs on all of them. A transport-wide declaration would be dishonest for the kind it does not describe.
+- A map, rather than a method on `Transport` or a lookup by `ResourceId`, keeps the value static, with no I/O. Consumers and the TCK can list it and show it per kind, and every `ResourceId` already carries its kind.
+- Kafka computes the value when the connection is made, because share dead-lettering depends on `share.version`. It is fixed for the transport's life, and the processor re-checks it at open.
+
+**Resolving the default.**
+- `RetryMode` gains `DEFAULT`, and `RetryPolicy.defaults()` replaces `RetryPolicy.system()` as `ProcessorOptions.defaults()`'s policy.
+- `Retries.resolve(RetryPolicy, SystemRetry)` in `openbroker-support` resolves it. Every driver calls it in `process(...)`, before its own checks, such as Artemis's `requireRetryTheBrokerAllows`. It works this way:
+  - `DEFAULT` becomes `SYSTEM` where `countsAttempts` is true, and otherwise `MANAGED` with 10 attempts, `Backoff.defaults()` and in-place retry. Ten attempts match Artemis's default `max-delivery-attempts` and Spring for Apache Kafka's `DefaultErrorHandler`.
+  - An explicit `SYSTEM` where `countsAttempts` is false is refused with `UNIMPLEMENTED`, not sent.
+  - A `MANAGED` policy may always name a dead-letter target.
+- `Processor.retry()` returns the resolved policy, so a consumer can see what the default became.
+
+Declarations:
+- Artemis declares `SystemRetry(true, true, true)` for both of its queue kinds. Its javadoc is then true.
+- Kafka declares:
+  - consumer group: `SystemRetry.NONE`;
+  - share group: `SystemRetry(false, true, deadLetters)` (D12).
 
 On a consumer group:
+- **The resolved default** retries in place, whatever the ordering, so a default processor never creates retry topics.
 - **Ordered** processing retries in place: pause the partition, back off, re-dispatch. This needs no seek, because the record is still held.
-- **Unordered** processing releases through one retry topic per backoff step, `<topic>.retry-<n>`, as Spring for Apache Kafka does. Every record in a topic then has the same delay, and the head is always due first. Headers carry the attempt and the due time, and a retry consumer in the same processor pauses each retry partition until its head is due.
+- **An explicitly managed, unordered** policy releases through one retry topic per backoff step, `<topic>.retry-<n>`, as Spring for Apache Kafka does. Every record in a topic then has the same delay, and the head is always due first. Headers carry the attempt and the due time, and a retry consumer in the same processor pauses each retry partition until its head is due.
   - **Rejected: a single retry topic with mixed due times.** A late record at the head would block earlier-due ones behind it.
   - **Rejected: holding failed records in memory.** It blocks the commit position for the whole backoff, and the record is lost on a crash before the first retry is due.
 - **Dead letter** goes to the policy's target, or `<topic>.dlt` by default, with the headers `openbroker.origin.topic`, `.partition`, `.offset`, `.attempts` and `.reason`. In a transacted processor, the dead-letter send and the offset commit are one transaction.
 
-Retry and dead-letter topics are created on demand when the account may create topics. Otherwise the open is refused, with the topic named.
+Retry and dead-letter topics are created on demand when the account may create topics. Otherwise the open is refused with `FAILED_PRECONDITION`, naming the topic, with a remedy (create it, or name an existing target). This includes a default processor whose `<topic>.dlt` is missing. Dropping exhausted records silently would be dishonest.
 
 ### D12. Share groups as their own subscription kind
 - **Rejected: a flag on the processor.** A share group and a consumer group are different groups on the broker, with different semantics. A processor opened on a `kafka.share-group-topic` subscription uses `KafkaShareConsumer` in explicit acknowledgement mode.
@@ -171,22 +213,55 @@ The mapping:
 - release → `RELEASE`;
 - reject → `REJECT`.
 
-The system retry policy is declared, enforced by `group.share.delivery.count.limit` and the lock duration. System dead-lettering is declared when the cluster supports share-group dead-letter queues; the Kafka docs tie them to `share.version` ≥ 2, which the apply session re-checks with ctx7 for the release that ships them. Otherwise it is unavailable with a remedy, and a managed policy dead-letters by sending to `<topic>.dlt` and then rejecting. Purge and seek on a share group use `alterShareGroupOffsets`, under the same empty-group rule as consumer groups. A managed policy is refused when the broker's delivery limit would cut it short (ADR 0014's rule). Ordering is `NONE` only. Credit maps to `max.poll.records` and to not polling while full, which the broker's acquisition lock bounds.
+The share-group kind's `SubscriptionCapabilities`:
+- ordering `NONE`;
+- `MESSAGE` settlement;
+- no joined transactions;
+- `SystemRetry(false, true, deadLetters)`, where the broker counts attempts through `group.share.delivery.count.limit`.
+
+**System dead-lettering** (KIP-1191, checked with ctx7) ships in Kafka 4.4.0 and is enabled by the `share.version` feature at level 2:
+- The group config `errors.deadletterqueue.topic.name` names the DLQ topic, which must start with the cluster's `errors.deadletterqueue.topic.name.prefix` (default `dlq.`).
+- The topic needs `errors.deadletterqueue.group.enable=true`, unless the cluster auto-creates DLQ topics.
+- A dead-lettered record carries only its source metadata unless `errors.deadletterqueue.copy.record.enable` is set on the group.
+
+`deadLetters` is true only when the finalized `share.version` is at least 2. Under `SYSTEM`, the processor checks at open that the group has a DLQ topic configured; if not, it refuses with a remedy that names the three configs. Elsewhere, system dead-lettering is unavailable with that remedy, and a managed policy dead-letters by sending to `<topic>.dlt` and then rejecting.
+
+**Long handlers.** The processor renews a record's acquisition lock (`AcknowledgeType.RENEW`) at half of `acquisitionLockTimeoutMs()` while its handler runs. This is inside the driver and has no API, so a slow handler does not lose its record to another member. The apply session checks with ctx7 the release and feature level that ship `RENEW`, and the finalized `share.version` level at which share groups leave preview. Preview levels are not declared.
+
+Purge and seek on a share group use `alterShareGroupOffsets`, under the same empty-group rule as consumer groups. A managed policy is refused when the broker's delivery limit would cut it short (ADR 0014's rule). Ordering is `NONE` only. Credit maps to `max.poll.records` and to not polling while full, which the broker's acquisition lock bounds.
+
+**Testing on 4.4.0.** Docker Hub has no final `apache/kafka:4.4.0` image yet (2026-10-21), only `4.4.0-rc4`. The maintainer chose to build system dead-lettering now. One IT runs it on `4.4.0-rc4`, and moves to `4.4.0` when that image is published. The CI matrix's newest entry stays at the newest final image (4.3.2), which tests the managed fallback.
 
 ### D13. Credentials (SDK change)
-`Credentials` becomes a sealed interface:
-- `UsernamePassword(username, Secret password)`, which Artemis uses;
-- `BearerToken(Secret token, Instant expiresAt)`.
+`Credentials` becomes `sealed interface Credentials permits UsernamePassword, BearerToken, None`:
+- `UsernamePassword(String username, Secret password)`, which Artemis uses;
+- `BearerToken(Secret token, Instant expiresAt)`;
+- `None`, which replaces the empty-pair sentinel, `none()` and `isNone()`. Mutual TLS is `None` with a `TlsProvider`.
+
+A driver refuses a form it does not support with `INVALID_ARGUMENT`, naming the forms it accepts. The Artemis call sites (`CoreLinks`, `ArtemisNotifications`, `ArtemisMessages`, `JolokiaClient`) switch on the form. Request signing, as with SigV4 for SQS, waits until a driver needs it.
 
 The Kafka driver installs its own SASL callback handler (PLAIN, SCRAM-SHA-256/512, OAUTHBEARER) that asks the `CredentialSource` on every authentication. Mutual TLS uses an `ssl.engine.factory.class` that reads the SDK's `TlsProvider` on every new connection. Rotation needs no restart, and hostname verification stays on.
 
 ### D14. Kind labels (SDK change)
-`Kind` gains `label` (singular, plural), which every driver fills. The TCK fails a blank label. Consumers stop deriving labels from ids, because "group-topic" has no good derived label.
+`Kind` gains a `label` component, `record KindLabel(String singular, String plural)` in `model`, both non-blank and in sentence case, which every driver fills. The TCK fails a blank label. Consumers stop deriving labels from ids, because "group-topic" has no good derived label.
 
 ### D15. Chaos fixture (SDK change)
-`TckChaos` names `serving()` and `successor()` nodes for a given link, in place of `primary()` and `backup()`:
+`TckChaos` gains `NodeId serving(ResourceId subscription)` and `NodeId successor(ResourceId subscription)` in place of `primary()` and `backup()`:
 - Artemis maps them to the HA pair.
-- Kafka maps them to the partition leader and an in-sync follower, on a three-broker KRaft cluster (RF 3, `min.insync.replicas` 2, unclean leader election off).
+- Kafka maps them to the partition leader and an in-sync follower, on a three-broker KRaft cluster (RF 3, `min.insync.replicas` 2, unclean leader election off). It resolves them when they are called, so its chaos topics have one partition.
+- `node()` and `haRequest()` stay. Kafka returns `request()` from `haRequest()`.
+
+Changes to `ChaosTck`:
+- Chaos processors use `Scope.whole()` instead of `Scope.node(primary)`.
+- `tearDown` heals every node the fixture knows.
+- The single-node kill-and-restart case allows duplicates only on receipts with `resent=true`.
+- The deduplication assumptions ask for at least `SESSION`.
+
+Changes to `MessagingTck`:
+- `assumeOrdered` asks for at least `SESSION`, and the caller-id case assumes `WINDOW`.
+- `assumeClientDeadLetter` is removed.
+- The defaults case runs for each subscription kind in `subscriptions()`.
+- A new case: an explicit `SYSTEM` policy where the system counts no attempts is `UNIMPLEMENTED`.
 
 Network cuts use Toxiproxy per broker, with the advertised listeners pointed at the proxies. Kills use Docker, as Artemis does. A three-broker KRaft cluster is built from three `KafkaContainer`s on one network, with combined controller and broker roles.
 
@@ -197,7 +272,7 @@ Kafka emits no events. The support library's polling watch diffs topics, groups 
 - 0018 the Kafka mapping and its honest destructive operations (D3-D6);
 - 0019 offsets as settlement and per-key lanes (D7, D8);
 - 0020 deduplication scope (D10);
-- 0021 the retry default follows enforcement, with retry and dead-letter topics (D11);
+- 0021 the retry default follows what the system enforces, per subscription kind, with retry and dead-letter topics (D11). It supersedes ADR-0014's "`SYSTEM` is the default", and it records the correction of `RetrySupport`;
 - 0022 share groups as a subscription kind (D12);
 - 0023 credential forms (D13);
 - 0024 kind labels (D14);
@@ -213,9 +288,12 @@ Kafka emits no events. The support library's polling watch diffs topics, groups 
 
 ## Migration Plan
 
-Consumers of `0.2.0` change three things:
-- `Credentials` construction becomes `Credentials.usernamePassword(...)`;
-- the chaos fixture methods are renamed;
-- code that relied on the `SYSTEM` default reads the resolved mode from the processor.
+Consumers of `0.2.0` change these things:
+- `Credentials` construction becomes `new UsernamePassword(...)` or `Credentials.usernamePassword(...)`, and `Credentials.none()` becomes `None`;
+- `SenderOptions.withIdempotent(true)` becomes `withDeduplication(DeduplicationScope.SESSION)`, and `TransportCapabilities.deduplication()` returns a scope;
+- per-subscription capabilities (ordering, pull settlement, joined transactions, retry) are read through `capabilities.subscription(kind)`, and `RetrySupport` and `Enforcement` are gone;
+- `RetryPolicy.system()` stays as an explicit choice, the default is `RetryPolicy.defaults()`, and code that relied on the `SYSTEM` default reads `Processor.retry()`;
+- `Kind` takes a `KindLabel`;
+- the chaos fixture's `primary()` and `backup()` become `serving(id)` and `successor(id)`.
 
 Rollback is the previous release.

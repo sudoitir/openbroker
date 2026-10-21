@@ -24,8 +24,9 @@ Kafka is the most widely run streaming platform, and its model is the furthest f
   - share groups as a second, unordered subscription kind with broker-enforced delivery counts.
 - **BREAKING** SDK fixes that Kafka exposes, each for every driver:
   - the deduplication scope a transport declares;
-  - credentials that can be a bearer token;
-  - a default retry mode that follows what the transport enforces;
+  - credentials that can be a username and password, a bearer token, or none;
+  - capabilities (ordering, settlement, joined transactions, retry enforcement) declared per subscription kind, replacing a transport-wide retry declaration that did not say what the system enforces;
+  - a default retry mode that resolves to what the subscription kind's system enforces, reported by the processor;
   - a display label on every kind;
   - a chaos fixture that names the serving node and its successor instead of an HA pair.
 - The CI matrix gains Kafka: `verify` and `chaos` run against the oldest and newest supported `apache/kafka`.
@@ -36,7 +37,7 @@ Kafka is the most widely run streaming platform, and its model is the furthest f
 
 ### Modified Capabilities
 - `broker-sdk`: kinds carry a display label; credentials take a bearer-token form; the chaos fixture is generalised.
-- `broker-sdk-messaging`: idempotence declares its scope; the default retry mode follows the transport's enforcement; the chaos suite covers a replicated log.
+- `broker-sdk-messaging`: idempotence declares its scope; capabilities are declared per subscription kind; the default retry mode follows what the system enforces; long handlers keep their message; the chaos suite covers a replicated log.
 
 ## Out of scope
 - Kafka Streams, Kafka Connect and schema registries.
@@ -53,4 +54,4 @@ Kafka is the most widely run streaming platform, and its model is the furthest f
 Drivers touched: `openbroker-kafka` (new) and `openbroker-artemis` (labels, the chaos fixture, the default retry mode). It breaks the API, so the next release is `0.3.0`.
 
 ## Impact
-New module `openbroker-kafka`; `openbroker-api` (`Kind`, `Credentials`, `TransportCapabilities`, `RetryPolicy` defaults); `openbroker-tck` (`TckChaos`, new Kafka-shaped cases); `openbroker-artemis` (labels, fixture); `openbroker-benchmarks` (Kafka paths); the BOM; `ci.yml`; README and ADRs 0018 and later. New dependencies are `org.apache.kafka:kafka-clients` and, for tests, `org.testcontainers:testcontainers-kafka`.
+New module `openbroker-kafka`; `openbroker-api` (`Kind`, `Credentials`, `TransportCapabilities`, `SenderOptions`, `RetryPolicy` defaults, `Processor`); `openbroker-tck` (`TckChaos`, `ChaosTck`, `MessagingTck`, new Kafka-shaped cases); `openbroker-support` (`Retries`); `openbroker-artemis` (labels, fixture); `openbroker-benchmarks` (Kafka paths); the BOM; `ci.yml`; README and ADRs 0018 and later. New dependencies are `org.apache.kafka:kafka-clients` and, for tests, `org.testcontainers:testcontainers-kafka`.

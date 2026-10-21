@@ -14,7 +14,7 @@ Every kind SHALL declare its verbs, its supported orderings and an attribute sch
 ## ADDED Requirements
 
 ### Requirement: Credentials take the forms systems use
-Credentials SHALL be one of a closed set: a username and password, or a bearer token. A credential source SHALL be asked for the current credentials on every (re)connect. A driver SHALL refuse a form it cannot use with `INVALID_ARGUMENT`, naming the forms it accepts, and never reveal the secret.
+Credentials SHALL be one of a closed set: a username and password, a bearer token with its expiry, or none (as with mutual TLS). A credential source SHALL be asked for the current credentials on every (re)connect. A driver SHALL refuse a form it cannot use with `INVALID_ARGUMENT`, naming the forms it accepts, and never reveal the secret.
 
 #### Scenario: A token where a password is expected
 - **WHEN** a consumer connects with a bearer token to a driver that accepts only a username and password
