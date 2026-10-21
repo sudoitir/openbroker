@@ -77,7 +77,7 @@ Verify reads the cluster's version and features and refuses older clusters. CI r
 Brokers are nodes. The controller quorum (`describeMetadataQuorum`) and under-replicated partitions feed health. Streams groups are listed read-only, because their offsets belong to the Streams application.
 
 ### D4. Lag is an estimate
-Lag is the end offset (the last stable offset for a read-committed group) minus the committed offset, summed per subscription. It is always marked an estimate:
+Lag is the end offset minus the committed offset, summed per subscription. A group's isolation level is a client setting that Admin cannot see, so the end offset is always the high watermark. It is always marked an estimate:
 - end offsets move while they are read;
 - transaction markers and compaction make offset arithmetic overcount.
 
@@ -98,7 +98,7 @@ The etag of a preview hashes the group's generation and committed offsets, or th
 An assigned `KafkaConsumer` with no `group.id`, `enable.auto.commit=false`, and `seek` or `offsetsForTimes`, bounded by count and bytes. Read-committed subscriptions browse with `isolation.level=read_committed`.
 
 ### D7. Offsets as settlement, per-key lanes
-Each assigned partition has a settlement tracker: a sorted set of in-flight offsets. The commit position is the lowest unsettled offset, or one past the highest offset fetched when none is pending. Commits are asynchronous on a cadence, and synchronous on revoke and close.
+Each assigned partition has a settlement tracker that holds every offset from the moment it is fetched (buffered, queued in a lane, paused or running) until it is settled. The commit position is the lowest offset not yet settled, or one past the highest offset fetched when every fetched offset is settled. A record that is fetched but waiting is never committed past. After a revoke, records settled beyond the first unsettled one may be delivered again; this is in the stated duplicate contract. Commits are asynchronous on a cadence, and synchronous on revoke and close.
 
 Ordering:
 - `PARTITION`: one lane per partition.
@@ -115,6 +115,8 @@ The consumer protocol is incremental. `onPartitionsRevoked`:
 - commits synchronously;
 - hands back the rest uncounted.
 
+The callback runs on the poll thread, so the grace time must be shorter than the rebalance timeout. Otherwise the member is fenced mid-callback and the clean revoke becomes the lost path. A longer grace time is refused at open.
+
 `onPartitionsLost` marks the partition's in-flight messages stale, so their settles fail `DELIVERY_STALE`. Polling runs on one platform thread per consumer, as the client needs. Handlers run on virtual threads, and no consumer call is made from a handler thread.
 
 ### D9. Guarantees and transactions
@@ -128,7 +130,8 @@ At-least-once and transacted sends require the destination topic to be durable. 
 
 Joined transactions are declared. A transacted processor's sender joins the lane set's producer transaction.
 
-Transactional ids are derived from a configured prefix, the group and the partition set, so fencing works across restarts.
+Each processor instance has one stable `transactional.id` (a configured prefix and an instance id). Zombie fencing goes through `sendOffsetsToTransaction(offsets, consumer.groupMetadata())` (KIP-447), not one producer per partition.
+- **Rejected: ids derived from the partition set.** With incremental rebalances the set changes constantly, so the ids would churn.
 
 ### D10. Idempotence scope (SDK change)
 Kafka's idempotent producer deduplicates its own retries within a producer session. It has no broker-side deduplication of caller ids.
@@ -153,7 +156,8 @@ In code, `RetryPolicy.defaults()` stops naming a mode, and the processor resolve
 
 On a consumer group:
 - **Ordered** processing retries in place: pause the partition, back off, re-dispatch. This needs no seek, because the record is still held.
-- **Unordered** processing releases through retry topics `<topic>.retry` with headers for the attempt and due time. A retry consumer in the same processor delays until due.
+- **Unordered** processing releases through one retry topic per backoff step, `<topic>.retry-<n>`, as Spring for Apache Kafka does. Every record in a topic then has the same delay, and the head is always due first. Headers carry the attempt and the due time, and a retry consumer in the same processor pauses each retry partition until its head is due.
+  - **Rejected: a single retry topic with mixed due times.** A late record at the head would block earlier-due ones behind it.
   - **Rejected: holding failed records in memory.** It blocks the commit position for the whole backoff, and the record is lost on a crash before the first retry is due.
 - **Dead letter** goes to the policy's target, or `<topic>.dlt` by default, with the headers `openbroker.origin.topic`, `.partition`, `.offset`, `.attempts` and `.reason`. In a transacted processor, the dead-letter send and the offset commit are one transaction.
 
@@ -167,7 +171,7 @@ The mapping:
 - release → `RELEASE`;
 - reject → `REJECT`.
 
-The system retry policy is declared, enforced by `group.share.delivery.count.limit` and the lock duration. System dead-lettering is declared when `share.version` ≥ 2, and unavailable with a remedy otherwise. A managed policy is refused when the broker's delivery limit would cut it short (ADR 0014's rule). Ordering is `NONE` only. Credit maps to `max.poll.records` and to not polling while full, which the broker's acquisition lock bounds.
+The system retry policy is declared, enforced by `group.share.delivery.count.limit` and the lock duration. System dead-lettering is declared when the cluster supports share-group dead-letter queues; the Kafka docs tie them to `share.version` ≥ 2, which the apply session re-checks with ctx7 for the release that ships them. Otherwise it is unavailable with a remedy, and a managed policy dead-letters by sending to `<topic>.dlt` and then rejecting. Purge and seek on a share group use `alterShareGroupOffsets`, under the same empty-group rule as consumer groups. A managed policy is refused when the broker's delivery limit would cut it short (ADR 0014's rule). Ordering is `NONE` only. Credit maps to `max.poll.records` and to not polling while full, which the broker's acquisition lock bounds.
 
 ### D13. Credentials (SDK change)
 `Credentials` becomes a sealed interface:

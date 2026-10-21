@@ -33,7 +33,7 @@ Spring Boot 4 facts, checked with ctx7:
 `OpenBrokerProperties` is a record holding `Map<String, Connection>`. `Connection` is a record of `system`, `ClusterSpec cluster`, `CredentialsProperties credentials`, `ConnectionOptions options`, `SenderOptions sender`, `ReceiverOptions receiver` and `ProcessorOptions processor`.
 - **Rejected: a parallel set of JavaBean properties classes.** It doubles every option and drifts.
 
-Where an SDK record will not bind (several constructors, a missing default), the record is fixed in `openbroker-api`, as its requirement asks. `ConnectionOptions` is the starter's own small record for the bindable part of `ConnectOptions` (timeouts, max response bytes, spool directory, SSL bundle name). The remaining parts come from beans (D3).
+Where an SDK record will not bind (several constructors, a missing default), the record is fixed in `openbroker-api`, as its requirement asks. `CredentialsProperties` exists because `Credentials` is a sealed interface, which constructor binding cannot pick a subtype of. It names the form (`username-password` or `bearer-token`) and maps to the sealed type. `ConnectionOptions` is the starter's own small record for the bindable part of `ConnectOptions` (timeouts, max response bytes, spool directory, SSL bundle name). The remaining parts come from beans (D3).
 
 ### D2. One bean pair per connection, registered by name
 A `BeanDefinitionRegistryPostProcessor` reads the bound connection names through `Binder` and registers `<name>ClusterConnection` and `<name>Transport`, each with a qualifier of the connection's name. One connection is primary.

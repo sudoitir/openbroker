@@ -5,11 +5,14 @@ Defines how a Spring Boot application declares OpenBroker connections in configu
 ## ADDED Requirements
 
 ### Requirement: Connections are declared in configuration
-An application SHALL declare each connection under `openbroker.connections.<name>` with its system, cluster, credentials and options. Each part SHALL bind to the SDK's own record, with no separate properties type. A connection whose driver is missing, whose option is not in the driver's schema, or whose option fails validation SHALL fail the application's start, naming the connection and the option. A sensitive value SHALL never appear in that failure.
+An application SHALL declare each connection under `openbroker.connections.<name>` with its system, cluster, credentials and options. Each option SHALL bind to the SDK's own record where the SDK has one. Credentials, a closed set of forms, SHALL bind through one properties type that names the form (username and password, or bearer token).
 
 #### Scenario: A Kafka connection in YAML
 - **WHEN** an application declares a connection `orders` with the system `kafka`, two bootstrap endpoints and a SASL mechanism
 - **THEN** a `ClusterConnection` and a `Transport` named `orders` are beans, and connecting uses those values
+
+### Requirement: A wrong connection fails the start
+A connection whose driver is missing, whose option is not in the driver's schema, or whose option fails validation SHALL fail the application's start, naming the connection and the option. A sensitive value SHALL never appear in that failure.
 
 #### Scenario: A misspelt option
 - **WHEN** a connection sets an option that its driver's schema does not have

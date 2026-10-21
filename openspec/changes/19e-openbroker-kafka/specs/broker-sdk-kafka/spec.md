@@ -16,14 +16,14 @@ The driver SHALL register the system `kafka` through `ServiceLoader`, declare Ka
 - **THEN** verify fails with `FAILED_PRECONDITION`, and the reason names the version found and the supported range
 
 ### Requirement: Kafka is modelled honestly
-The driver SHALL map a topic to a destination, a partition to a partition, a group to a consumer group with its type (classic, consumer or share) and state, a consumer group or share group on a topic to a subscription of its own kind, an ACL to an access rule and a transactional id to a transaction. A topic's configuration SHALL be its config attributes. Every kind SHALL carry Kafka's own label.
+The driver SHALL map a topic to a destination, a partition to a partition, a group to a consumer group with its type (classic, consumer, share or streams) and state, streams groups read-only, a consumer group or share group on a topic to a subscription of its own kind, an ACL to an access rule and a transactional id to a transaction. A topic's configuration SHALL be its config attributes. Every kind SHALL carry Kafka's own label.
 
 #### Scenario: Native labels
 - **WHEN** a consumer lists the driver's kinds
 - **THEN** each kind carries Kafka's label, for example "Topic", "Consumer group" and "Group on topic"
 
 ### Requirement: A subscription's backlog is its lag, as an estimate
-A subscription's backlog SHALL be reported as an estimate with a per-partition breakdown. For a consumer group it SHALL be the end offset minus the committed offset, using the last stable offset when the group reads committed. For a share group it SHALL be the records not yet acknowledged.
+A subscription's backlog SHALL be reported as an estimate with a per-partition breakdown. For a consumer group it SHALL be the partition's end offset minus the committed offset, and the estimate's reason SHALL say that transaction markers and compaction can make it overcount. For a share group it SHALL be the records not yet acknowledged.
 
 #### Scenario: Lag is shown per partition
 - **WHEN** a group lags on a topic with six partitions
@@ -50,6 +50,13 @@ Purging a consumer-group subscription SHALL move that group's committed offsets 
 #### Scenario: Seeking to a time
 - **WHEN** an operator seeks an empty group's subscription to a time
 - **THEN** each partition's committed offset becomes the first offset at or after that time, or the end where none is
+
+### Requirement: Share-group subscriptions reset through the broker
+Purging and seeking a share-group subscription SHALL move the share group's start offsets in the same ways and under the same rule: only while the group has no active members, named in the preview, against the preview's etag.
+
+#### Scenario: Purging a share group
+- **WHEN** an operator purges an empty share group's subscription
+- **THEN** its start offset on each partition moves to the end, and no other group changes
 
 ### Requirement: Truncate states every group it affects
 Truncating a topic or a partition SHALL delete records before a position for every group. Its preview SHALL name every group that loses unread records, with how many, and the run SHALL use the preview's etag. A topic whose cleanup policy is compaction without deletion SHALL be refused in preview with `FAILED_PRECONDITION`.
@@ -85,11 +92,19 @@ On a cooperative rebalance, the driver SHALL let handlers of revoked partitions 
 
 #### Scenario: A member joins
 - **WHEN** a second processor joins a group while the first is handling records of a partition that moves
-- **THEN** the first finishes or hands back those records, the second resumes after the last committed offset, and no settled record is handled twice
+- **THEN** the first finishes or hands back those records, the second resumes at the committed offset, no record before it is handled again, and only records settled after the first unsettled one may be delivered again
 
 #### Scenario: A member is cut off
 - **WHEN** a processor's network is cut past the session timeout while records are in flight
 - **THEN** its later settles fail with `DELIVERY_STALE`, and the new owner receives those records
+
+### Requirement: Grace fits inside the rebalance timeout
+A processor's grace time SHALL be shorter than the group's rebalance timeout, and a longer one SHALL be refused at open with `INVALID_ARGUMENT`.
+
+#### Scenario: A grace time longer than the rebalance timeout
+- **WHEN** a processor opens with a grace time longer than the group's rebalance timeout
+- **THEN** it is refused with `INVALID_ARGUMENT`, naming both durations
+
 
 ### Requirement: Kafka's guarantees are declared
 The driver SHALL declare at most once (offsets committed before a record is handed over), at least once (every send acknowledged by all in-sync replicas, offsets committed after settlement) and transacted (records sent and offsets committed in one Kafka transaction, reading only committed records). It SHALL declare joined transactions, so that a transacted processor's sends and settled offsets commit together.
@@ -131,7 +146,7 @@ On a cluster with share groups enabled, the driver SHALL offer a share-group sub
 - **THEN** the share-group subscription kind is unavailable, with the reason and the feature that enables it as the remedy
 
 ### Requirement: Share groups dead-letter through the broker
-A rejected share-group record, or one past its delivery limit, SHALL go to the broker's dead-letter topic where the cluster supports one. Where it does not, the record SHALL be archived by the broker, and system dead-lettering SHALL be declared unavailable with the reason.
+A rejected share-group record, or one past its delivery limit, SHALL go to the broker's dead-letter topic where the cluster supports one. Where it does not, system dead-lettering SHALL be declared unavailable with the reason, and a managed policy SHALL dead-letter by sending the record to its dead-letter topic before rejecting it.
 
 #### Scenario: A record past its delivery limit
 - **WHEN** a share-group record is released more times than the group's delivery limit on a cluster with share-group dead-lettering

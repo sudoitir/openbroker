@@ -26,7 +26,7 @@ Order and parallelism:
 - [ ] 2.2 A three-broker KRaft test cluster fixture in the driver's tests (three `KafkaContainer`s, combined roles, RF 3, `min.insync.replicas` 2). Check: it starts in CI on 4.0.x and the newest image
 - [ ] 2.3 Kinds and resources: topics (CRUD, partition increase, configs), partitions, groups (all types), group-topic and share-group-topic subscriptions, ACLs and transactional ids, each with its label. Check: `KafkaTckIT extends OpenBrokerTck` for these kinds
 - [ ] 2.4 Lag as an estimate with per-partition breakdown, and unavailable partitions with a reason. Check: IT with six partitions and one never-committed partition
-- [ ] 2.5 Purge and seek (latest, earliest, time, offset) with an empty-group precondition, a member list in the preview and an etag over generation and offsets. Check: TCK precondition cases and an active-group IT
+- [ ] 2.5 Purge and seek (latest, earliest, time, offset) for consumer groups and, through `alterShareGroupOffsets`, share groups, with an empty-group precondition, a member list in the preview and an etag over generation and offsets. Check: TCK precondition cases and an active-group IT
 - [ ] 2.6 Truncate with a per-group loss preview and the compact-only refusal. Check: IT with three groups and a compacted topic
 - [ ] 2.7 Browse by partition, offset and time with no group, bounded by count and bytes; per-message move, copy and delete unavailable with the reason. Check: TCK browse cases, and an IT asserting no group appears
 - [ ] 2.8 Abort a hanging transaction; the polling watch for topics, groups and partitions. Check: TCK notification cases
@@ -35,15 +35,15 @@ Order and parallelism:
 ## 3. Consumer-group messaging (files: openbroker-kafka/src/**/kafka/messaging/** except share)
 - [ ] 3.1 Sender: guarantees mapped to `acks` and idempotence, bounded `send` and `offer`, `SESSION` dedup scope, `resent` on driver re-sends. Check: `MessagingTck` send cases
 - [ ] 3.2 Receiver and processor: settlement tracker with contiguous commits, lanes per partition and per key, credit by pause and resume, the whole-subscription check. Check: ordering and flow-control cases, and a unit test of the tracker
-- [ ] 3.3 Rebalance handling: revoke drains within grace and commits, lost marks stale (`DELIVERY_STALE`). Check: join and cut-off ITs
-- [ ] 3.4 Transacted guarantee and joined transactions through `sendOffsetsToTransaction`, with fenced transactional ids. Check: the consume-transform-produce case
+- [ ] 3.3 Rebalance handling: revoke drains within grace and commits; lost marks stale (`DELIVERY_STALE`); grace longer than the rebalance timeout is refused at open. Check: join, cut-off and grace ITs
+- [ ] 3.4 Transacted guarantee and joined transactions through `sendOffsetsToTransaction`, with one stable transactional id per processor instance and group-metadata fencing (KIP-447). Check: the consume-transform-produce case, and a zombie-fencing IT
 - [ ] 3.5 SASL PLAIN, SCRAM and OAUTHBEARER callback handlers, and the TLS engine factory over `TlsProvider`. Check: rotation and permission-denied cases against a SASL-enabled container
 - [ ] 3.6 ADR 0019. Check: `KafkaMessagingTckIT extends MessagingTck` green for consumer groups
 
 ## 4. Retry, dead letters and share groups (files: openbroker-kafka/src/**/kafka/messaging/retry/**, …/share/**)
-- [ ] 4.1 In-place retry for ordered processing, and retry topics with attempt and due-time headers for unordered. Check: "a message that keeps failing" and "ordered retries keep the order" on Kafka
+- [ ] 4.1 In-place retry for ordered processing, and one retry topic per backoff step with attempt and due-time headers for unordered. Check: "a message that keeps failing" and "ordered retries keep the order" on Kafka
 - [ ] 4.2 Dead-letter topic with origin headers, transactional with the commit when transacted, and a refusal naming the topic when it cannot be created. Check: the dead-letter IT
-- [ ] 4.3 The share-group processor on `KafkaShareConsumer` (explicit acknowledgement), the system retry by delivery count, system dead-letter when `share.version` ≥ 2, and the dynamic kind declaration. Check: release, redeliver and delivery-limit ITs on the newest image; kind unavailable on 4.0.x
+- [ ] 4.3 The share-group processor on `KafkaShareConsumer` (explicit acknowledgement), the system retry by delivery count, system dead-letter where the cluster supports it, otherwise a managed send-then-reject, and the dynamic kind declaration. Check: release, redeliver and delivery-limit ITs on the newest image; kind unavailable on 4.0.x
 - [ ] 4.4 ADR 0022. Check: `KafkaMessagingTckIT` green for both subscription kinds
 
 ## 5. Chaos, benchmarks and CI (files: openbroker-kafka/src/test/**/KafkaChaosIT*, openbroker-benchmarks/**, .github/workflows/ci.yml)
