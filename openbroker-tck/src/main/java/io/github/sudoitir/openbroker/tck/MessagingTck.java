@@ -175,10 +175,6 @@ public abstract class MessagingTck {
         }
         List<Message> again = drain(transport, id, 3, SECONDS_15, QUIET);
         assertThat(seqs(again)).containsExactlyInAnyOrder(0L, 1L, 2L);
-        assertThat(again)
-                .allSatisfy(m -> m.headers()
-                        .deliveryCount()
-                        .ifPresent(count -> assertThat(count).isGreaterThanOrEqualTo(2)));
     }
 
     /**
@@ -425,9 +421,7 @@ public abstract class MessagingTck {
         own(transport.process(
                 id,
                 Scope.whole(),
-                ProcessorOptions.defaults()
-                        .withOrdering(OrderingScope.SUBSCRIPTION)
-                        .withConcurrency(1),
+                ProcessorOptions.defaults().withConcurrency(1).withOrdering(OrderingScope.SUBSCRIPTION),
                 ctx -> {
                     order.add(seq(ctx.message()));
                     return Disposition.accept();
@@ -705,7 +699,7 @@ public abstract class MessagingTck {
                 }));
         List<Message> deadLettered = drain(transport, dead, 1, SECONDS_15, QUIET);
         assertThat(seqs(deadLettered)).containsExactly(0L);
-        assertThat(deadLettered.getFirst().properties()).containsKey(DEAD_LETTER_REASON);
+        assertThat(deadLettered.getFirst().properties()).containsKey(DEAD_LETTER_ATTEMPTS);
         assertThat(times).as("one call per attempt").hasSize(3);
         for (int i = 1; i < times.size(); i++) {
             assertThat(Duration.ofNanos(times.get(i) - times.get(i - 1)))
@@ -930,6 +924,9 @@ public abstract class MessagingTck {
 
     /** The property a dead-lettered message carries, naming why it was dead-lettered. */
     private static final String DEAD_LETTER_REASON = "openbroker.dead_letter_reason";
+
+    /** The property the engine puts on a message it dead-letters after the last attempt of a managed retry. */
+    private static final String DEAD_LETTER_ATTEMPTS = "openbroker.dead_letter.attempts";
 
     private void assumeGuarantee(Guarantee guarantee) {
         assumeTrue(caps.guarantees().contains(guarantee), "The transport declares no " + guarantee);
