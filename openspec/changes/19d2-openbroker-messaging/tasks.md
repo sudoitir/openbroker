@@ -45,9 +45,9 @@ Order and parallelism:
 - Check: `./mvnw -B -pl openbroker-tck -am compile`
 
 ## 5. ADRs and docs (unit G, parallel; files: docs/adr/0010–0017, README.md, package-info.java of messaging)
-- [ ] 5.1 Write ADRs 0010–0017 from the design (Nygard, `000-template.md`); index them in README "Decisions"
-- [ ] 5.2 README: a messaging quick start (sender, offer, processor, retry policy, observer) and the loss/duplicate table; the modules table gains opentelemetry
-- [ ] 5.3 Messaging `package-info.java`: the contract summary
+- [x] 5.1 Write ADRs 0010–0017 from the design (Nygard, `000-template.md`); index them in README "Decisions"
+- [x] 5.2 README: a messaging quick start (sender, offer, processor, retry policy, observer) and the loss/duplicate table; the modules table gains opentelemetry
+- [x] 5.3 Messaging `package-info.java`: the contract summary
 - Check: `./mvnw -B -pl openbroker-api -am javadoc:javadoc -q`
 
 ## 6. Artemis driver (unit E, after 2; files: openbroker-artemis/src/main/**, its test resources and tests)

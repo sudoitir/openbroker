@@ -17,6 +17,7 @@ Status: pre-release (`0.x`). The API may change between minor versions until 1.0
 | `openbroker-support` | Shared helpers for drivers and consumers: the portable filter dialect, polling notifications, counter rates. |
 | `openbroker-tck` | Abstract JUnit contract tests a driver extends. |
 | `openbroker-artemis` | The Apache ActiveMQ Artemis driver: management over Jolokia, messages and notifications over Core. |
+| `openbroker-opentelemetry` | Optional: maps the messaging observer to OpenTelemetry spans, metrics and W3C trace context. |
 | `openbroker-bom` | Aligns the versions above. |
 
 Java 25. The modules ship `module-info` descriptors (the driver an `Automatic-Module-Name`).
@@ -84,6 +85,65 @@ try (BrokerDrivers drivers = BrokerDrivers.load();
 - **What only one system has** is reached through `cluster.unwrap(…)`, for Artemis
   `ArtemisManagement`.
 
+## Messaging
+
+`cluster.transport()` is a messaging client with stated guarantees. A link declares its guarantee and
+the driver refuses what it cannot keep (`UNIMPLEMENTED`). Sending is bounded, receiving is
+credit-based, and a lost link is recovered by the driver under the rules below.
+
+```java
+Transport transport = cluster.transport().orElseThrow();
+ResourceId orders = ResourceId.of("artemis.address", "orders");
+ResourceId deadLetters = ResourceId.of("artemis.address", "orders.dead");
+
+// At-least-once and idempotent: resends after a failure are deduplicated, in order.
+SenderOptions sending = SenderOptions.defaults().withIdempotent(true).withOrdering(OrderingScope.GROUP);
+try (Sender sender = transport.sender(SendTarget.destination(orders), Scope.whole(), sending)) {
+    OutboundMessage message = OutboundMessage.of(MessageBody.of(payload))
+            .withHeaders(MessageHeaders.builder().groupId("customer-7").build());
+    // offer never blocks; Full says the bounded send buffer has no room.
+    switch (sender.offer(message)) {
+        case Offer.Accepted accepted -> accepted.receipt().thenAccept(receipt -> log(receipt.resent()));
+        case Offer.Full full -> slowDown(full.inFlight(), full.bufferedBytes());
+    }
+    sender.send(message); // waits for room (up to maxBlock) and for the confirmation
+    sender.flush(Duration.ofSeconds(10));
+}
+
+// Eight lanes on virtual threads; one group runs in order; the client retries up to 5 times.
+ProcessorOptions processing = ProcessorOptions.defaults()
+        .withConcurrency(8)
+        .withOrdering(OrderingScope.GROUP)
+        .withRetry(RetryPolicy.managed(5, Backoff.defaults()).withDeadLetter(SendTarget.destination(deadLetters)));
+try (Processor processor = transport.process(
+        ResourceId.of("artemis.queue", "orders"), Scope.whole(), processing, context -> {
+            handle(context.message());
+            return Disposition.accept(); // an exception or Release counts as a failed attempt
+        })) {
+    awaitShutdown();
+}
+```
+
+Telemetry is a hook. Add `openbroker-opentelemetry` and pass the observer when connecting:
+
+```java
+ConnectOptions options = ConnectOptions.defaults().withObserver(OpenTelemetryMessaging.of(openTelemetry));
+```
+
+### What is lost or duplicated
+
+| Guarantee | Link lost | Broker restart, no HA | Failover to a backup | Client dies | Answer lost |
+| --- | --- | --- | --- | --- | --- |
+| `AT_MOST_ONCE` send | unconfirmed may be lost, never resent (`UNAVAILABLE`, `IN_DOUBT`) | non-durable lost | unconfirmed may be lost | buffered lost | n/a |
+| `AT_MOST_ONCE` receive | prefetched and handed-out lost | same | same | same | n/a |
+| `AT_LEAST_ONCE` send | resent in order: no loss, duplicates possible (`resent=true`) | confirmed survive; unconfirmed resent | same | unconfirmed in the buffer lost | resent: duplicate possible |
+| `AT_LEAST_ONCE` send, idempotent | resent and deduplicated: no loss, no duplicate, order kept | same, within the dedupe window | same | as above | resent and deduplicated |
+| `AT_LEAST_ONCE` receive, process | unsettled redelivered; a stale settle fails `DELIVERY_STALE` | redelivered | redelivered | redelivered | redelivered: duplicate |
+| `TRANSACTED`, joined included | rolled back; commit fails `ABORTED`; redo | rolled back | rolled back | rolled back | `IN_DOUBT`; redo with the same dedupe ids |
+
+After `giveUpAfter` a link is `FAILED`: pending receipts fail `UNAVAILABLE`, `IN_DOUBT`, and nothing is
+resent. The dedupe window is reported by `Sender.deduplication()`.
+
 ## Writing a driver
 
 Implement `io.github.sudoitir.openbroker.spi.BrokerDriver`, register it in
@@ -93,6 +153,24 @@ tests for the capabilities you declare. `openbroker-artemis` is the reference.
 ## Decisions
 
 The design is recorded in [`docs/adr/`](docs/adr/).
+
+- [0001](docs/adr/0001-one-sdk-and-one-vocabulary-for-every-broker.md) One SDK and one vocabulary for every broker
+- [0002](docs/adr/0002-resources-have-a-class-and-a-system-kind.md) Resources have a class and a system kind
+- [0003](docs/adr/0003-brokerdrivers-is-the-entry-point-and-drivers-are-found-by-serviceloader.md) `BrokerDrivers` is the entry point and drivers are found by `ServiceLoader`
+- [0004](docs/adr/0004-errors-carry-a-status-a-reason-and-whether-the-request-was-sent.md) Errors carry a status, a reason and whether the request was sent
+- [0005](docs/adr/0005-operations-are-previewed-and-run-against-an-etag.md) Operations are previewed and run against an etag
+- [0006](docs/adr/0006-one-message-model-for-every-system.md) One message model for every system
+- [0007](docs/adr/0007-standard-metric-keys.md) Standard metric keys
+- [0008](docs/adr/0008-semver-0x-with-japicmp-and-incubating-types.md) SemVer `0.x` with japicmp and incubating types
+- [0009](docs/adr/0009-a-maintainer-runs-each-release.md) A maintainer runs each release
+- [0010](docs/adr/0010-the-transport-leaves-incubation-with-declared-guarantees.md) The transport leaves incubation with declared guarantees
+- [0011](docs/adr/0011-drivers-own-recovery-and-failover.md) Drivers own recovery and failover
+- [0012](docs/adr/0012-sending-is-bounded-and-backpressure-is-a-value.md) Sending is bounded and backpressure is a value
+- [0013](docs/adr/0013-push-processing-runs-in-lanes-on-virtual-threads.md) Push processing runs in lanes on virtual threads
+- [0014](docs/adr/0014-retries-default-to-the-systems-policy-managed-retries-run-in-the-client.md) Retries default to the system's policy; managed retries run in the client
+- [0015](docs/adr/0015-telemetry-goes-through-a-hook-with-opentelemetry-in-an-optional-module.md) Telemetry goes through a hook, with OpenTelemetry in an optional module
+- [0016](docs/adr/0016-performance-budgets-are-enforced-in-ci.md) Performance budgets are enforced in CI
+- [0017](docs/adr/0017-chaos-is-part-of-the-tck.md) Chaos is part of the TCK
 
 ## Trademarks
 
