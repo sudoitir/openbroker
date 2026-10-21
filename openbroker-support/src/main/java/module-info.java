@@ -4,4 +4,5 @@ module io.github.sudoitir.openbroker.support {
     requires static org.jspecify;
 
     exports io.github.sudoitir.openbroker.support;
+    exports io.github.sudoitir.openbroker.support.messaging;
 }

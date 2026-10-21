@@ -24,11 +24,11 @@ Order and parallelism:
 - Check: `./mvnw -B -pl openbroker-api,openbroker-support,openbroker-tck,openbroker-artemis -am -DskipITs test`
 
 ## 2. Support messaging engine (unit B, parallel; files: openbroker-support/src/**/support/messaging/**)
-- [ ] 2.1 `Backoffs` (jitter on an injected `Clock` and random source)
-- [ ] 2.2 `LinkSupervisor`: states, serial events per link, recovery loop with backoff and give-up, `link.recover` admitted by the interceptor, `ReentrantLock` only
-- [ ] 2.3 `SendPipeline`: window by count and bytes, `offer`/`send`/`flush`, one writer virtual thread per link, confirmation tracking, ordered resend on recovery, completion on a virtual-thread executor wrapped by `contextPropagation`, observer calls
-- [ ] 2.4 `ProcessorEngine`: lanes over a driver `LaneFactory`, GROUP/PARTITION dispatch by hashing when the system does not pin groups, the retry policy (in place when ordered, delayed release when unordered, dead-letter), stop with grace, observer scope around the handler
-- [ ] 2.5 Unit tests against a fake lane and writer, including the bounds, retry timings, ordering and the pinning JFR check
+- [x] 2.1 `Backoffs` (jitter on an injected `Clock` and random source)
+- [x] 2.2 `LinkSupervisor`: states, serial events per link, recovery loop with backoff and give-up, `link.recover` admitted by the interceptor, `ReentrantLock` only
+- [x] 2.3 `SendPipeline`: window by count and bytes, `offer`/`send`/`flush`, one writer virtual thread per link, confirmation tracking, ordered resend on recovery, completion on a virtual-thread executor wrapped by `contextPropagation`, observer calls
+- [x] 2.4 `ProcessorEngine`: lanes over a driver `LaneFactory`, GROUP/PARTITION dispatch by hashing when the system does not pin groups, the retry policy (in place when ordered, delayed release when unordered, dead-letter), stop with grace, observer scope around the handler
+- [x] 2.5 Unit tests against a fake lane and writer, including the bounds, retry timings, ordering and the pinning JFR check
 - Check: `./mvnw -B -pl openbroker-support -am test`
 
 ## 3. OpenTelemetry module (unit C, parallel; files: openbroker-opentelemetry/**)
