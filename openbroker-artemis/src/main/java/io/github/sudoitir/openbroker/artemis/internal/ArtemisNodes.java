@@ -136,7 +136,7 @@ public final class ArtemisNodes implements Nodes {
                 node.id(),
                 Optional.ofNullable(Ha.text(ha, "NodeID")).orElse(""),
                 new Membership(
-                        Optional.empty(),
+                        Optional.ofNullable(Ha.text(ha, "NodeID")).filter(id -> !id.isBlank()),
                         Ha.designation(backup, clustered),
                         Ha.serving(active),
                         Optional.ofNullable(replicaSync)),

@@ -41,7 +41,7 @@ public final class ArtemisConnection implements ClusterConnection {
         this.messages = new ArtemisMessages(cluster, core);
         this.access = new ArtemisAccess(cluster);
         this.notifications = new ArtemisNotifications(cluster);
-        this.transport = new ArtemisTransport(cluster, core);
+        this.transport = new ArtemisTransport(cluster, core, nodes);
     }
 
     @Override
@@ -102,6 +102,7 @@ public final class ArtemisConnection implements ClusterConnection {
     @Override
     public void close() {
         notifications.closeAll();
+        transport.close();
         core.close();
     }
 }
