@@ -14,15 +14,22 @@ import io.github.sudoitir.openbroker.Permit;
 import io.github.sudoitir.openbroker.Plane;
 import io.github.sudoitir.openbroker.Status;
 import io.github.sudoitir.openbroker.TlsMaterial;
+import io.github.sudoitir.openbroker.messaging.Guarantee;
 import io.github.sudoitir.openbroker.model.ResourceId;
 import io.github.sudoitir.openbroker.support.Deadlines;
 import java.net.ConnectException;
 import java.net.UnknownHostException;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReentrantLock;
 import javax.net.ssl.SSLException;
 import org.apache.activemq.artemis.api.core.ActiveMQAddressFullException;
 import org.apache.activemq.artemis.api.core.ActiveMQConnectionTimedOutException;
@@ -42,28 +49,36 @@ import org.apache.activemq.artemis.core.remoting.impl.netty.TransportConstants;
 import org.apache.activemq.artemis.jms.client.ActiveMQConnectionFactory;
 
 /**
- * A connection's Core links: one session factory per node, TLS material and purpose, opened on first
- * use and replaced once it fails. Operator calls (browse, send) and the transport use separate
- * links, so a long-lived receiver never holds what a browse waits for; a receiver that wants no
- * prefetch gets a link of its own, since the window is the factory's.
+ * A connection's Core links: one session factory per node, TLS material and {@link LinkSettings},
+ * opened on first use and replaced once it fails or its TLS material is rotated. Operator calls
+ * (browse, send) and the transport use separate links, so a long-lived receiver never holds what a
+ * browse waits for; a link's consumer window, confirmation window and acknowledgement mode are the
+ * factory's, so they are part of what tells two links apart.
  *
  * <ul>
  *   <li>{@code useTopologyForLoadBalancing=false}: the broker pushes its topology, whose connector
  *       hosts are often unresolvable from the client, and a call would wedge reconnecting to one.
  *   <li>One connect attempt and no reconnect: a node that is down fails the call, and the caller
- *       decides what to do.
- *   <li>A 64 KiB consumer window by default: a browse of one page never buffers more.
+ *       decides what to do. The driver's own recovery reopens the link.
+ *   <li>A factory connects outside any map lock, under a lock of its key, so a slow connect holds
+ *       back only callers of the same link.
+ *   <li>A factory is reference-counted by the sessions open on it. Rotated TLS material gets a new
+ *       factory for new sessions; the replaced one keeps serving the sessions it has and closes with
+ *       the last of them, so rotation never ends a live link.
  * </ul>
  */
 final class CoreLinks implements AutoCloseable {
 
-    /** Bytes a consumer buffers ahead of reading, unless it asked for none. */
+    /** Bytes an operator consumer buffers ahead of reading: a browse of one page never buffers more. */
     static final int WINDOW_BYTES = 64 * 1024;
+
+    /** Bytes of sends the broker may leave unacknowledged on an {@code AT_LEAST_ONCE} sender. */
+    static final int CONFIRMATION_WINDOW_BYTES = 1024 * 1024;
 
     /**
      * How long an endpoint that could not be connected to is left alone. Calls in that time fail at
      * once as not sent, so a caller with another way to the node takes it without waiting out a
-     * connect each time.
+     * connect each time. A recovery attempt ignores it.
      */
     static final Duration REST = Duration.ofSeconds(30);
 
@@ -73,13 +88,114 @@ final class CoreLinks implements AutoCloseable {
         TRANSPORT
     }
 
+    /**
+     * What a link's factory is configured with. Two links with different settings never share a
+     * factory.
+     *
+     * @param consumerWindow bytes a consumer buffers ahead; 0 buffers none
+     * @param confirmationWindow bytes of sends the broker may leave unacknowledged; -1 asks for no
+     *     acknowledgements
+     * @param blockingSends whether a send waits for the broker's answer
+     * @param blockingAcknowledgements whether an acknowledgement waits for the broker's answer
+     * @param preAcknowledge whether the broker counts a message as acknowledged when it delivers it
+     */
+    record LinkSettings(
+            Purpose purpose,
+            int consumerWindow,
+            int confirmationWindow,
+            boolean blockingSends,
+            boolean blockingAcknowledgements,
+            boolean preAcknowledge) {
+
+        /** An operator call; {@code buffered} lets its consumers read ahead. */
+        static LinkSettings operator(boolean buffered) {
+            return new LinkSettings(Purpose.OPERATOR, buffered ? WINDOW_BYTES : 0, -1, true, true, false);
+        }
+
+        /**
+         * A sender: sends are not waited for one by one. {@code AT_LEAST_ONCE} asks the broker to
+         * acknowledge each once it holds it; {@code AT_MOST_ONCE} asks for nothing; {@code TRANSACTED}
+         * is answered at commit.
+         */
+        static LinkSettings sender(Guarantee guarantee) {
+            int confirmation = guarantee == Guarantee.AT_LEAST_ONCE ? CONFIRMATION_WINDOW_BYTES : -1;
+            return new LinkSettings(Purpose.TRANSPORT, 0, confirmation, false, true, false);
+        }
+
+        /**
+         * A receiver: acknowledgements are not waited for, since a lost one is a duplicate, which
+         * the guarantee allows; sends on its session (a copy for a delay, a dead letter or a joined
+         * sender) are, since they are confirmed before the original is acknowledged.
+         */
+        static LinkSettings receiver(Guarantee guarantee, long prefetchBytes) {
+            int window = (int) Math.min(prefetchBytes, Integer.MAX_VALUE);
+            return new LinkSettings(
+                    Purpose.TRANSPORT,
+                    window,
+                    -1,
+                    true,
+                    guarantee == Guarantee.TRANSACTED,
+                    guarantee == Guarantee.AT_MOST_ONCE);
+        }
+    }
+
     /** What a Core call does with its session. */
     @FunctionalInterface
     interface Work<T> {
         T run(ClientSession session) throws ActiveMQException;
     }
 
-    private record Link(ServerLocator locator, ClientSessionFactory factory) {
+    /** A session of a link; closing it releases the link's factory as well. */
+    static final class Lease implements AutoCloseable {
+
+        private final ClientSession session;
+        private final Link link;
+        private final AtomicBoolean released = new AtomicBoolean();
+
+        private Lease(ClientSession session, Link link) {
+            this.session = session;
+            this.link = link;
+        }
+
+        ClientSession session() {
+            return session;
+        }
+
+        /** Closes the session, then lets go of the factory. */
+        @Override
+        public void close() {
+            if (released.compareAndSet(false, true)) {
+                try {
+                    session.close();
+                } catch (ActiveMQException | RuntimeException e) {
+                    // teardown; the connection may already be gone
+                } finally {
+                    link.release();
+                }
+            }
+        }
+    }
+
+    /** One factory, counted by its open sessions. */
+    private final class Link {
+
+        private final ServerLocator locator;
+        private final ClientSessionFactory factory;
+        private final Optional<TlsMaterial> tls;
+        private final ReentrantLock guard = new ReentrantLock();
+        private int leases;
+        private boolean retired;
+        private boolean closed;
+
+        Link(ServerLocator locator, ClientSessionFactory factory, Optional<TlsMaterial> tls) {
+            this.locator = locator;
+            this.factory = factory;
+            this.tls = tls;
+        }
+
+        String tlsId() {
+            return tls.map(TlsMaterial::id).orElse(PLAIN);
+        }
 
         boolean usable() {
             return !factory.isClosed()
@@ -87,14 +203,76 @@ final class CoreLinks implements AutoCloseable {
                     && !factory.getConnection().isDestroyed();
         }
 
-        void close() {
+        /** Takes a lease unless the factory is closed or broken. */
+        boolean acquire() {
+            guard.lock();
+            try {
+                if (closed || !usable()) {
+                    return false;
+                }
+                leases++;
+                return true;
+            } finally {
+                guard.unlock();
+            }
+        }
+
+        void release() {
+            guard.lock();
+            try {
+                leases--;
+                if (retired && leases == 0) {
+                    shut();
+                }
+            } finally {
+                guard.unlock();
+            }
+        }
+
+        /** No new sessions come to this factory; it closes with its last session. */
+        void retire() {
+            guard.lock();
+            try {
+                retired = true;
+                if (leases == 0) {
+                    shut();
+                }
+            } finally {
+                guard.unlock();
+            }
+        }
+
+        /** Closes the factory whatever it still serves. */
+        void shutdown() {
+            guard.lock();
+            try {
+                retired = true;
+                shut();
+            } finally {
+                guard.unlock();
+            }
+        }
+
+        private void shut() {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            open.remove(this);
             factory.close();
             locator.close();
+            tls.ifPresent(CoreLinks.this::unuse);
         }
     }
 
+    private static final String PLAIN = "plain";
+
     private final Cluster cluster;
     private final Map<String, Link> links = new ConcurrentHashMap<>();
+    private final Map<String, ReentrantLock> connecting = new ConcurrentHashMap<>();
+    private final Set<Link> open = ConcurrentHashMap.newKeySet();
+    private final Map<String, Integer> tlsUse = new HashMap<>();
+    private final ReentrantLock tlsGuard = new ReentrantLock();
     private final Map<String, Instant> resting = new ConcurrentHashMap<>();
 
     CoreLinks(Cluster cluster) {
@@ -110,8 +288,8 @@ final class CoreLinks implements AutoCloseable {
             throw Deadlines.exceeded(node.id(), Dispatch.NOT_SENT);
         }
         try (Permit permit = admit(node, operation, target)) {
-            try (ClientSession session = session(node, Purpose.OPERATOR, false, true)) {
-                T result = work.run(session);
+            try (Lease lease = lease(node, LinkSettings.operator(true), false, true)) {
+                T result = work.run(lease.session());
                 permit.complete(Outcome.succeeded(), Optional.empty());
                 return result;
             } catch (ActiveMQException e) {
@@ -133,16 +311,19 @@ final class CoreLinks implements AutoCloseable {
     }
 
     /**
-     * A started session on the node's link for {@code purpose}. Transacted, its sends and
-     * acknowledgements take effect on commit; otherwise each takes effect at once.
+     * A started session on the node's link for {@code settings}. Transacted, its sends and
+     * acknowledgements take effect on commit; otherwise each takes effect at once. Close the lease
+     * to close the session. The TLS material and credentials are asked for again at every call, so a
+     * rotation reaches the next session and leaves the open ones alone.
      *
-     * @param buffered whether consumers on it may receive ahead of reading
+     * @param respectRest whether an endpoint that failed a moment ago is left alone; a recovery
+     *     attempt is not
      */
-    ClientSession session(NodeHandle node, Purpose purpose, boolean transacted, boolean buffered)
+    Lease lease(NodeHandle node, LinkSettings settings, boolean transacted, boolean respectRest)
             throws ActiveMQException {
         String endpoint = endpoint(node);
         Instant now = cluster.options().clock().instant();
-        Instant until = resting.get(endpoint);
+        Instant until = respectRest ? resting.get(endpoint) : null;
         if (until != null && now.isBefore(until)) {
             throw new BrokerException(
                     Status.UNAVAILABLE,
@@ -151,53 +332,69 @@ final class CoreLinks implements AutoCloseable {
                     node.id(),
                     "The node's Core endpoint did not answer a moment ago; it is tried again from " + until + ".");
         }
-        Optional<TlsMaterial> tls = cluster.options().tls().current();
-        String key = endpoint + "|" + tls.map(TlsMaterial::id).orElse("plain") + "|" + purpose + "|" + buffered;
-        Link link = links.compute(key, (k, existing) -> {
-            if (existing != null && existing.usable()) {
-                return existing;
-            }
-            if (existing != null) {
-                existing.close();
-            }
-            return connect(node, endpoint, tls, buffered);
-        });
+        Link link = link(node, endpoint, cluster.options().tls().current(), settings);
         Credentials account = cluster.credentials().forPlane(Plane.DATA);
         ClientSession session;
         try {
-            session = link.factory()
-                    .createSession(
-                            account.isNone() ? null : account.username(),
-                            account.isNone() ? null : account.password().reveal(),
-                            false,
-                            !transacted,
-                            !transacted,
-                            false,
-                            0);
+            session = link.factory.createSession(
+                    account.isNone() ? null : account.username(),
+                    account.isNone() ? null : account.password().reveal(),
+                    false,
+                    !transacted,
+                    !transacted,
+                    settings.preAcknowledge(),
+                    0);
         } catch (ActiveMQSecurityException e) {
+            link.release();
             throw Errors.credentialsRejected(node.id(), Plane.DATA, 401, Errors.CREDENTIALS_MESSAGE);
+        } catch (ActiveMQException | RuntimeException e) {
+            link.release();
+            throw e;
         }
+        Lease lease = new Lease(session, link);
         try {
             session.start();
-            return session;
+            return lease;
         } catch (ActiveMQException | RuntimeException e) {
-            try {
-                session.close();
-            } catch (ActiveMQException closing) {
-                // teardown; the failure that got here is the one to report
-            }
+            lease.close();
             throw e;
         }
     }
 
-    private Link connect(NodeHandle node, String endpoint, Optional<TlsMaterial> tls, boolean buffered) {
-        ActiveMQConnectionFactory jms = connectionFactory(cluster.options(), endpoint, tls);
-        ServerLocator locator = jms.getServerLocator();
-        if (!buffered) {
-            locator.setConsumerWindowSize(0);
+    /** The factory for the settings and current TLS material, with a lease taken on it. */
+    private Link link(NodeHandle node, String endpoint, Optional<TlsMaterial> tls, LinkSettings settings) {
+        String key = endpoint + '|' + settings;
+        String tlsId = tls.map(TlsMaterial::id).orElse(PLAIN);
+        Link existing = links.get(key);
+        if (existing != null && existing.tlsId().equals(tlsId) && existing.acquire()) {
+            return existing;
         }
+        ReentrantLock lock = connecting.computeIfAbsent(key, k -> new ReentrantLock());
+        lock.lock();
         try {
-            Link link = new Link(locator, locator.createSessionFactory());
+            existing = links.get(key);
+            if (existing != null && existing.tlsId().equals(tlsId) && existing.acquire()) {
+                return existing;
+            }
+            Link fresh = connect(node, endpoint, tls, settings);
+            fresh.acquire();
+            links.put(key, fresh);
+            if (existing != null) {
+                existing.retire();
+            }
+            return fresh;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private Link connect(NodeHandle node, String endpoint, Optional<TlsMaterial> tls, LinkSettings settings) {
+        ActiveMQConnectionFactory jms = connectionFactory(cluster.options(), endpoint, tls, settings);
+        ServerLocator locator = jms.getServerLocator();
+        try {
+            Link link = new Link(locator, locator.createSessionFactory(), tls);
+            tls.ifPresent(this::use);
+            open.add(link);
             resting.remove(endpoint);
             return link;
         } catch (Exception e) {
@@ -210,13 +407,45 @@ final class CoreLinks implements AutoCloseable {
         }
     }
 
-    /** A Core connection factory for one endpoint, with the caller's timeouts and TLS material. */
+    private void use(TlsMaterial material) {
+        tlsGuard.lock();
+        try {
+            tlsUse.merge(material.id(), 1, Integer::sum);
+        } finally {
+            tlsGuard.unlock();
+        }
+    }
+
+    /** The last factory built from the material is gone: its context is not kept alive any longer. */
+    private void unuse(TlsMaterial material) {
+        tlsGuard.lock();
+        try {
+            if (tlsUse.merge(material.id(), -1, Integer::sum) <= 0) {
+                tlsUse.remove(material.id());
+                CoreTls.forget(material);
+            }
+        } finally {
+            tlsGuard.unlock();
+        }
+    }
+
+    /** A Core connection factory for one endpoint, with the caller's timeouts, TLS material and link settings. */
     static ActiveMQConnectionFactory connectionFactory(
-            ConnectOptions options, String endpoint, Optional<TlsMaterial> tls) {
+            ConnectOptions options, String endpoint, Optional<TlsMaterial> tls, LinkSettings settings) {
         StringBuilder url = new StringBuilder(dialable(endpoint))
                 .append(endpoint.contains("?") ? ";" : "?")
                 .append("useTopologyForLoadBalancing=false;consumerWindowSize=")
-                .append(WINDOW_BYTES)
+                .append(settings.consumerWindow())
+                .append(";confirmationWindowSize=")
+                .append(settings.confirmationWindow())
+                .append(";blockOnDurableSend=")
+                .append(settings.blockingSends())
+                .append(";blockOnNonDurableSend=")
+                .append(settings.blockingSends())
+                .append(";blockOnAcknowledge=")
+                .append(settings.blockingAcknowledgements())
+                .append(";preAcknowledge=")
+                .append(settings.preAcknowledge())
                 .append(';')
                 .append(TransportConstants.NETTY_CONNECT_TIMEOUT)
                 .append('=')
@@ -264,14 +493,26 @@ final class CoreLinks implements AutoCloseable {
 
     /** A Core failure in the SDK's terms. */
     static BrokerException failure(NodeId node, ActiveMQException e) {
+        return failure(node, e, Optional.empty());
+    }
+
+    /**
+     * A Core failure in the SDK's terms. A refusal names the plane it came from and, when known, the
+     * resource it was about.
+     */
+    static BrokerException failure(NodeId node, ActiveMQException e, Optional<ResourceId> resource) {
         return switch (e) {
-            case ActiveMQSecurityException s ->
-                new BrokerException(
+            case ActiveMQSecurityException s -> {
+                Map<String, String> metadata = new LinkedHashMap<>();
+                metadata.put(ErrorReasons.PLANE, Plane.DATA.name());
+                resource.ifPresent(id -> metadata.put(ErrorReasons.RESOURCE, id.format()));
+                yield new BrokerException(
                         Status.PERMISSION_DENIED,
-                        ErrorInfo.of(ErrorReasons.NOT_AUTHORIZED, Map.of(ErrorReasons.PLANE, Plane.DATA.name())),
+                        ErrorInfo.of(ErrorReasons.NOT_AUTHORIZED, metadata),
                         Dispatch.REJECTED,
                         node,
                         "The broker refused this for the account: " + s.getMessage());
+            }
             case ActiveMQInvalidFilterExpressionException f -> Selectors.invalid("Invalid message filter.");
             case ActiveMQNonExistentQueueException q ->
                 new BrokerException(
@@ -306,7 +547,7 @@ final class CoreLinks implements AutoCloseable {
             case ActiveMQTransactionRolledBackException r ->
                 new BrokerException(
                         Status.ABORTED,
-                        ErrorInfo.of(ErrorReasons.BAD_RESPONSE),
+                        ErrorInfo.of(ErrorReasons.TRANSACTION_ROLLED_BACK),
                         Dispatch.REJECTED,
                         node,
                         "The broker rolled the transaction back: " + r.getMessage());
@@ -336,7 +577,7 @@ final class CoreLinks implements AutoCloseable {
 
     @Override
     public void close() {
-        links.values().forEach(Link::close);
+        new ArrayList<>(open).forEach(Link::shutdown);
         links.clear();
     }
 }

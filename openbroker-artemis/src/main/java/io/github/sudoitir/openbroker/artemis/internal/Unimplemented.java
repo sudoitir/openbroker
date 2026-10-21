@@ -3,9 +3,10 @@ package io.github.sudoitir.openbroker.artemis.internal;
 import io.github.sudoitir.openbroker.BrokerException;
 import io.github.sudoitir.openbroker.Dispatch;
 import io.github.sudoitir.openbroker.ErrorInfo;
+import io.github.sudoitir.openbroker.ErrorReasons;
 import io.github.sudoitir.openbroker.Status;
 
-/** The failure for what Artemis cannot do. */
+/** The failure for what Artemis cannot do: unimplemented, {@code NOT_SUPPORTED}, and not sent. */
 public final class Unimplemented {
 
     private Unimplemented() {}
@@ -13,7 +14,7 @@ public final class Unimplemented {
     public static BrokerException of(String what) {
         return new BrokerException(
                 Status.UNIMPLEMENTED,
-                ErrorInfo.of("UNIMPLEMENTED"),
+                ErrorInfo.of(ErrorReasons.NOT_SUPPORTED),
                 Dispatch.NOT_SENT,
                 null,
                 "Artemis cannot " + what + ".");

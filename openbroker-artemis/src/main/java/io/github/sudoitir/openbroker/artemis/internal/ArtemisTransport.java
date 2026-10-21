@@ -129,13 +129,19 @@ public final class ArtemisTransport implements Transport {
         boolean buffered =
                 options.flow().prefetchMessages() > 0 || options.flow().prefetchBytes() > 0;
         return opened(node, "receiver.open", subscription, () -> {
-            ClientSession session = links.session(node, CoreLinks.Purpose.TRANSPORT, transacted, buffered);
+            CoreLinks.Lease lease = links.lease(
+                    node,
+                    new CoreLinks.LinkSettings(
+                            CoreLinks.Purpose.TRANSPORT, buffered ? CoreLinks.WINDOW_BYTES : 0, -1, true, true, false),
+                    transacted,
+                    true);
+            ClientSession session = lease.session();
             try {
                 ClientConsumer consumer = session.createConsumer(
                         SimpleString.of(destination), selector.isEmpty() ? null : SimpleString.of(selector), browse);
-                return new CoreReceiver(node, subscription, session, consumer, transacted, browse);
+                return new CoreReceiver(node, subscription, lease, consumer, transacted, browse);
             } catch (ActiveMQException | RuntimeException e) {
-                session.close();
+                lease.close();
                 throw e;
             }
         });
@@ -167,12 +173,17 @@ public final class ArtemisTransport implements Transport {
                     }
                 }
                 return opened(node, "sender.open", resource, () -> {
-                    ClientSession session = links.session(node, CoreLinks.Purpose.TRANSPORT, transacted, true);
+                    CoreLinks.Lease lease = links.lease(
+                            node,
+                            new CoreLinks.LinkSettings(
+                                    CoreLinks.Purpose.TRANSPORT, CoreLinks.WINDOW_BYTES, -1, true, true, false),
+                            transacted,
+                            true);
                     try {
                         return new CoreSender(
-                                node, resource, session, session.createProducer(), destination, transacted);
+                                node, resource, lease, lease.session().createProducer(), destination, transacted);
                     } catch (ActiveMQException | RuntimeException e) {
-                        session.close();
+                        lease.close();
                         throw e;
                     }
                 });
@@ -282,6 +293,7 @@ public final class ArtemisTransport implements Transport {
 
         private final NodeHandle node;
         private final ResourceId subscription;
+        private final CoreLinks.Lease lease;
         private final ClientSession session;
         private final ClientConsumer consumer;
         private final boolean transacted;
@@ -296,13 +308,14 @@ public final class ArtemisTransport implements Transport {
         CoreReceiver(
                 NodeHandle node,
                 ResourceId subscription,
-                ClientSession session,
+                CoreLinks.Lease lease,
                 ClientConsumer consumer,
                 boolean transacted,
                 boolean browse) {
             this.node = node;
             this.subscription = subscription;
-            this.session = session;
+            this.lease = lease;
+            this.session = lease.session();
             this.consumer = consumer;
             this.transacted = transacted;
             this.browse = browse;
@@ -433,12 +446,8 @@ public final class ArtemisTransport implements Transport {
             } catch (ActiveMQException e) {
                 // teardown
             }
-            try {
-                // The broker hands back whatever this session holds unsettled.
-                session.close();
-            } catch (ActiveMQException e) {
-                // teardown
-            }
+            // The broker hands back whatever this session holds unsettled.
+            lease.close();
             unsettled.clear();
             spool.close();
         }
@@ -448,6 +457,7 @@ public final class ArtemisTransport implements Transport {
 
         private final NodeHandle node;
         private final ResourceId target;
+        private final CoreLinks.Lease lease;
         private final ClientSession session;
         private final ClientProducer producer;
         private final SimpleString destination;
@@ -460,13 +470,14 @@ public final class ArtemisTransport implements Transport {
         CoreSender(
                 NodeHandle node,
                 ResourceId target,
-                ClientSession session,
+                CoreLinks.Lease lease,
                 ClientProducer producer,
                 String destination,
                 boolean transacted) {
             this.node = node;
             this.target = target;
-            this.session = session;
+            this.lease = lease;
+            this.session = lease.session();
             this.producer = producer;
             this.destination = SimpleString.of(destination);
             this.transacted = transacted;
@@ -571,11 +582,7 @@ public final class ArtemisTransport implements Transport {
             } catch (ActiveMQException e) {
                 // teardown
             }
-            try {
-                session.close();
-            } catch (ActiveMQException e) {
-                // teardown
-            }
+            lease.close();
             spool.close();
         }
     }
