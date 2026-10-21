@@ -20,6 +20,7 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
@@ -108,7 +109,7 @@ public final class ListRows {
         if (name == null) {
             return null;
         }
-        String routingTypes = text(row, "routingTypes");
+        String routingTypes = routingTypes(text(row, "routingTypes"));
         put(a, ArtemisKinds.ROUTING_TYPES, routingTypes);
         delivery(routingTypes).ifPresent(d -> a.put(StandardAttributes.DELIVERY, d));
         metric(a, MetricKeys.SUBSCRIPTION_COUNT, row, "queueCount");
@@ -169,6 +170,22 @@ public final class ListRows {
         put(a, ArtemisKinds.PRODUCER_NAME, text(row, "name"));
         metric(a, MetricKeys.SENT, row, "msgSent");
         return ResourcePath.of(session, id);
+    }
+
+    /**
+     * An address's routing types as a comma-separated list. The broker lists them as a JSON array in a
+     * string ({@code ["ANYCAST","MULTICAST"]}); the list is what the raw attribute holds everywhere.
+     */
+    static @Nullable String routingTypes(@Nullable String listed) {
+        if (listed == null) {
+            return null;
+        }
+        return String.join(
+                ",",
+                Arrays.stream(listed.replaceAll("[\\[\\]\"]", "").split(","))
+                        .map(String::strip)
+                        .filter(t -> !t.isEmpty())
+                        .toList());
     }
 
     /** Artemis routing types as delivery modes: anycast is point to point, multicast publish-subscribe. */

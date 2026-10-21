@@ -157,6 +157,13 @@ class RowsTest {
     }
 
     @Test
+    void anAddressListsItsRoutingTypesAsAJsonArray() {
+        assertThat(ListRows.routingTypes("[\"ANYCAST\",\"MULTICAST\"]")).isEqualTo("ANYCAST,MULTICAST");
+        assertThat(ListRows.routingTypes("[]")).isEmpty();
+        assertThat(ListRows.routingTypes(null)).isNull();
+    }
+
+    @Test
     void aDeadLetteredMessageNamesWhereItWasFirstSent() {
         Message m = BrowseRows.parse(
                 JSON.readTree("{\"messageID\":7,\"StringProperties\":{\"_AMQ_ORIG_ADDRESS\":\"orders\",\"k\":\"v\"}}"),
