@@ -14,10 +14,6 @@
     <name>OpenBroker OpenTelemetry</name>
     <description>Traces and metrics for OpenBroker messaging through the OpenTelemetry API.</description>
 
-    <properties>
-        <!-- No previous release to compare against yet; remove after 0.2.0 is on Central. -->
-        <japicmp.skip>true</japicmp.skip>
-    </properties>
 
     <dependencies>
         <dependency>

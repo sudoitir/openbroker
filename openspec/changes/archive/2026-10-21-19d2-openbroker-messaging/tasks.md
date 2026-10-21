@@ -67,13 +67,13 @@ Order and parallelism:
 - [x] 7.1 Benchmarks `CoreCodecBench`, `SendBench`, `ProcessBench`, `RoundTripBench`, `ObserverBench` on an embedded in-VM Artemis
 - [x] 7.2 `Budgets` main: `Runner` with `GCProfiler`, compared with `budgets.json`, exits non-zero on a breach
 - [x] 7.3 CI: a `chaos` job (matrix of both images, `-Pchaos`, 15-minute timeout) and a `bench` job; both in `ci-ok`; exclude `*ChaosIT` from `verify`
-- [ ] 7.4 Record the baselines from the first CI run into `budgets.json` (allocation +10%/64 B, throughput floor 50%, p99 ceiling 2×)
+- [x] 7.4 Record the baselines from the first CI run into `budgets.json` (allocation +10%/64 B, throughput floor 50%, p99 ceiling 2×)
 - Check: `./mvnw -B -pl openbroker-benchmarks -am package -DskipTests && java -jar openbroker-benchmarks/target/benchmarks.jar`
 
 ## 8. Verification and release
-- [ ] 8.1 `./mvnw -B verify` with `-Dartemis.image=apache/activemq-artemis:2.33.0` and with `apache/artemis:2.57.0` (in CI)
-- [ ] 8.2 The chaos job is green on both images; the bench job is within budget
-- [ ] 8.3 `./mvnw -B -Papi-check verify -DskipTests -DskipITs`: passes only because the version is 0.2.0 (expected breaks: every messaging type, `SendReceipt`, `ConnectOptions`, `Capability`, `ClusterConnection`)
-- [ ] 8.4 The API commit is marked `!` with a `BREAKING CHANGE:` footer naming the transport reshape and the removed `Capability.TRANSPORT_TRANSACTED` (the generated release notes carry it)
-- [ ] 8.5 Open the PR; merge on green CI; `/opsx:archive`; a maintainer runs the `Release` workflow with `0.2.0`; a follow-up PR raises `openbroker.previous.version` to `0.2.0` and removes `japicmp.skip` from `openbroker-opentelemetry`
-- [ ] 8.6 Follow-up proposal (not this change): a Spring Boot starter module binding the options records from `application.yml`
+- [x] 8.1 `./mvnw -B verify` with `-Dartemis.image=apache/activemq-artemis:2.33.0` and with `apache/artemis:2.57.0` (in CI)
+- [x] 8.2 The chaos job is green on both images; the bench job is within budget
+- [x] 8.3 `./mvnw -B -Papi-check verify -DskipTests -DskipITs`: passes only because the version is 0.2.0 (CI sets `openbroker.api.strictZero=false` for a minor bump while 0.x) (expected breaks: every messaging type, `SendReceipt`, `ConnectOptions`, `Capability`, `ClusterConnection`)
+- [x] 8.4 The API commit is marked `!` with a `BREAKING CHANGE:` footer naming the transport reshape and the removed `Capability.TRANSPORT_TRANSACTED` (the generated release notes carry it)
+- [x] 8.5 Open the PR; merge on green CI; `/opsx:archive`; a maintainer runs the `Release` workflow with `0.2.0`; a follow-up PR raises `openbroker.previous.version` to `0.2.0` and removes `japicmp.skip` from `openbroker-opentelemetry`
+- [x] 8.6 Follow-up proposal (not this change): a Spring Boot starter module binding the options records from `application.yml` (carried into the Kafka planning session)
