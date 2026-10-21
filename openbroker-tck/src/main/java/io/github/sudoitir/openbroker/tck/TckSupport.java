@@ -192,10 +192,16 @@ final class TckSupport {
      */
     static List<Message> drain(
             Transport transport, ResourceId subscription, int minimum, Duration timeout, Duration quiet) {
+        return drain(transport, subscription, Scope.whole(), minimum, timeout, quiet);
+    }
+
+    /** Like the drain above, reading the nodes in {@code scope}. */
+    static List<Message> drain(
+            Transport transport, ResourceId subscription, Scope scope, int minimum, Duration timeout, Duration quiet) {
         long until = System.nanoTime() + timeout.toNanos();
         List<Message> drained = new ArrayList<>();
         while (true) {
-            try (Receiver receiver = transport.receiver(subscription, Scope.whole(), ReceiverOptions.consume())) {
+            try (Receiver receiver = transport.receiver(subscription, scope, ReceiverOptions.consume())) {
                 while (true) {
                     List<Message> batch = receiver.receive(500, quiet);
                     if (batch.isEmpty()) {

@@ -429,7 +429,8 @@ public abstract class ChaosTck {
 
     /**
      * When the primary of a high-availability pair fails and the backup takes over, a processor at
-     * least once still handles every message: none is lost.
+     * least once still handles every message: none is lost. The processor reads the primary's node,
+     * and its links move to the backup.
      */
     @Test
     void failoverAtLeastOnceLosesNothing() {
@@ -441,11 +442,12 @@ public abstract class ChaosTck {
         int count = 100;
         sendDirect(connection, id, count);
         Set<Long> seen = ConcurrentHashMap.newKeySet();
-        own(transport.process(id, Scope.whole(), ProcessorOptions.defaults().withConcurrency(4), ctx -> {
-            Thread.sleep(20);
-            seen.add(seq(ctx.message()));
-            return Disposition.accept();
-        }));
+        own(transport.process(
+                id, Scope.node(chaos.primary()), ProcessorOptions.defaults().withConcurrency(4), ctx -> {
+                    Thread.sleep(20);
+                    seen.add(seq(ctx.message()));
+                    return Disposition.accept();
+                }));
         await("some handled", SECONDS_60, () -> seen.size() >= 10);
         chaos.kill(chaos.primary());
         await("every message handled", SECONDS_120, () -> seen.size() == count);
@@ -469,7 +471,8 @@ public abstract class ChaosTck {
                 Scope.whole(),
                 SenderOptions.defaults().withIdempotent(true).withBuffer(roomy())));
         confirm(sendAcrossKill(sender, count, chaos.primary(), false), SECONDS_120);
-        assertThat(seqs(drain(transport, id, count, SECONDS_60, QUIET))).containsExactlyElementsOf(range(count));
+        assertThat(seqs(drain(transport, id, Scope.node(chaos.primary()), count, SECONDS_60, QUIET)))
+                .containsExactlyElementsOf(range(count));
     }
 
     /** After a failover the listener sees the link recovering and then open, served by the backup. */
