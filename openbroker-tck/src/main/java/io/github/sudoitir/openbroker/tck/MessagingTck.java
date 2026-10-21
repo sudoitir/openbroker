@@ -699,7 +699,9 @@ public abstract class MessagingTck {
                 }));
         List<Message> deadLettered = drain(transport, dead, 1, SECONDS_15, QUIET);
         assertThat(seqs(deadLettered)).containsExactly(0L);
-        assertThat(deadLettered.getFirst().properties()).containsKey(DEAD_LETTER_ATTEMPTS);
+        assertThat(deadLettered.getFirst().properties())
+                .containsKey(DEAD_LETTER_ATTEMPTS)
+                .containsKey(DEAD_LETTER_REASON);
         assertThat(times).as("one call per attempt").hasSize(3);
         for (int i = 1; i < times.size(); i++) {
             assertThat(Duration.ofNanos(times.get(i) - times.get(i - 1)))
@@ -926,7 +928,7 @@ public abstract class MessagingTck {
     private static final String DEAD_LETTER_REASON = "openbroker.dead_letter_reason";
 
     /** The property the engine puts on a message it dead-letters after the last attempt of a managed retry. */
-    private static final String DEAD_LETTER_ATTEMPTS = "openbroker.dead_letter.attempts";
+    private static final String DEAD_LETTER_ATTEMPTS = "openbroker.dead_letter_attempts";
 
     private void assumeGuarantee(Guarantee guarantee) {
         assumeTrue(caps.guarantees().contains(guarantee), "The transport declares no " + guarantee);

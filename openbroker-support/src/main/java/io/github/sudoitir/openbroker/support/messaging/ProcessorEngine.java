@@ -395,9 +395,9 @@ public final class ProcessorEngine implements Processor {
         OutboundMessage copy = OutboundMessage.copyOf(message)
                 .withHeaders(message.headers().toBuilder().deliveryCount(null).build())
                 .withProperties(Map.of(
-                        "openbroker.dead_letter.attempts",
+                        "openbroker.dead_letter_attempts",
                         PropertyValue.of(attempt),
-                        "openbroker.dead_letter.error",
+                        "openbroker.dead_letter_reason",
                         PropertyValue.of(
                                 error == null
                                         ? ErrorReasons.UNEXPECTED_SYSTEM

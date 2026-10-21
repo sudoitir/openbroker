@@ -295,8 +295,8 @@ class ProcessorEngineTest {
         assertThat(lanes.deadLetter.sent).hasSize(1);
         OutboundMessage copy = lanes.deadLetter.sent.get(0);
         assertThat(copy.properties())
-                .containsEntry("openbroker.dead_letter.attempts", PropertyValue.of(2))
-                .containsEntry("openbroker.dead_letter.error", PropertyValue.of("IllegalStateException"));
+                .containsEntry("openbroker.dead_letter_attempts", PropertyValue.of(2))
+                .containsEntry("openbroker.dead_letter_reason", PropertyValue.of("IllegalStateException"));
         assertThat(sleeper.sleeps).containsExactly(Duration.ofMillis(100));
     }
 
