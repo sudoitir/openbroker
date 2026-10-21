@@ -51,15 +51,15 @@ Order and parallelism:
 - Check: `./mvnw -B -pl openbroker-api -am javadoc:javadoc -q`
 
 ## 6. Artemis driver (unit E, after 2; files: openbroker-artemis/src/main/**, its test resources and tests)
-- [ ] 6.1 `CoreLinks`: link settings in the key (guarantee, window, preAcknowledge, confirmation window), connect outside `compute`, factories reference-counted per TLS id, `Timeouts` → failure check and TTL
-- [ ] 6.2 Core sender over `SendPipeline`: async send acknowledgements, durable enforcement, `_AMQ_DUPL_ID`, `sendFailed` mapping, the dedupe window from address settings
-- [ ] 6.3 Core receiver and lanes: guarantees, credit and window, per-message Accept, Release (rollback, or a delayed copy to the FQQN), Reject (copy to the DLA with the `_AMQ_ORIG_*` properties), DELIVERY_STALE, the joined sender
-- [ ] 6.4 `process` over `ProcessorEngine`; MANAGED retry check against `max-delivery-attempts`, with a broker.xml remedy
-- [ ] 6.5 Recovery: HA group from `Membership.group`, reopening on the serving member, events with `servedBy`
-- [ ] 6.6 Map `TRANSACTION_ROLLED_BACK`, `NOT_SUPPORTED` and the resource metadata in `CoreLinks.failure` and `Unimplemented`
-- [ ] 6.7 `capabilities()` as in the design table
-- [ ] 6.8 Unit tests: `CoreLinksSettingsTest` and `TransportsTest` updated, settlement mapping, copy properties
-- [ ] 6.9 `ArtemisMessagingTckIT` (MessagingTck): a restricted account and a TLS acceptor with client auth, using throwaway test certificates under test resources plus a script that regenerates them
+- [x] 6.1 `CoreLinks`: link settings in the key (guarantee, window, preAcknowledge, confirmation window), connect outside `compute`, factories reference-counted per TLS id, `Timeouts` → failure check and TTL
+- [x] 6.2 Core sender over `SendPipeline`: async send acknowledgements, durable enforcement, `_AMQ_DUPL_ID`, `sendFailed` mapping, the dedupe window from address settings
+- [x] 6.3 Core receiver and lanes: guarantees, credit and window, per-message Accept, Release (rollback, or a delayed copy to the FQQN), Reject (copy to the DLA with the `_AMQ_ORIG_*` properties), DELIVERY_STALE, the joined sender
+- [x] 6.4 `process` over `ProcessorEngine`; MANAGED retry check against `max-delivery-attempts`, with a broker.xml remedy
+- [x] 6.5 Recovery: HA group from `Membership.group`, reopening on the serving member, events with `servedBy`
+- [x] 6.6 Map `TRANSACTION_ROLLED_BACK`, `NOT_SUPPORTED` and the resource metadata in `CoreLinks.failure` and `Unimplemented`
+- [x] 6.7 `capabilities()` as in the design table
+- [x] 6.8 Unit tests: `CoreLinksSettingsTest` and `TransportsTest` updated, settlement mapping, copy properties
+- [x] 6.9 `ArtemisMessagingTckIT` (MessagingTck): a restricted account and a TLS acceptor with client auth, using throwaway test certificates under test resources plus a script that regenerates them
 - [ ] 6.10 `ArtemisChaosIT` (ChaosTck): Toxiproxy, then the shared-store pair through an `etc-override` broker.xml on a shared volume. Prove it on `apache/activemq-artemis:2.33.0` first
 - Check: `./mvnw -B -pl openbroker-artemis -am verify -Dit.test=ArtemisMessagingTckIT`, then `… -Pchaos -Dit.test=ArtemisChaosIT`
 
