@@ -7,7 +7,7 @@
     <parent>
         <groupId>io.github.sudoitir</groupId>
         <artifactId>openbroker-parent</artifactId>
-        <version>0.1.0-SNAPSHOT</version>
+        <version>0.2.0-SNAPSHOT</version>
     </parent>
 
     <artifactId>openbroker-artemis</artifactId>
@@ -57,6 +57,11 @@
             <artifactId>testcontainers-junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-toxiproxy</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -80,7 +85,12 @@
                 <configuration>
                     <systemPropertyVariables>
                         <artemis.image>${artemis.image}</artemis.image>
+                        <toxiproxy.image>${toxiproxy.image}</toxiproxy.image>
                     </systemPropertyVariables>
+                    <!-- The chaos TCK kills brokers and takes minutes per image: the chaos profile runs it. -->
+                    <excludes>
+                        <exclude>**/*ChaosIT.java</exclude>
+                    </excludes>
                 </configuration>
             </plugin>
             <plugin>
@@ -102,5 +112,27 @@
 
     <properties>
         <artemis.image>apache/artemis:2.57.0</artemis.image>
+        <toxiproxy.image>ghcr.io/shopify/toxiproxy:2.12.0</toxiproxy.image>
     </properties>
+
+    <profiles>
+        <!-- The chaos TCK alone: ./mvnw -pl openbroker-artemis verify -Pchaos [-Dartemis.image=...] -->
+        <profile>
+            <id>chaos</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <configuration>
+                            <excludes combine.self="override"/>
+                            <includes>
+                                <include>**/*ChaosIT.java</include>
+                            </includes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

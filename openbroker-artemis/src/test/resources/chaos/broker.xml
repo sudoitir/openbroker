@@ -1,0 +1,64 @@
+<?xml version='1.0'?>
+<!--
+  The broker the chaos TCK kills and fails over: no security, a plain Core acceptor, the journal under
+  @DATA@ (a volume the primary and its backup share), and the ha-policy that ArtemisChaosIT puts in
+  place of the placeholder below.
+-->
+<configuration xmlns="urn:activemq"
+               xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xmlns:xi="http://www.w3.org/2001/XInclude"
+               xsi:schemaLocation="urn:activemq /schema/artemis-configuration.xsd">
+
+   <core xmlns="urn:activemq:core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="urn:activemq:core ">
+
+      <name>chaos</name>
+
+      <persistence-enabled>true</persistence-enabled>
+      <journal-type>NIO</journal-type>
+      <paging-directory>@DATA@/paging</paging-directory>
+      <bindings-directory>@DATA@/bindings</bindings-directory>
+      <journal-directory>@DATA@/journal</journal-directory>
+      <large-messages-directory>@DATA@/large-messages</large-messages-directory>
+      <journal-datasync>true</journal-datasync>
+      <journal-min-files>2</journal-min-files>
+      <journal-pool-files>10</journal-pool-files>
+      <message-expiry-scan-period>1000</message-expiry-scan-period>
+      <!-- A nearly full CI disk must not block the producers the test measures. -->
+      <max-disk-usage>-1</max-disk-usage>
+      <security-enabled>false</security-enabled>
+
+      @HA_POLICY@
+
+      <acceptors>
+         <acceptor name="artemis">tcp://0.0.0.0:61616?protocols=CORE;useEpoll=true</acceptor>
+      </acceptors>
+
+      <address-settings>
+         <address-setting match="#">
+            <dead-letter-address>DLQ</dead-letter-address>
+            <expiry-address>ExpiryQueue</expiry-address>
+            <redelivery-delay>0</redelivery-delay>
+            <max-size-bytes>-1</max-size-bytes>
+            <address-full-policy>PAGE</address-full-policy>
+            <auto-create-queues>true</auto-create-queues>
+            <auto-create-addresses>true</auto-create-addresses>
+            <auto-delete-queues>false</auto-delete-queues>
+            <auto-delete-addresses>false</auto-delete-addresses>
+         </address-setting>
+      </address-settings>
+
+      <addresses>
+         <address name="DLQ">
+            <anycast>
+               <queue name="DLQ"/>
+            </anycast>
+         </address>
+         <address name="ExpiryQueue">
+            <anycast>
+               <queue name="ExpiryQueue"/>
+            </anycast>
+         </address>
+      </addresses>
+   </core>
+</configuration>

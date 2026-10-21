@@ -29,7 +29,6 @@ public interface ClusterConnection extends AutoCloseable {
 
     Optional<Notifications> notifications();
 
-    @Incubating
     Optional<Transport> transport();
 
     /**

@@ -71,5 +71,22 @@ public final class ArtemisRemedies {
             </acceptors>
             """, XML);
 
+    /**
+     * A managed retry counts attempts in the client, but the broker counts too: it dead-letters a
+     * message after the address's {@code max-delivery-attempts}, so a policy allowing more attempts
+     * than that never reaches its last one.
+     */
+    public static Remedy maxDeliveryAttempts(String address, int attempts) {
+        return new Remedy(
+                "Let the broker deliver a message of " + address + " at least " + attempts
+                        + " times before it dead-letters, or -1 for no limit.",
+                """
+                <address-setting match="%s">
+                  <max-delivery-attempts>-1</max-delivery-attempts>
+                </address-setting>
+                """.formatted(address),
+                XML);
+    }
+
     private ArtemisRemedies() {}
 }

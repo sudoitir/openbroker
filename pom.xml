@@ -7,7 +7,7 @@
     <groupId>io.github.sudoitir</groupId>
     <artifactId>openbroker-parent</artifactId>
     <!-- Stays a SNAPSHOT in git; the release workflow sets the tag's version in its working tree. -->
-    <version>0.1.0-SNAPSHOT</version>
+    <version>0.2.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>OpenBroker</name>
@@ -40,6 +40,8 @@
         <module>openbroker-support</module>
         <module>openbroker-tck</module>
         <module>openbroker-artemis</module>
+        <module>openbroker-opentelemetry</module>
+        <module>openbroker-benchmarks</module>
     </modules>
 
     <properties>
@@ -50,6 +52,10 @@
 
         <!-- The last version on Central; japicmp compares against it. Raise it after each release. -->
         <openbroker.previous.version>0.1.0</openbroker.previous.version>
+        <!-- While 0.x a breaking change raises the minor version (ADR-0008), which japicmp cannot
+             express: it holds 0.x to full SemVer or not at all. CI sets this to false when the minor
+             version is above the previous release's, so that bump declares the break. -->
+        <openbroker.api.strictZero>true</openbroker.api.strictZero>
 
         <jspecify.version>1.0.0</jspecify.version>
         <artemis.version>2.57.0</artemis.version>
@@ -59,6 +65,8 @@
         <junit.version>6.0.3</junit.version>
         <assertj.version>3.27.7</assertj.version>
         <testcontainers.version>2.0.5</testcontainers.version>
+        <opentelemetry.version>1.67.0</opentelemetry.version>
+        <jmh.version>1.37</jmh.version>
 
         <maven-clean.version>3.5.0</maven-clean.version>
         <maven-compiler.version>3.15.0</maven-compiler.version>
@@ -103,6 +111,16 @@
                 <version>${project.version}</version>
             </dependency>
             <dependency>
+                <groupId>io.github.sudoitir</groupId>
+                <artifactId>openbroker-artemis</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.sudoitir</groupId>
+                <artifactId>openbroker-opentelemetry</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>org.jspecify</groupId>
                 <artifactId>jspecify</artifactId>
                 <version>${jspecify.version}</version>
@@ -111,6 +129,28 @@
                 <groupId>org.apache.artemis</groupId>
                 <artifactId>artemis-jakarta-client</artifactId>
                 <version>${artemis.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.artemis</groupId>
+                <artifactId>artemis-server</artifactId>
+                <version>${artemis.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.opentelemetry</groupId>
+                <artifactId>opentelemetry-bom</artifactId>
+                <version>${opentelemetry.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.openjdk.jmh</groupId>
+                <artifactId>jmh-core</artifactId>
+                <version>${jmh.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.openjdk.jmh</groupId>
+                <artifactId>jmh-generator-annprocess</artifactId>
+                <version>${jmh.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.slf4j</groupId>
@@ -306,7 +346,7 @@
                                     <exclude>io.github.sudoitir.openbroker.artemis.internal</exclude>
                                 </excludes>
                                 <breakBuildBasedOnSemanticVersioning>true</breakBuildBasedOnSemanticVersioning>
-                                <breakBuildBasedOnSemanticVersioningForMajorVersionZero>true</breakBuildBasedOnSemanticVersioningForMajorVersionZero>
+                                <breakBuildBasedOnSemanticVersioningForMajorVersionZero>${openbroker.api.strictZero}</breakBuildBasedOnSemanticVersioningForMajorVersionZero>
                                 <onlyModified>true</onlyModified>
                             </parameter>
                         </configuration>

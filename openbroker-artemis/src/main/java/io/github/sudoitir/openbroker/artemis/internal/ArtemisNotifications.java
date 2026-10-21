@@ -165,7 +165,8 @@ public final class ArtemisNotifications implements Notifications {
             ActiveMQConnectionFactory factory = CoreLinks.connectionFactory(
                     cluster.options(),
                     node.core().orElseThrow(),
-                    cluster.options().tls().current());
+                    cluster.options().tls().current(),
+                    CoreLinks.LinkSettings.operator(true));
             Credentials account = cluster.credentials().forPlane(Plane.DATA);
             try (factory) {
                 Connection opened = account.isNone()

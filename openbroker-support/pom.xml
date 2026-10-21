@@ -7,7 +7,7 @@
     <parent>
         <groupId>io.github.sudoitir</groupId>
         <artifactId>openbroker-parent</artifactId>
-        <version>0.1.0-SNAPSHOT</version>
+        <version>0.2.0-SNAPSHOT</version>
     </parent>
 
     <artifactId>openbroker-support</artifactId>
@@ -31,4 +31,34 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <!-- The pinning test records JFR events; the module does not otherwise read jdk.jfr. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>default-testCompile</id>
+                        <configuration>
+                            <compilerArgs combine.children="append">
+                                <arg>--add-modules</arg>
+                                <arg>jdk.jfr</arg>
+                                <arg>--add-reads</arg>
+                                <arg>io.github.sudoitir.openbroker.support=jdk.jfr</arg>
+                            </compilerArgs>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>--add-modules jdk.jfr --add-reads io.github.sudoitir.openbroker.support=jdk.jfr</argLine>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 </project>

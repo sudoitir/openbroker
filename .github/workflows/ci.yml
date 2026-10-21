@@ -55,7 +55,66 @@ jobs:
         run: |
           previous=$(./mvnw -B -q help:evaluate -Dexpression=openbroker.previous.version -DforceStdout)
           if [ -z "$previous" ]; then echo "No release yet; nothing to compare."; exit 0; fi
-          ./mvnw -B -Papi-check -DskipTests verify
+          current=$(./mvnw -B -q help:evaluate -Dexpression=project.version -DforceStdout)
+          strict=true
+          # While 0.x, raising the minor version declares a break (ADR-0008).
+          if [ "${current%%.*}" = 0 ] && [ "$(echo "$current" | cut -d. -f2)" -gt "$(echo "$previous" | cut -d. -f2)" ]; then
+            echo "$previous -> $current raises the minor version: breaking changes are declared."
+            strict=false
+          fi
+          ./mvnw -B -Papi-check -DskipTests -Dopenbroker.api.strictZero="$strict" verify
+
+  # The chaos TCK: brokers are killed, partitioned and healed. It takes minutes per image, so verify
+  # leaves *ChaosIT out and the chaos profile runs it alone.
+  chaos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        artemis: ["apache/activemq-artemis:2.33.0", "apache/artemis:2.57.0"]
+    name: chaos (${{ matrix.artemis }})
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+      - run: ./mvnw -B -pl openbroker-artemis -am verify -Pchaos -Dit.test=ArtemisChaosIT -Dartemis.image=${{ matrix.artemis }}
+
+  # The messaging client against its performance budgets (allocation per message is a hard gate;
+  # throughput and p99 have wide margins). The recorded budgets file is the candidate for new baselines.
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+      - name: Package the benchmarks
+        run: ./mvnw -B -pl openbroker-benchmarks -am package -DskipTests
+      - name: Run the budgets
+        run: >-
+          java
+          -Dbudgets.json=openbroker-benchmarks/target/jmh-result.json
+          -Dbudgets.record=openbroker-benchmarks/target/budgets.recorded.json
+          -jar openbroker-benchmarks/target/benchmarks.jar
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: benchmarks
+          path: |
+            openbroker-benchmarks/target/jmh-result.json
+            openbroker-benchmarks/target/budgets.recorded.json
+          if-no-files-found: warn
 
   sonar:
     runs-on: ubuntu-latest
@@ -86,9 +145,9 @@ jobs:
   ci-ok:
     runs-on: ubuntu-latest
     if: always()
-    needs: [verify, api-check]
+    needs: [verify, api-check, chaos, bench]
     steps:
       - run: |
-          for r in "${{ needs.verify.result }}" "${{ needs.api-check.result }}"; do
+          for r in "${{ needs.verify.result }}" "${{ needs.api-check.result }}" "${{ needs.chaos.result }}" "${{ needs.bench.result }}"; do
             case "$r" in success|skipped) ;; *) echo "A required job ended as $r"; exit 1;; esac
           done

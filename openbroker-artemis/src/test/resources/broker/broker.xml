@@ -1,0 +1,117 @@
+<?xml version='1.0'?>
+<!--
+  The broker the messaging TCK runs against: the image's defaults, plus
+  - an account (restricted) that may use tck.* but neither send to nor receive from tck.denied.*,
+  - a TLS acceptor that requires a client certificate and logs it in by its subject (certLogin).
+  Users and roles are in artemis-users.properties, artemis-roles.properties, cert-users.properties and
+  cert-roles.properties; the TLS stores are made by tls/regenerate.sh.
+-->
+<configuration xmlns="urn:activemq"
+               xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xmlns:xi="http://www.w3.org/2001/XInclude"
+               xsi:schemaLocation="urn:activemq /schema/artemis-configuration.xsd">
+
+   <core xmlns="urn:activemq:core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="urn:activemq:core ">
+
+      <name>0.0.0.0</name>
+
+      <persistence-enabled>true</persistence-enabled>
+      <journal-type>NIO</journal-type>
+      <paging-directory>data/paging</paging-directory>
+      <bindings-directory>data/bindings</bindings-directory>
+      <journal-directory>data/journal</journal-directory>
+      <large-messages-directory>data/large-messages</large-messages-directory>
+      <journal-datasync>true</journal-datasync>
+      <journal-min-files>2</journal-min-files>
+      <journal-pool-files>10</journal-pool-files>
+      <message-expiry-scan-period>1000</message-expiry-scan-period>
+      <disk-scan-period>5000</disk-scan-period>
+      <max-disk-usage>90</max-disk-usage>
+
+      <acceptors>
+         <acceptor name="artemis">tcp://0.0.0.0:61616?protocols=CORE,AMQP,STOMP,HORNETQ,MQTT,OPENWIRE;useEpoll=true;amqpCredits=1000;amqpLowCredits=300</acceptor>
+         <acceptor name="mutual-tls">tcp://0.0.0.0:61617?protocols=CORE;sslEnabled=true;keyStorePath=/etc/openbroker-tls/broker.p12;keyStorePassword=openbroker;keyStoreType=PKCS12;trustStorePath=/etc/openbroker-tls/truststore.p12;trustStorePassword=openbroker;trustStoreType=PKCS12;needClientAuth=true;securityDomain=certLogin</acceptor>
+      </acceptors>
+
+      <security-settings>
+         <!-- The administrator may do everything. -->
+         <security-setting match="#">
+            <permission type="createNonDurableQueue" roles="admin"/>
+            <permission type="deleteNonDurableQueue" roles="admin"/>
+            <permission type="createDurableQueue" roles="admin"/>
+            <permission type="deleteDurableQueue" roles="admin"/>
+            <permission type="createAddress" roles="admin"/>
+            <permission type="deleteAddress" roles="admin"/>
+            <permission type="consume" roles="admin"/>
+            <permission type="browse" roles="admin"/>
+            <permission type="send" roles="admin"/>
+            <permission type="manage" roles="admin"/>
+         </security-setting>
+         <!-- amq may use tck.*: it can read and write, not administer. -->
+         <security-setting match="tck.#">
+            <permission type="consume" roles="admin,amq"/>
+            <permission type="browse" roles="admin,amq"/>
+            <permission type="send" roles="admin,amq"/>
+            <permission type="createNonDurableQueue" roles="admin"/>
+            <permission type="deleteNonDurableQueue" roles="admin"/>
+            <permission type="createDurableQueue" roles="admin"/>
+            <permission type="deleteDurableQueue" roles="admin"/>
+            <permission type="createAddress" roles="admin"/>
+            <permission type="deleteAddress" roles="admin"/>
+            <permission type="manage" roles="admin"/>
+         </security-setting>
+         <!-- ... except tck.denied.*, which only the administrator uses. -->
+         <security-setting match="tck.denied.#">
+            <permission type="consume" roles="admin"/>
+            <permission type="browse" roles="admin"/>
+            <permission type="send" roles="admin"/>
+            <permission type="createNonDurableQueue" roles="admin"/>
+            <permission type="deleteNonDurableQueue" roles="admin"/>
+            <permission type="createDurableQueue" roles="admin"/>
+            <permission type="deleteDurableQueue" roles="admin"/>
+            <permission type="createAddress" roles="admin"/>
+            <permission type="deleteAddress" roles="admin"/>
+            <permission type="manage" roles="admin"/>
+         </security-setting>
+      </security-settings>
+
+      <address-settings>
+         <address-setting match="activemq.management#">
+            <dead-letter-address>DLQ</dead-letter-address>
+            <expiry-address>ExpiryQueue</expiry-address>
+            <redelivery-delay>0</redelivery-delay>
+            <max-size-bytes>-1</max-size-bytes>
+            <message-counter-history-day-limit>10</message-counter-history-day-limit>
+            <address-full-policy>PAGE</address-full-policy>
+            <auto-create-queues>true</auto-create-queues>
+            <auto-create-addresses>true</auto-create-addresses>
+         </address-setting>
+         <address-setting match="#">
+            <dead-letter-address>DLQ</dead-letter-address>
+            <expiry-address>ExpiryQueue</expiry-address>
+            <redelivery-delay>0</redelivery-delay>
+            <message-counter-history-day-limit>10</message-counter-history-day-limit>
+            <max-size-bytes>-1</max-size-bytes>
+            <address-full-policy>PAGE</address-full-policy>
+            <auto-create-queues>true</auto-create-queues>
+            <auto-create-addresses>true</auto-create-addresses>
+            <auto-delete-queues>false</auto-delete-queues>
+            <auto-delete-addresses>false</auto-delete-addresses>
+         </address-setting>
+      </address-settings>
+
+      <addresses>
+         <address name="DLQ">
+            <anycast>
+               <queue name="DLQ"/>
+            </anycast>
+         </address>
+         <address name="ExpiryQueue">
+            <anycast>
+               <queue name="ExpiryQueue"/>
+            </anycast>
+         </address>
+      </addresses>
+   </core>
+</configuration>

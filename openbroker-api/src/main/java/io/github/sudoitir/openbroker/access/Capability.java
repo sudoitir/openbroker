@@ -20,8 +20,6 @@ public record Capability(String id) {
     public static final Capability SEND = new Capability("messages.send");
     /** Receiving messages through the transport. */
     public static final Capability RECEIVE = new Capability("messages.receive");
-    /** Transacted batches in the transport. */
-    public static final Capability TRANSPORT_TRANSACTED = new Capability("transport.transacted");
 
     public Capability {
         Objects.requireNonNull(id, "id");

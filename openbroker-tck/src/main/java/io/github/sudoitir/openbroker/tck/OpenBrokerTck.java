@@ -25,6 +25,7 @@ import io.github.sudoitir.openbroker.messaging.BrowsePage;
 import io.github.sudoitir.openbroker.messaging.BrowseRequest;
 import io.github.sudoitir.openbroker.messaging.Count;
 import io.github.sudoitir.openbroker.messaging.Disposition;
+import io.github.sudoitir.openbroker.messaging.Guarantee;
 import io.github.sudoitir.openbroker.messaging.Message;
 import io.github.sudoitir.openbroker.messaging.MessageAction;
 import io.github.sudoitir.openbroker.messaging.MessageBody;
@@ -33,14 +34,15 @@ import io.github.sudoitir.openbroker.messaging.MessageHeaders;
 import io.github.sudoitir.openbroker.messaging.OutboundMessage;
 import io.github.sudoitir.openbroker.messaging.Position;
 import io.github.sudoitir.openbroker.messaging.PropertyValue;
-import io.github.sudoitir.openbroker.messaging.ReceiveOptions;
 import io.github.sudoitir.openbroker.messaging.Receiver;
+import io.github.sudoitir.openbroker.messaging.ReceiverOptions;
 import io.github.sudoitir.openbroker.messaging.Selection;
 import io.github.sudoitir.openbroker.messaging.SendTarget;
 import io.github.sudoitir.openbroker.messaging.Sender;
 import io.github.sudoitir.openbroker.messaging.SenderOptions;
 import io.github.sudoitir.openbroker.messaging.Total;
 import io.github.sudoitir.openbroker.messaging.Transport;
+import io.github.sudoitir.openbroker.model.Delivery;
 import io.github.sudoitir.openbroker.model.Kind;
 import io.github.sudoitir.openbroker.model.NodeDescription;
 import io.github.sudoitir.openbroker.model.Ordering;
@@ -202,6 +204,26 @@ public abstract class OpenBrokerTck {
                     .orThrow();
             assertThat(page.items()).extracting(r -> r.id()).contains(id);
             assertThat(kind(env.subscriptionKind().value()).resourceClass()).isEqualTo(ResourceClass.SUBSCRIPTION);
+        } finally {
+            delete(id);
+        }
+    }
+
+    @Test
+    void listedDestinationReportsDeliveryModes() {
+        ResourceId id = createSubscription();
+        try {
+            ResourcePage page = connection
+                    .resources()
+                    .read(ResourceQuery.of(ResourceClass.DESTINATION).named(id.name()))
+                    .orThrow();
+            assumeTrue(!page.items().isEmpty(), "The driver lists no destination for a created subscription");
+            assertThat(page.items())
+                    .allSatisfy(destination -> assertThat(
+                                    destination.attributes().get(StandardAttributes.DELIVERY))
+                            .as("the delivery modes of %s", destination.id())
+                            .hasValueSatisfying(modes -> assertThat(modes.includes(Delivery.POINT_TO_POINT))
+                                    .isTrue()));
         } finally {
             delete(id);
         }
@@ -400,12 +422,12 @@ public abstract class OpenBrokerTck {
 
     @Test
     void aTransactedReceiveTakesMessagesOnlyOnCommit() {
-        Transport transport = transport();
+        Transport transport = transport(Guarantee.TRANSACTED);
         ResourceId id = createSubscription();
         try {
             send(id, 3, "k", "v");
             try (Receiver receiver = transport.receiver(
-                    id, Scope.whole(), ReceiveOptions.consume().asTransacted())) {
+                    id, Scope.whole(), ReceiverOptions.consume().withGuarantee(Guarantee.TRANSACTED))) {
                 List<Message> first = receiver.receive(10, Duration.ofSeconds(5));
                 assertThat(first).hasSize(3);
                 first.forEach(m -> receiver.settle(m, Disposition.accept()));
@@ -431,13 +453,13 @@ public abstract class OpenBrokerTck {
             send(id, 2, "k", "v");
             Instant before = Instant.now().minusSeconds(3600);
             try (Receiver receiver = transport.receiver(
-                    id, Scope.whole(), ReceiveOptions.browse(Optional.empty()).producedAtOrBefore(before))) {
+                    id, Scope.whole(), ReceiverOptions.browse(Optional.empty()).producedAtOrBefore(before))) {
                 assertThat(receiver.receive(10, Duration.ofSeconds(2))).isEmpty();
             }
             try (Receiver receiver = transport.receiver(
                     id,
                     Scope.whole(),
-                    ReceiveOptions.browse(Optional.empty())
+                    ReceiverOptions.browse(Optional.empty())
                             .producedAtOrBefore(Instant.now().plusSeconds(3600)))) {
                 assertThat(receiver.receive(10, Duration.ofSeconds(5))).hasSize(2);
             }
@@ -452,7 +474,7 @@ public abstract class OpenBrokerTck {
         ResourceId id = createSubscription();
         try {
             send(id, 2, "k", "v");
-            try (Receiver receiver = transport.receiver(id, Scope.whole(), ReceiveOptions.browse(Optional.empty()))) {
+            try (Receiver receiver = transport.receiver(id, Scope.whole(), ReceiverOptions.browse(Optional.empty()))) {
                 assertThat(receiver.receive(10, Duration.ofSeconds(5))).hasSize(2);
             }
             assertThat(exactCount(id)).isEqualTo(2);
@@ -463,7 +485,7 @@ public abstract class OpenBrokerTck {
 
     @Test
     void aTransactedSendDeliversOnlyOnCommitAndACopyKeepsEverything() {
-        Transport transport = transport();
+        Transport transport = transport(Guarantee.TRANSACTED);
         ResourceId from = createSubscription();
         ResourceId to = createSubscription();
         try {
@@ -494,9 +516,11 @@ public abstract class OpenBrokerTck {
             originals.forEach(m -> connection.messages().send(SendTarget.subscription(from), m));
 
             try (Receiver receiver = transport.receiver(
-                            from, Scope.whole(), ReceiveOptions.consume().asTransacted());
-                    Sender sender =
-                            transport.sender(SendTarget.subscription(to), Scope.whole(), new SenderOptions(true))) {
+                            from, Scope.whole(), ReceiverOptions.consume().withGuarantee(Guarantee.TRANSACTED));
+                    Sender sender = transport.sender(
+                            SendTarget.subscription(to),
+                            Scope.whole(),
+                            SenderOptions.defaults().withGuarantee(Guarantee.TRANSACTED))) {
                 List<Message> received = receiver.receive(10, Duration.ofSeconds(5));
                 assertThat(received).hasSize(3);
                 for (Message m : received) {
@@ -510,7 +534,7 @@ public abstract class OpenBrokerTck {
                 receiver.commit();
             }
             assertThat(exactCount(from)).isZero();
-            try (Receiver check = transport.receiver(to, Scope.whole(), ReceiveOptions.consume())) {
+            try (Receiver check = transport.receiver(to, Scope.whole(), ReceiverOptions.consume())) {
                 List<Message> copies = check.receive(10, Duration.ofSeconds(5));
                 assertThat(copies).hasSize(3);
                 Message small = copies.stream()
@@ -536,6 +560,13 @@ public abstract class OpenBrokerTck {
     private Transport transport() {
         assumeTrue(connection.transport().isPresent(), "The driver offers no transport");
         return connection.transport().get();
+    }
+
+    /** The transport, when it declares that it keeps {@code guarantee}; the case is skipped otherwise. */
+    private Transport transport(Guarantee guarantee) {
+        Transport transport = transport();
+        assumeTrue(transport.capabilities().guarantees().contains(guarantee), "The transport declares no " + guarantee);
+        return transport;
     }
 
     private static byte[] readAll(Message m) {
@@ -609,7 +640,7 @@ public abstract class OpenBrokerTck {
                 })) {
             awaitStreams();
             try (Receiver receiver =
-                    connection.transport().get().receiver(id, Scope.whole(), ReceiveOptions.consume())) {
+                    connection.transport().get().receiver(id, Scope.whole(), ReceiverOptions.consume())) {
                 long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
                 BrokerEvent attached = null;
                 while (attached == null && System.nanoTime() < until) {

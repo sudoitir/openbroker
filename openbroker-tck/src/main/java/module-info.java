@@ -3,6 +3,7 @@ module io.github.sudoitir.openbroker.tck {
     requires transitive io.github.sudoitir.openbroker;
     requires transitive org.junit.jupiter.api;
     requires org.assertj.core;
+    requires jdk.jfr;
     requires static org.jspecify;
 
     exports io.github.sudoitir.openbroker.tck;

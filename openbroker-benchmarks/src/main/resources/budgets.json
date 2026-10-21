@@ -1,0 +1,65 @@
+{
+  "comment": "Local-machine baselines (Linux dev box, JDK 25), to be replaced by the budgets file the first CI bench job records and uploads as an artifact. Allocation is bytes per operation, including the in-process broker; score is ops/s, or the p99 in microseconds for a sampled benchmark. Gates: allocation baseline + max(10%, 64 B), throughput floor 50% of baseline, p99 ceiling 2x baseline. RoundTripBench's p99 and ProcessBench's throughput (12.7k ops/s on an idle one) were recorded on a busy machine (load average about 6; 767 us idle), because a one-message hand-off is very sensitive to scheduling.",
+  "benchmarks": {
+    "CoreCodecBench.read": {
+      "score": 386564.7,
+      "unit": "ops/s",
+      "allocation": 9336.0
+    },
+    "CoreCodecBench.write": {
+      "score": 395998.2,
+      "unit": "ops/s",
+      "allocation": 12280.0
+    },
+    "ObserverBench.sendWithCountingObserver": {
+      "score": 22637.3,
+      "unit": "ops/s",
+      "allocation": 17004.2
+    },
+    "ObserverBench.sendWithoutObserver": {
+      "score": 19731.8,
+      "unit": "ops/s",
+      "allocation": 16943.8
+    },
+    "ProcessBench.sendAndProcess": {
+      "score": 7000.0,
+      "unit": "ops/s",
+      "allocation": 31806.0
+    },
+    "RoundTripBench.sendToHandler": {
+      "score": 2908.5,
+      "unit": "p99 us",
+      "allocation": 32452.9
+    },
+    "SendBench.offerAtLeastOnceIdempotent": {
+      "score": 3354.3,
+      "unit": "ops/s",
+      "allocation": 18880.5
+    },
+    "SendBench.offerAtMostOnce": {
+      "score": 23385.5,
+      "unit": "ops/s",
+      "allocation": 16928.8
+    },
+    "SendBench.pipelinedAtLeastOnceIdempotent": {
+      "score": 33467.2,
+      "unit": "ops/s",
+      "allocation": 18695.2
+    },
+    "SendBench.pipelinedAtMostOnce": {
+      "score": 33813.5,
+      "unit": "ops/s",
+      "allocation": 16785.3
+    },
+    "SendBench.sendAtLeastOnceIdempotent": {
+      "score": 3316.6,
+      "unit": "ops/s",
+      "allocation": 18995.5
+    },
+    "SendBench.sendAtMostOnce": {
+      "score": 21040.9,
+      "unit": "ops/s",
+      "allocation": 16934.9
+    }
+  }
+}
