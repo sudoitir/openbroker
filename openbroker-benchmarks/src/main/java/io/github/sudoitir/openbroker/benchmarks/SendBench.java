@@ -12,22 +12,31 @@ import io.github.sudoitir.openbroker.messaging.Sender;
 import io.github.sudoitir.openbroker.messaging.SenderOptions;
 import io.github.sudoitir.openbroker.model.ResourceId;
 import io.github.sudoitir.openbroker.model.Scope;
+import java.time.Duration;
+import java.util.ArrayDeque;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Level;
 import org.openjdk.jmh.annotations.Mode;
+import org.openjdk.jmh.annotations.OperationsPerInvocation;
 import org.openjdk.jmh.annotations.OutputTimeUnit;
 import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.TearDown;
 
-/** One send of a 1 KiB message: {@code send}, and {@code offer} followed by its confirmation. */
+/**
+ * A 1 KiB message sent: {@code send}, and {@code offer} followed by its confirmation, measure the
+ * latency of one; the pipelined variants offer {@value #BATCH} before waiting, which is what the
+ * bounded send buffer is for.
+ */
 @State(org.openjdk.jmh.annotations.Scope.Benchmark)
 @BenchmarkMode(Mode.Throughput)
 @OutputTimeUnit(TimeUnit.SECONDS)
 public class SendBench {
 
+    private static final int BATCH = 1000;
     private static final String QUEUE = "send";
 
     private EmbeddedBroker broker;
@@ -84,6 +93,39 @@ public class SendBench {
     @Benchmark
     public SendReceipt offerAtLeastOnceIdempotent() {
         return confirmed(atLeastOnce.offer(message));
+    }
+
+    @Benchmark
+    @OperationsPerInvocation(BATCH)
+    public int pipelinedAtMostOnce() {
+        return pipelined(atMostOnce);
+    }
+
+    @Benchmark
+    @OperationsPerInvocation(BATCH)
+    public int pipelinedAtLeastOnceIdempotent() {
+        return pipelined(atLeastOnce);
+    }
+
+    /** Offers {@value #BATCH} messages, waiting on the oldest receipt whenever the buffer is full, then flushes. */
+    private int pipelined(Sender sender) {
+        ArrayDeque<CompletionStage<SendReceipt>> pending = new ArrayDeque<>();
+        for (int i = 0; i < BATCH; i++) {
+            while (true) {
+                if (sender.offer(message) instanceof Offer.Accepted accepted) {
+                    pending.add(accepted.receipt());
+                    break;
+                }
+                CompletionStage<SendReceipt> oldest = pending.poll();
+                if (oldest == null) {
+                    Thread.onSpinWait();
+                } else {
+                    oldest.toCompletableFuture().join();
+                }
+            }
+        }
+        sender.flush(Duration.ofSeconds(30));
+        return pending.size();
     }
 
     private static SendReceipt confirmed(Offer offer) {
