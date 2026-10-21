@@ -60,7 +60,7 @@ Order and parallelism:
 - [x] 6.7 `capabilities()` as in the design table
 - [x] 6.8 Unit tests: `CoreLinksSettingsTest` and `TransportsTest` updated, settlement mapping, copy properties
 - [x] 6.9 `ArtemisMessagingTckIT` (MessagingTck): a restricted account and a TLS acceptor with client auth, using throwaway test certificates under test resources plus a script that regenerates them
-- [ ] 6.10 `ArtemisChaosIT` (ChaosTck): Toxiproxy, then the shared-store pair through an `etc-override` broker.xml on a shared volume. Prove it on `apache/activemq-artemis:2.33.0` first
+- [x] 6.10 `ArtemisChaosIT` (ChaosTck): Toxiproxy, then the shared-store pair through an `etc-override` broker.xml on a shared volume. Prove it on `apache/activemq-artemis:2.33.0` first
 - Check: `./mvnw -B -pl openbroker-artemis -am verify -Dit.test=ArtemisMessagingTckIT`, then `… -Pchaos -Dit.test=ArtemisChaosIT`
 
 ## 7. Benchmarks and CI (unit F, after 3 and 6; files: openbroker-benchmarks/**, .github/workflows/ci.yml)
