@@ -1,7 +1,6 @@
 package io.github.sudoitir.openbroker.artemis.internal;
 
 import io.github.sudoitir.openbroker.BrokerException;
-import io.github.sudoitir.openbroker.Dispatch;
 import io.github.sudoitir.openbroker.Outcome;
 import io.github.sudoitir.openbroker.Permit;
 import io.github.sudoitir.openbroker.messaging.DeduplicationWindow;
@@ -293,7 +292,8 @@ final class CoreSender implements Sender, CoreSession.Hooks<ClientProducer> {
             done(built);
             if (e instanceof ActiveMQException a) {
                 BrokerException failure = fail(attached, a);
-                if (failure.dispatch() != Dispatch.NOT_SENT) {
+                // A lost link is recovered and the message resent; any other failure ends this send.
+                if (!LinkErrors.linkLevel(a)) {
                     confirmation.failed(failure);
                 }
                 return;
