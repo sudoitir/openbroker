@@ -1,65 +1,65 @@
 {
-  "comment": "Local-machine baselines (Linux dev box, JDK 25), to be replaced by the budgets file the first CI bench job records and uploads as an artifact. Allocation is bytes per operation, including the in-process broker; score is ops/s, or the p99 in microseconds for a sampled benchmark. Gates: allocation baseline + max(10%, 64 B), throughput floor 50% of baseline, p99 ceiling 2x baseline. RoundTripBench's p99 and ProcessBench's throughput (12.7k ops/s on an idle one) were recorded on a busy machine (load average about 6; 767 us idle), because a one-message hand-off is very sensitive to scheduling.",
+  "comment": "Baselines recorded by the CI bench job (ubuntu-latest, JDK 25) on 2026-10-21. Allocation is bytes per operation, including the in-process broker; score is ops/s, or the p99 in microseconds for a sampled benchmark. Gates: allocation baseline + max(10%, 64 B), throughput floor 50% of baseline, p99 ceiling 2x baseline. Raising a budget needs a commit that says why; record a new file with -Dbudgets.record.",
   "benchmarks": {
     "CoreCodecBench.read": {
-      "score": 386564.7,
+      "score": 471991.8,
       "unit": "ops/s",
       "allocation": 9336.0
     },
     "CoreCodecBench.write": {
-      "score": 395998.2,
+      "score": 444941.6,
       "unit": "ops/s",
       "allocation": 12280.0
     },
     "ObserverBench.sendWithCountingObserver": {
-      "score": 22637.3,
+      "score": 31443.0,
       "unit": "ops/s",
-      "allocation": 17004.2
+      "allocation": 17009.0
     },
     "ObserverBench.sendWithoutObserver": {
-      "score": 19731.8,
+      "score": 31164.4,
       "unit": "ops/s",
-      "allocation": 16943.8
+      "allocation": 17046.9
     },
     "ProcessBench.sendAndProcess": {
-      "score": 7000.0,
+      "score": 19175.3,
       "unit": "ops/s",
-      "allocation": 31806.0
-    },
-    "RoundTripBench.sendToHandler": {
-      "score": 2908.5,
-      "unit": "p99 us",
-      "allocation": 32452.9
+      "allocation": 31667.0
     },
     "SendBench.offerAtLeastOnceIdempotent": {
-      "score": 3354.3,
+      "score": 7329.0,
       "unit": "ops/s",
-      "allocation": 18880.5
+      "allocation": 18969.4
     },
     "SendBench.offerAtMostOnce": {
-      "score": 23385.5,
+      "score": 31341.8,
       "unit": "ops/s",
-      "allocation": 16928.8
+      "allocation": 17005.0
     },
     "SendBench.pipelinedAtLeastOnceIdempotent": {
-      "score": 33467.2,
+      "score": 59040.6,
       "unit": "ops/s",
-      "allocation": 18695.2
+      "allocation": 18620.4
     },
     "SendBench.pipelinedAtMostOnce": {
-      "score": 33813.5,
+      "score": 66777.0,
       "unit": "ops/s",
-      "allocation": 16785.3
+      "allocation": 16906.5
     },
     "SendBench.sendAtLeastOnceIdempotent": {
-      "score": 3316.6,
+      "score": 7311.3,
       "unit": "ops/s",
-      "allocation": 18995.5
+      "allocation": 18984.8
     },
     "SendBench.sendAtMostOnce": {
-      "score": 21040.9,
+      "score": 31461.7,
       "unit": "ops/s",
-      "allocation": 16934.9
+      "allocation": 16989.7
+    },
+    "RoundTripBench.sendToHandler": {
+      "score": 214.3,
+      "unit": "p99 us",
+      "allocation": 32312.9
     }
   }
 }
