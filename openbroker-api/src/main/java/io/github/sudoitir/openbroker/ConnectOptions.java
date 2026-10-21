@@ -1,5 +1,6 @@
 package io.github.sudoitir.openbroker;
 
+import io.github.sudoitir.openbroker.messaging.MessagingObserver;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
@@ -18,6 +19,7 @@ import java.util.function.UnaryOperator;
  * @param spoolDirectory where large message bodies are streamed to instead of held in memory
  * @param maxResponseBytes the largest management response a driver reads; larger ones fail
  * @param timeouts how long connecting, and a call made outside a {@link CallScope}, may take
+ * @param observer watches messaging operations
  */
 public record ConnectOptions(
         CallInterceptor interceptor,
@@ -26,7 +28,8 @@ public record ConnectOptions(
         UnaryOperator<Runnable> contextPropagation,
         Path spoolDirectory,
         long maxResponseBytes,
-        Timeouts timeouts) {
+        Timeouts timeouts,
+        MessagingObserver observer) {
 
     public ConnectOptions {
         Objects.requireNonNull(interceptor, "interceptor");
@@ -35,6 +38,7 @@ public record ConnectOptions(
         Objects.requireNonNull(contextPropagation, "contextPropagation");
         Objects.requireNonNull(spoolDirectory, "spoolDirectory");
         Objects.requireNonNull(timeouts, "timeouts");
+        Objects.requireNonNull(observer, "observer");
         if (maxResponseBytes <= 0) {
             throw new IllegalArgumentException("maxResponseBytes must be positive");
         }
@@ -42,7 +46,7 @@ public record ConnectOptions(
 
     /**
      * No interception, no TLS beyond the JVM's defaults, the UTC system clock, a spool directory under
-     * the temporary directory, 256 MiB responses, a 3 s connect timeout and a 10 s call timeout.
+     * the temporary directory, 256 MiB responses, a 3 s connect timeout, a 10 s call timeout and no observer.
      */
     public static ConnectOptions defaults() {
         return new ConnectOptions(
@@ -52,41 +56,47 @@ public record ConnectOptions(
                 UnaryOperator.identity(),
                 Path.of(System.getProperty("java.io.tmpdir"), "openbroker-spool"),
                 256L * 1024 * 1024,
-                Timeouts.fixed(Duration.ofSeconds(3), Duration.ofSeconds(10)));
+                Timeouts.fixed(Duration.ofSeconds(3), Duration.ofSeconds(10)),
+                MessagingObserver.none());
     }
 
     public ConnectOptions withInterceptor(CallInterceptor interceptor) {
         return new ConnectOptions(
-                interceptor, tls, clock, contextPropagation, spoolDirectory, maxResponseBytes, timeouts);
+                interceptor, tls, clock, contextPropagation, spoolDirectory, maxResponseBytes, timeouts, observer);
     }
 
     public ConnectOptions withTls(TlsProvider tls) {
         return new ConnectOptions(
-                interceptor, tls, clock, contextPropagation, spoolDirectory, maxResponseBytes, timeouts);
+                interceptor, tls, clock, contextPropagation, spoolDirectory, maxResponseBytes, timeouts, observer);
     }
 
     public ConnectOptions withClock(Clock clock) {
         return new ConnectOptions(
-                interceptor, tls, clock, contextPropagation, spoolDirectory, maxResponseBytes, timeouts);
+                interceptor, tls, clock, contextPropagation, spoolDirectory, maxResponseBytes, timeouts, observer);
     }
 
     public ConnectOptions withContextPropagation(UnaryOperator<Runnable> contextPropagation) {
         return new ConnectOptions(
-                interceptor, tls, clock, contextPropagation, spoolDirectory, maxResponseBytes, timeouts);
+                interceptor, tls, clock, contextPropagation, spoolDirectory, maxResponseBytes, timeouts, observer);
     }
 
     public ConnectOptions withSpoolDirectory(Path spoolDirectory) {
         return new ConnectOptions(
-                interceptor, tls, clock, contextPropagation, spoolDirectory, maxResponseBytes, timeouts);
+                interceptor, tls, clock, contextPropagation, spoolDirectory, maxResponseBytes, timeouts, observer);
     }
 
     public ConnectOptions withMaxResponseBytes(long maxResponseBytes) {
         return new ConnectOptions(
-                interceptor, tls, clock, contextPropagation, spoolDirectory, maxResponseBytes, timeouts);
+                interceptor, tls, clock, contextPropagation, spoolDirectory, maxResponseBytes, timeouts, observer);
     }
 
     public ConnectOptions withTimeouts(Timeouts timeouts) {
         return new ConnectOptions(
-                interceptor, tls, clock, contextPropagation, spoolDirectory, maxResponseBytes, timeouts);
+                interceptor, tls, clock, contextPropagation, spoolDirectory, maxResponseBytes, timeouts, observer);
+    }
+
+    public ConnectOptions withObserver(MessagingObserver observer) {
+        return new ConnectOptions(
+                interceptor, tls, clock, contextPropagation, spoolDirectory, maxResponseBytes, timeouts, observer);
     }
 }

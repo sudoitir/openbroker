@@ -470,7 +470,7 @@ public final class ArtemisMessages implements Messages {
                 throw new UncheckedIOException(e);
             }
         });
-        return new SendReceipt(Optional.ofNullable(id), Optional.empty(), Optional.of(node.id()));
+        return new SendReceipt(Optional.ofNullable(id), Optional.empty(), Optional.of(node.id()), false);
     }
 
     /**
@@ -551,7 +551,8 @@ public final class ArtemisMessages implements Messages {
         return new SendReceipt(
                 id == null || id.isNull() || id.asString().isBlank() ? Optional.empty() : Optional.of(id.asString()),
                 Optional.empty(),
-                Optional.of(node.id()));
+                Optional.of(node.id()),
+                false);
     }
 
     /**

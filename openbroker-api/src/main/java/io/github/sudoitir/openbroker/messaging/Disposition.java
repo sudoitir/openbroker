@@ -1,6 +1,5 @@
 package io.github.sudoitir.openbroker.messaging;
 
-import io.github.sudoitir.openbroker.Incubating;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.Optional;
@@ -9,7 +8,6 @@ import java.util.Optional;
  * How a received message is settled: the AMQP 1.0 outcomes, which every system's acknowledgement
  * maps onto.
  */
-@Incubating
 public sealed interface Disposition {
 
     /** Processed: remove it. */

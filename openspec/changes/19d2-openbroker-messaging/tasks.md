@@ -12,15 +12,15 @@ Order and parallelism:
 - **Unit 8 runs last.**
 
 ## 1. API and build skeleton (unit A, first; files: openbroker-api/**, root and module poms, BOM)
-- [ ] 1.1 Raise every pom to `0.2.0-SNAPSHOT`; keep `openbroker.previous.version` at `0.1.0`
-- [ ] 1.2 Add modules `openbroker-opentelemetry` and `openbroker-benchmarks` (skeleton poms; benchmarks: deploy and publishing skipped, not in the BOM, `japicmp.skip`); add `openbroker-opentelemetry` to the BOM; manage `opentelemetry-bom`, `jmh`, `artemis-server` and `testcontainers-toxiproxy` versions (look the latest up with ctx7)
-- [ ] 1.3 Add the enums `Guarantee`, `OrderingScope`, `LinkState`, `PrefetchBound`, `SettlementScope`, `Enforcement`, `RetryMode`, `OperationType`
-- [ ] 1.4 Add the records `Backoff`, `Recovery`, `SendBuffer`, `FlowControl`, `RetryPolicy`, `SenderOptions`, `ReceiverOptions` (replacing `ReceiveOptions`), `ProcessorOptions`, `DeduplicationWindow`, `RetrySupport`, `TransportCapabilities`, `LinkEvent`, `OperationInfo`, each with defaults and validation
-- [ ] 1.5 Change `SendReceipt` (add `resent`); add `Offer`; reshape `Transport`, `Sender` and `Receiver`; add `Processor`, `MessageHandler`, `MessageContext`, `LinkListener`, `MessagingObserver`, `Observation` (with `none()`)
-- [ ] 1.6 Remove `@Incubating` from every messaging type and from `ClusterConnection.transport()`; remove `Capability.TRANSPORT_TRANSACTED`
-- [ ] 1.7 `ConnectOptions`: add `observer` and `withObserver`; `ErrorReasons`: add `SEND_BUFFER_FULL`, `DELIVERY_STALE`, `TRANSACTION_ROLLED_BACK`, `NOT_SUPPORTED`, `RESOURCE`
-- [ ] 1.8 Unit tests for record validation, `Backoff.delay` and the defaults
-- [ ] 1.9 Keep the Artemis driver compiling with `UNIMPLEMENTED` stubs for the new methods, so `main` builds between units
+- [x] 1.1 Raise every pom to `0.2.0-SNAPSHOT`; keep `openbroker.previous.version` at `0.1.0`
+- [x] 1.2 Add modules `openbroker-opentelemetry` and `openbroker-benchmarks` (skeleton poms; benchmarks: deploy and publishing skipped, not in the BOM, `japicmp.skip`); add `openbroker-opentelemetry` to the BOM; manage `opentelemetry-bom`, `jmh`, `artemis-server` and `testcontainers-toxiproxy` versions (look the latest up with ctx7)
+- [x] 1.3 Add the enums `Guarantee`, `OrderingScope`, `LinkState`, `PrefetchBound`, `SettlementScope`, `Enforcement`, `RetryMode`, `OperationType`
+- [x] 1.4 Add the records `Backoff`, `Recovery`, `SendBuffer`, `FlowControl`, `RetryPolicy`, `SenderOptions`, `ReceiverOptions` (replacing `ReceiveOptions`), `ProcessorOptions`, `DeduplicationWindow`, `RetrySupport`, `TransportCapabilities`, `LinkEvent`, `OperationInfo`, each with defaults and validation
+- [x] 1.5 Change `SendReceipt` (add `resent`); add `Offer`; reshape `Transport`, `Sender` and `Receiver`; add `Processor`, `MessageHandler`, `MessageContext`, `LinkListener`, `MessagingObserver`, `Observation` (with `none()`)
+- [x] 1.6 Remove `@Incubating` from every messaging type and from `ClusterConnection.transport()`; remove `Capability.TRANSPORT_TRANSACTED`
+- [x] 1.7 `ConnectOptions`: add `observer` and `withObserver`; `ErrorReasons`: add `SEND_BUFFER_FULL`, `DELIVERY_STALE`, `TRANSACTION_ROLLED_BACK`, `NOT_SUPPORTED`, `RESOURCE`
+- [x] 1.8 Unit tests for record validation, `Backoff.delay` and the defaults
+- [x] 1.9 Keep the Artemis driver compiling with `UNIMPLEMENTED` stubs for the new methods, so `main` builds between units
 - Check: `./mvnw -B -pl openbroker-api,openbroker-support,openbroker-tck,openbroker-artemis -am -DskipITs test`
 
 ## 2. Support messaging engine (unit B, parallel; files: openbroker-support/src/**/support/messaging/**)

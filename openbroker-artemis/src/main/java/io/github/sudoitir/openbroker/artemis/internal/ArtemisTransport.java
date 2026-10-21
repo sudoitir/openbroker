@@ -6,17 +6,31 @@ import io.github.sudoitir.openbroker.ErrorReasons;
 import io.github.sudoitir.openbroker.Outcome;
 import io.github.sudoitir.openbroker.Permit;
 import io.github.sudoitir.openbroker.artemis.ArtemisKinds;
+import io.github.sudoitir.openbroker.messaging.DeduplicationWindow;
 import io.github.sudoitir.openbroker.messaging.Disposition;
+import io.github.sudoitir.openbroker.messaging.Enforcement;
+import io.github.sudoitir.openbroker.messaging.Guarantee;
+import io.github.sudoitir.openbroker.messaging.LinkListener;
+import io.github.sudoitir.openbroker.messaging.LinkState;
 import io.github.sudoitir.openbroker.messaging.Message;
+import io.github.sudoitir.openbroker.messaging.MessageHandler;
+import io.github.sudoitir.openbroker.messaging.Offer;
+import io.github.sudoitir.openbroker.messaging.OrderingScope;
 import io.github.sudoitir.openbroker.messaging.OutboundMessage;
+import io.github.sudoitir.openbroker.messaging.PrefetchBound;
+import io.github.sudoitir.openbroker.messaging.Processor;
+import io.github.sudoitir.openbroker.messaging.ProcessorOptions;
 import io.github.sudoitir.openbroker.messaging.ReceiveMode;
-import io.github.sudoitir.openbroker.messaging.ReceiveOptions;
 import io.github.sudoitir.openbroker.messaging.Receiver;
+import io.github.sudoitir.openbroker.messaging.ReceiverOptions;
+import io.github.sudoitir.openbroker.messaging.RetrySupport;
 import io.github.sudoitir.openbroker.messaging.SendReceipt;
 import io.github.sudoitir.openbroker.messaging.SendTarget;
 import io.github.sudoitir.openbroker.messaging.Sender;
 import io.github.sudoitir.openbroker.messaging.SenderOptions;
+import io.github.sudoitir.openbroker.messaging.SettlementScope;
 import io.github.sudoitir.openbroker.messaging.Transport;
+import io.github.sudoitir.openbroker.messaging.TransportCapabilities;
 import io.github.sudoitir.openbroker.model.ResourceId;
 import io.github.sudoitir.openbroker.model.Scope;
 import io.github.sudoitir.openbroker.support.Deadlines;
@@ -34,6 +48,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Stream;
 import org.apache.activemq.artemis.api.core.ActiveMQException;
@@ -66,8 +81,40 @@ public final class ArtemisTransport implements Transport {
         this.links = links;
     }
 
+    private static final TransportCapabilities CAPABILITIES = new TransportCapabilities(
+            Set.of(Guarantee.AT_LEAST_ONCE, Guarantee.TRANSACTED),
+            false,
+            Set.of(OrderingScope.NONE),
+            Set.of(PrefetchBound.BYTES),
+            SettlementScope.RECEIVER,
+            false,
+            new RetrySupport(Enforcement.SYSTEM, Enforcement.SYSTEM, Enforcement.SYSTEM),
+            false);
+
     @Override
-    public Receiver receiver(ResourceId subscription, Scope scope, ReceiveOptions options) {
+    public TransportCapabilities capabilities() {
+        return CAPABILITIES;
+    }
+
+    @Override
+    public Processor process(ResourceId subscription, Scope scope, ProcessorOptions options, MessageHandler handler) {
+        throw Unimplemented.of("process messages yet");
+    }
+
+    @Override
+    public AutoCloseable watch(LinkListener listener) {
+        throw Unimplemented.of("report link changes yet");
+    }
+
+    private static boolean transacted(Guarantee guarantee) {
+        if (!CAPABILITIES.guarantees().contains(guarantee)) {
+            throw Unimplemented.of("open a link with the guarantee " + guarantee);
+        }
+        return guarantee == Guarantee.TRANSACTED;
+    }
+
+    @Override
+    public Receiver receiver(ResourceId subscription, Scope scope, ReceiverOptions options) {
         requireQueue(subscription);
         List<NodeHandle> nodes = cluster.nodes(scope);
         if (nodes.size() != 1) {
@@ -78,13 +125,15 @@ public final class ArtemisTransport implements Transport {
         String selector = Selectors.bounded(Selectors.of(options.filter()), options.producedAtOrBefore());
         String destination = Destinations.of(cluster, node, subscription, deadline);
         boolean browse = options.mode() == ReceiveMode.BROWSE;
-        boolean buffered = options.prefetch().isEmpty() || options.prefetch().getAsInt() > 0;
+        boolean transacted = transacted(options.guarantee());
+        boolean buffered =
+                options.flow().prefetchMessages() > 0 || options.flow().prefetchBytes() > 0;
         return opened(node, "receiver.open", subscription, () -> {
-            ClientSession session = links.session(node, CoreLinks.Purpose.TRANSPORT, options.transacted(), buffered);
+            ClientSession session = links.session(node, CoreLinks.Purpose.TRANSPORT, transacted, buffered);
             try {
                 ClientConsumer consumer = session.createConsumer(
                         SimpleString.of(destination), selector.isEmpty() ? null : SimpleString.of(selector), browse);
-                return new CoreReceiver(node, subscription, session, consumer, options.transacted(), browse);
+                return new CoreReceiver(node, subscription, session, consumer, transacted, browse);
             } catch (ActiveMQException | RuntimeException e) {
                 session.close();
                 throw e;
@@ -94,6 +143,7 @@ public final class ArtemisTransport implements Transport {
 
     @Override
     public Sender sender(SendTarget target, Scope scope, SenderOptions options) {
+        boolean transacted = transacted(options.guarantee());
         Deadline deadline = Deadlines.current(cluster.options());
         BrokerException last = null;
         for (NodeHandle node : cluster.nodes(scope)) {
@@ -117,11 +167,10 @@ public final class ArtemisTransport implements Transport {
                     }
                 }
                 return opened(node, "sender.open", resource, () -> {
-                    ClientSession session =
-                            links.session(node, CoreLinks.Purpose.TRANSPORT, options.transacted(), true);
+                    ClientSession session = links.session(node, CoreLinks.Purpose.TRANSPORT, transacted, true);
                     try {
                         return new CoreSender(
-                                node, resource, session, session.createProducer(), destination, options.transacted());
+                                node, resource, session, session.createProducer(), destination, transacted);
                     } catch (ActiveMQException | RuntimeException e) {
                         session.close();
                         throw e;
@@ -239,6 +288,8 @@ public final class ArtemisTransport implements Transport {
         private final boolean browse;
         private final SpoolDirectory spool = new SpoolDirectory();
         private final Map<String, Held> unsettled = new LinkedHashMap<>();
+        private final String id = UUID.randomUUID().toString();
+        private volatile boolean closed;
 
         private record Held(ClientMessage message, @Nullable Path file) {}
 
@@ -255,6 +306,21 @@ public final class ArtemisTransport implements Transport {
             this.consumer = consumer;
             this.transacted = transacted;
             this.browse = browse;
+        }
+
+        @Override
+        public String id() {
+            return id;
+        }
+
+        @Override
+        public LinkState state() {
+            return closed ? LinkState.CLOSED : LinkState.OPEN;
+        }
+
+        @Override
+        public Sender sender(SendTarget target) {
+            throw Unimplemented.of("join a sender to a receiver's transaction yet");
         }
 
         @Override
@@ -361,6 +427,7 @@ public final class ArtemisTransport implements Transport {
 
         @Override
         public void close() {
+            closed = true;
             try {
                 consumer.close();
             } catch (ActiveMQException e) {
@@ -387,6 +454,8 @@ public final class ArtemisTransport implements Transport {
         private final boolean transacted;
         private final SpoolDirectory spool = new SpoolDirectory();
         private final List<CoreBodies.Built> pending = new ArrayList<>();
+        private final String id = UUID.randomUUID().toString();
+        private volatile boolean closed;
 
         CoreSender(
                 NodeHandle node,
@@ -404,6 +473,31 @@ public final class ArtemisTransport implements Transport {
         }
 
         @Override
+        public String id() {
+            return id;
+        }
+
+        @Override
+        public LinkState state() {
+            return closed ? LinkState.CLOSED : LinkState.OPEN;
+        }
+
+        @Override
+        public Optional<DeduplicationWindow> deduplication() {
+            return Optional.empty();
+        }
+
+        @Override
+        public Offer offer(OutboundMessage message) {
+            throw Unimplemented.of("offer a message without blocking yet");
+        }
+
+        @Override
+        public void flush(Duration timeout) {
+            throw Unimplemented.of("flush a sender yet");
+        }
+
+        @Override
         public SendReceipt send(OutboundMessage message) {
             try {
                 CoreBodies.Built built =
@@ -418,7 +512,8 @@ public final class ArtemisTransport implements Transport {
                 return new SendReceipt(
                         id == null ? Optional.empty() : Optional.of("ID:" + id),
                         Optional.empty(),
-                        Optional.of(node.id()));
+                        Optional.of(node.id()),
+                        false);
             } catch (ActiveMQException e) {
                 throw CoreLinks.failure(node.id(), e);
             } catch (IOException e) {
@@ -469,6 +564,7 @@ public final class ArtemisTransport implements Transport {
 
         @Override
         public void close() {
+            closed = true;
             release();
             try {
                 producer.close();

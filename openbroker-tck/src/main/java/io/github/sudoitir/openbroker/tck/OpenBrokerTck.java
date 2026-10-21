@@ -25,6 +25,7 @@ import io.github.sudoitir.openbroker.messaging.BrowsePage;
 import io.github.sudoitir.openbroker.messaging.BrowseRequest;
 import io.github.sudoitir.openbroker.messaging.Count;
 import io.github.sudoitir.openbroker.messaging.Disposition;
+import io.github.sudoitir.openbroker.messaging.Guarantee;
 import io.github.sudoitir.openbroker.messaging.Message;
 import io.github.sudoitir.openbroker.messaging.MessageAction;
 import io.github.sudoitir.openbroker.messaging.MessageBody;
@@ -33,8 +34,8 @@ import io.github.sudoitir.openbroker.messaging.MessageHeaders;
 import io.github.sudoitir.openbroker.messaging.OutboundMessage;
 import io.github.sudoitir.openbroker.messaging.Position;
 import io.github.sudoitir.openbroker.messaging.PropertyValue;
-import io.github.sudoitir.openbroker.messaging.ReceiveOptions;
 import io.github.sudoitir.openbroker.messaging.Receiver;
+import io.github.sudoitir.openbroker.messaging.ReceiverOptions;
 import io.github.sudoitir.openbroker.messaging.Selection;
 import io.github.sudoitir.openbroker.messaging.SendTarget;
 import io.github.sudoitir.openbroker.messaging.Sender;
@@ -405,7 +406,7 @@ public abstract class OpenBrokerTck {
         try {
             send(id, 3, "k", "v");
             try (Receiver receiver = transport.receiver(
-                    id, Scope.whole(), ReceiveOptions.consume().asTransacted())) {
+                    id, Scope.whole(), ReceiverOptions.consume().withGuarantee(Guarantee.TRANSACTED))) {
                 List<Message> first = receiver.receive(10, Duration.ofSeconds(5));
                 assertThat(first).hasSize(3);
                 first.forEach(m -> receiver.settle(m, Disposition.accept()));
@@ -431,13 +432,13 @@ public abstract class OpenBrokerTck {
             send(id, 2, "k", "v");
             Instant before = Instant.now().minusSeconds(3600);
             try (Receiver receiver = transport.receiver(
-                    id, Scope.whole(), ReceiveOptions.browse(Optional.empty()).producedAtOrBefore(before))) {
+                    id, Scope.whole(), ReceiverOptions.browse(Optional.empty()).producedAtOrBefore(before))) {
                 assertThat(receiver.receive(10, Duration.ofSeconds(2))).isEmpty();
             }
             try (Receiver receiver = transport.receiver(
                     id,
                     Scope.whole(),
-                    ReceiveOptions.browse(Optional.empty())
+                    ReceiverOptions.browse(Optional.empty())
                             .producedAtOrBefore(Instant.now().plusSeconds(3600)))) {
                 assertThat(receiver.receive(10, Duration.ofSeconds(5))).hasSize(2);
             }
@@ -452,7 +453,7 @@ public abstract class OpenBrokerTck {
         ResourceId id = createSubscription();
         try {
             send(id, 2, "k", "v");
-            try (Receiver receiver = transport.receiver(id, Scope.whole(), ReceiveOptions.browse(Optional.empty()))) {
+            try (Receiver receiver = transport.receiver(id, Scope.whole(), ReceiverOptions.browse(Optional.empty()))) {
                 assertThat(receiver.receive(10, Duration.ofSeconds(5))).hasSize(2);
             }
             assertThat(exactCount(id)).isEqualTo(2);
@@ -494,9 +495,11 @@ public abstract class OpenBrokerTck {
             originals.forEach(m -> connection.messages().send(SendTarget.subscription(from), m));
 
             try (Receiver receiver = transport.receiver(
-                            from, Scope.whole(), ReceiveOptions.consume().asTransacted());
-                    Sender sender =
-                            transport.sender(SendTarget.subscription(to), Scope.whole(), new SenderOptions(true))) {
+                            from, Scope.whole(), ReceiverOptions.consume().withGuarantee(Guarantee.TRANSACTED));
+                    Sender sender = transport.sender(
+                            SendTarget.subscription(to),
+                            Scope.whole(),
+                            SenderOptions.defaults().withGuarantee(Guarantee.TRANSACTED))) {
                 List<Message> received = receiver.receive(10, Duration.ofSeconds(5));
                 assertThat(received).hasSize(3);
                 for (Message m : received) {
@@ -510,7 +513,7 @@ public abstract class OpenBrokerTck {
                 receiver.commit();
             }
             assertThat(exactCount(from)).isZero();
-            try (Receiver check = transport.receiver(to, Scope.whole(), ReceiveOptions.consume())) {
+            try (Receiver check = transport.receiver(to, Scope.whole(), ReceiverOptions.consume())) {
                 List<Message> copies = check.receive(10, Duration.ofSeconds(5));
                 assertThat(copies).hasSize(3);
                 Message small = copies.stream()
@@ -609,7 +612,7 @@ public abstract class OpenBrokerTck {
                 })) {
             awaitStreams();
             try (Receiver receiver =
-                    connection.transport().get().receiver(id, Scope.whole(), ReceiveOptions.consume())) {
+                    connection.transport().get().receiver(id, Scope.whole(), ReceiverOptions.consume())) {
                 long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
                 BrokerEvent attached = null;
                 while (attached == null && System.nanoTime() < until) {
