@@ -75,5 +75,5 @@ Order and parallelism:
 - [x] 8.2 The chaos job is green on both images; the bench job is within budget
 - [x] 8.3 `./mvnw -B -Papi-check verify -DskipTests -DskipITs`: passes only because the version is 0.2.0 (CI sets `openbroker.api.strictZero=false` for a minor bump while 0.x) (expected breaks: every messaging type, `SendReceipt`, `ConnectOptions`, `Capability`, `ClusterConnection`)
 - [x] 8.4 The API commit is marked `!` with a `BREAKING CHANGE:` footer naming the transport reshape and the removed `Capability.TRANSPORT_TRANSACTED` (the generated release notes carry it)
-- [ ] 8.5 Open the PR; merge on green CI; `/opsx:archive`; a maintainer runs the `Release` workflow with `0.2.0`; a follow-up PR raises `openbroker.previous.version` to `0.2.0` and removes `japicmp.skip` from `openbroker-opentelemetry`
-- [ ] 8.6 Follow-up proposal (not this change): a Spring Boot starter module binding the options records from `application.yml`
+- [x] 8.5 Open the PR; merge on green CI; `/opsx:archive`; a maintainer runs the `Release` workflow with `0.2.0`; a follow-up PR raises `openbroker.previous.version` to `0.2.0` and removes `japicmp.skip` from `openbroker-opentelemetry`
+- [x] 8.6 Follow-up proposal (not this change): a Spring Boot starter module binding the options records from `application.yml` (carried into the Kafka planning session)
