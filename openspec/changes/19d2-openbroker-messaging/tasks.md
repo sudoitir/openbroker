@@ -32,9 +32,9 @@ Order and parallelism:
 - Check: `./mvnw -B -pl openbroker-support -am test`
 
 ## 3. OpenTelemetry module (unit C, parallel; files: openbroker-opentelemetry/**)
-- [ ] 3.1 `OpenTelemetryMessaging.of(OpenTelemetry)`: spans per the mapping table, links from extracted context, W3C injection through the configured propagator
-- [ ] 3.2 The four semconv metrics plus `openbroker.messaging.link.recoveries`, with `error.type` = the error reason
-- [ ] 3.3 `module-info` and tests with `opentelemetry-sdk-testing` (span names, kinds, attributes, process→send link)
+- [x] 3.1 `OpenTelemetryMessaging.of(OpenTelemetry)`: spans per the mapping table, links from extracted context, W3C injection through the configured propagator
+- [x] 3.2 The four semconv metrics plus `openbroker.messaging.link.recoveries`, with `error.type` = the error reason
+- [x] 3.3 `module-info` and tests with `opentelemetry-sdk-testing` (span names, kinds, attributes, process→send link)
 - Check: `./mvnw -B -pl openbroker-opentelemetry -am test`
 
 ## 4. TCK (unit D, parallel; files: openbroker-tck/**)
