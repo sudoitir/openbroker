@@ -338,7 +338,7 @@ final class CoreSender implements Sender, CoreSession.Hooks<ClientProducer> {
         pipeline.flush(env.cluster().options().timeouts().call());
         try (Permit permit = env.links().admit(node, "sender.commit", Optional.of(resource))) {
             try {
-                CoreSession.Attached<ClientProducer> attached = core.require();
+                CoreSession.Attached<ClientProducer> attached = attachedOrAbort();
                 if (spoiled(attached)) {
                     attached.session().rollback();
                     throw LinkErrors.rolledBack(node.id());
@@ -355,6 +355,26 @@ final class CoreSender implements Sender, CoreSession.Hooks<ClientProducer> {
             }
         } finally {
             endBatch();
+        }
+    }
+
+    /**
+     * The attached session. A link that is down while the transaction holds sends has lost them, so
+     * the commit is aborted and not merely unavailable.
+     */
+    private CoreSession.Attached<ClientProducer> attachedOrAbort() {
+        try {
+            return core.require();
+        } catch (BrokerException e) {
+            lock.lock();
+            try {
+                if (batchGeneration != -1) {
+                    throw LinkErrors.rolledBack(node.id());
+                }
+            } finally {
+                lock.unlock();
+            }
+            throw e;
         }
     }
 

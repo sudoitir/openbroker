@@ -111,7 +111,7 @@ public final class ArtemisTransport implements Transport, AutoCloseable {
         if (nodes.size() != 1) {
             throw Queries.invalid("A " + what + " reads one node; scope it to one node instance.");
         }
-        return nodes.getFirst();
+        return env.groups().serving(nodes.getFirst());
     }
 
     @Override

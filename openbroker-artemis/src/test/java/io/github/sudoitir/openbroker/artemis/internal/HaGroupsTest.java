@@ -100,6 +100,21 @@ class HaGroupsTest {
     }
 
     @Test
+    void aNewLinkOpensOnTheMemberThatServes() {
+        List<NodeDescription> answers = new ArrayList<>(List.of(
+                described(PRIMARY, Optional.of("node-1"), Designation.PRIMARY, Serving.ACTIVE),
+                described(BACKUP, Optional.empty(), Designation.BACKUP, Serving.STANDBY)));
+        HaGroups groups = new HaGroups(() -> List.of(PRIMARY, BACKUP), () -> List.copyOf(answers));
+        groups.learn(PRIMARY);
+        assertThat(groups.serving(PRIMARY)).isEqualTo(PRIMARY);
+
+        answers.clear();
+        answers.add(described(BACKUP, Optional.of("node-1"), Designation.BACKUP, Serving.ACTIVE));
+
+        assertThat(groups.serving(PRIMARY)).isEqualTo(BACKUP);
+    }
+
+    @Test
     void theGroupsAreLearnedUntilTheNodesOwnIsKnown() {
         AtomicInteger calls = new AtomicInteger();
         HaGroups groups = new HaGroups(() -> List.of(PRIMARY, BACKUP), () -> {

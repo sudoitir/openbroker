@@ -48,6 +48,14 @@ final class HaGroups {
     }
 
     /**
+     * The node a new link scoped to {@code node} opens on: the member of its group that serves now,
+     * which is not {@code node} while a backup has taken over from it, or {@code node} itself.
+     */
+    NodeHandle serving(NodeHandle node) {
+        return candidates(node, node).stream().findFirst().orElse(node);
+    }
+
+    /**
      * The nodes to try, best first: the members that report serving, then the node the link last
      * served from, its own node and the rest.
      */
