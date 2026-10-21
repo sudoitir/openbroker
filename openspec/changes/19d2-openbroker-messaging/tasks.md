@@ -66,7 +66,7 @@ Order and parallelism:
 ## 7. Benchmarks and CI (unit F, after 3 and 6; files: openbroker-benchmarks/**, .github/workflows/ci.yml)
 - [x] 7.1 Benchmarks `CoreCodecBench`, `SendBench`, `ProcessBench`, `RoundTripBench`, `ObserverBench` on an embedded in-VM Artemis
 - [x] 7.2 `Budgets` main: `Runner` with `GCProfiler`, compared with `budgets.json`, exits non-zero on a breach
-- [ ] 7.3 CI: a `chaos` job (matrix of both images, `-Pchaos`, 15-minute timeout) and a `bench` job; both in `ci-ok`; exclude `*ChaosIT` from `verify`
+- [x] 7.3 CI: a `chaos` job (matrix of both images, `-Pchaos`, 15-minute timeout) and a `bench` job; both in `ci-ok`; exclude `*ChaosIT` from `verify`
 - [ ] 7.4 Record the baselines from the first CI run into `budgets.json` (allocation +10%/64 B, throughput floor 50%, p99 ceiling 2×)
 - Check: `./mvnw -B -pl openbroker-benchmarks -am package -DskipTests && java -jar openbroker-benchmarks/target/benchmarks.jar`
 
