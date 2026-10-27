@@ -114,13 +114,13 @@ class ConnectionSchemaTest {
         @Override
         public ConnectionReport verify(ClusterSpec cluster, CredentialSource credentials, DriverContext context) {
             calls++;
-            throw new AssertionError("not reached");
+            throw new AssertionError("verify not reached");
         }
 
         @Override
         public ClusterConnection connect(ClusterSpec cluster, CredentialSource credentials, DriverContext context) {
             calls++;
-            throw new AssertionError("not reached");
+            throw new AssertionError("connect not reached");
         }
     }
 }

@@ -95,19 +95,23 @@ public record ConnectionSchema(List<OptionSpec> options) {
 
     private static boolean parses(OptionSpec.Type type, String value) {
         try {
-            switch (type) {
-                case STRING -> {}
-                case INTEGER -> Long.parseLong(value);
-                case BOOLEAN -> {
-                    if (!value.equalsIgnoreCase("true") && !value.equalsIgnoreCase("false")) {
-                        return false;
-                    }
+            return switch (type) {
+                case STRING -> true;
+                case INTEGER -> {
+                    Long.parseLong(value);
+                    yield true;
                 }
-                case DURATION -> Duration.parse(value);
-                case URI -> new URI(value);
-            }
-            return true;
-        } catch (NumberFormatException | DateTimeParseException | URISyntaxException e) {
+                case BOOLEAN -> value.equalsIgnoreCase("true") || value.equalsIgnoreCase("false");
+                case DURATION -> {
+                    Duration.parse(value);
+                    yield true;
+                }
+                case URI -> {
+                    new URI(value);
+                    yield true;
+                }
+            };
+        } catch (NumberFormatException | DateTimeParseException | URISyntaxException _) {
             return false;
         }
     }
