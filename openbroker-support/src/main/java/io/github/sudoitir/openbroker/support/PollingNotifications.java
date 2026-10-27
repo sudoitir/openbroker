@@ -117,10 +117,11 @@ public final class PollingNotifications implements Notifications {
                 }
             }
             failed.forEach((node, error) -> {
+                // The state is published first, so a listener told of the gap finds the node backing off.
+                states.put(node, new StreamState(StreamState.Phase.BACKING_OFF, Optional.of(now), Optional.of(error)));
                 if (known.remove(node) != null) {
                     dispatcher.gap(new Gap(node, now, Gap.Cause.RECONNECTED));
                 }
-                states.put(node, new StreamState(StreamState.Phase.BACKING_OFF, Optional.of(now), Optional.of(error)));
             });
             seen.forEach((node, ids) -> {
                 if (failed.containsKey(node)) {
