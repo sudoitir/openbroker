@@ -35,9 +35,7 @@ public final class KafkaTestCluster implements AutoCloseable {
     private final List<KafkaContainer> brokers = new ArrayList<>();
 
     private KafkaTestCluster(String image) {
-        String voters = IntStream.rangeClosed(1, BROKERS)
-                .mapToObj(id -> id + "@" + host(id) + ":" + CONTROLLER_PORT)
-                .collect(Collectors.joining(","));
+        String voters = voters();
         for (int id = 1; id <= BROKERS; id++) {
             String host = host(id);
             brokers.add(new KafkaContainer(image)
@@ -84,11 +82,19 @@ public final class KafkaTestCluster implements AutoCloseable {
         return cluster;
     }
 
-    private static String host(int id) {
+    static String voters() {
+        return IntStream.rangeClosed(1, BROKERS)
+                .mapToObj(id -> id + "@" + host(id) + ":" + CONTROLLER_PORT)
+                .collect(Collectors.joining(","));
+    }
+
+    /** The network alias of broker {@code id}. */
+    static String host(int id) {
         return "kafka-" + id;
     }
 
-    private static Map<String, String> environment(int id, String voters) {
+    /** The settings of broker {@code id}, which a fixture may extend with its own listeners. */
+    static Map<String, String> environment(int id, String voters) {
         return Map.ofEntries(
                 Map.entry("KAFKA_NODE_ID", String.valueOf(id)),
                 Map.entry("KAFKA_CONTROLLER_QUORUM_VOTERS", voters),
