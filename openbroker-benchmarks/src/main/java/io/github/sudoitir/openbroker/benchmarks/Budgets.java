@@ -26,6 +26,10 @@ import tools.jackson.databind.json.JsonMapper;
  * Runs the benchmarks and compares them with {@code budgets.json}.
  *
  * <ul>
+ *   <li>A baseline without an {@code allocation} is not gated on it, though the measurement is still
+ *       printed and recorded. That is for a benchmark whose allocation per operation is mostly the
+ *       background threads of a client talking to a broker in another process, divided by a rate the
+ *       broker sets, so it measures the machine and not the SDK.
  *   <li>Allocation ({@code gc.alloc.rate.norm}, bytes per operation) is a hard gate at the
  *       baseline plus the larger of 10% and 64 B. It is deterministic.
  *   <li>Throughput may not fall below 50% of the baseline; p99 latency may not exceed twice it.
@@ -51,7 +55,7 @@ public final class Budgets {
     record Measured(String name, boolean latency, double score, double allocation) {}
 
     /** The baseline a benchmark is compared with. */
-    record Baseline(double score, double allocation) {}
+    record Baseline(double score, @Nullable Double allocation) {}
 
     private Budgets() {}
 
@@ -92,7 +96,9 @@ public final class Budgets {
                     m.score(),
                     m.allocation(),
                     base == null ? "-" : String.format("%.1f", base.score()),
-                    base == null ? "-" : String.format("%.1f", base.allocation()),
+                    base == null
+                            ? "-"
+                            : base.allocation() == null ? "not gated" : String.format("%.1f", base.allocation()),
                     verdict);
         }
         noneAddsNothing(measured, breaches);
@@ -123,10 +129,12 @@ public final class Budgets {
             return "no baseline (passes)";
         }
         List<String> problems = new ArrayList<>();
-        double allocationLimit =
-                base.allocation() + Math.max(base.allocation() * ALLOCATION_RELATIVE, ALLOCATION_ABSOLUTE);
-        if (m.allocation() > allocationLimit) {
-            problems.add(String.format("allocation %.1f B/op over %.1f", m.allocation(), allocationLimit));
+        if (base.allocation() != null) {
+            double allocationLimit =
+                    base.allocation() + Math.max(base.allocation() * ALLOCATION_RELATIVE, ALLOCATION_ABSOLUTE);
+            if (m.allocation() > allocationLimit) {
+                problems.add(String.format("allocation %.1f B/op over %.1f", m.allocation(), allocationLimit));
+            }
         }
         if (m.latency()) {
             double ceiling = base.score() * LATENCY_CEILING;
@@ -173,7 +181,9 @@ public final class Budgets {
                         e.getKey(),
                         new Baseline(
                                 e.getValue().path("score").asDouble(),
-                                e.getValue().path("allocation").asDouble()));
+                                e.getValue().has("allocation")
+                                        ? e.getValue().path("allocation").asDouble()
+                                        : null));
             }
         }
         return baselines;
