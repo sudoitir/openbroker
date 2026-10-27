@@ -5,6 +5,8 @@ import io.github.sudoitir.openbroker.ErrorReasons;
 import io.github.sudoitir.openbroker.Status;
 import java.util.OptionalInt;
 import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.clients.admin.FeatureMetadata;
+import org.apache.kafka.clients.admin.FinalizedVersionRange;
 import org.apache.kafka.clients.admin.SupportedVersionRange;
 
 /**
@@ -60,5 +62,24 @@ final class ClusterVersions {
         return highestSupportedLevel.isEmpty()
                 ? "it reports no " + FEATURE
                 : "the newest " + FEATURE + " it supports is level " + highestSupportedLevel.getAsInt();
+    }
+
+    static final String SHARE_FEATURE = "share.version";
+    /** The metadata version of 4.2-IV0, the first release in which share groups are production-ready; 4.1 had a preview. */
+    static final int FIRST_SHARE_PRODUCTION_LEVEL = 28;
+
+    /**
+     * Whether the cluster runs share groups as a production feature: its software is 4.2 or later
+     * (4.1 shipped them as a preview behind the same {@value #SHARE_FEATURE}) and the feature is
+     * finalized at level 1 or more.
+     */
+    static boolean sharesInProduction(Admin admin, Await await) {
+        FeatureMetadata features = await.get(admin.describeFeatures().featureMetadata());
+        SupportedVersionRange software = features.supportedFeatures().get(FEATURE);
+        FinalizedVersionRange share = features.finalizedFeatures().get(SHARE_FEATURE);
+        return software != null
+                && software.maxVersion() >= FIRST_SHARE_PRODUCTION_LEVEL
+                && share != null
+                && share.maxVersionLevel() >= 1;
     }
 }

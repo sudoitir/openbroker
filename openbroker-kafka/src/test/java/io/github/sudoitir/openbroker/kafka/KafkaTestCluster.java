@@ -2,6 +2,8 @@ package io.github.sudoitir.openbroker.kafka;
 
 import io.github.sudoitir.openbroker.ClusterSpec;
 import io.github.sudoitir.openbroker.Endpoint;
+import io.github.sudoitir.openbroker.NodeId;
+import io.github.sudoitir.openbroker.NodeSpec;
 import io.github.sudoitir.openbroker.Plane;
 import java.util.ArrayList;
 import java.util.List;
@@ -46,9 +48,28 @@ public final class KafkaTestCluster implements AutoCloseable {
         }
     }
 
+    /** The image the tests run on. */
+    public static String image() {
+        return System.getProperty(IMAGE_PROPERTY, DEFAULT_IMAGE);
+    }
+
+    private static KafkaTestCluster shared;
+
+    /**
+     * The cluster every test class of this JVM shares: starting three brokers takes longer than most
+     * tests. It is stopped when the JVM ends. A test that changes the cluster itself starts its own.
+     */
+    public static synchronized KafkaTestCluster shared() {
+        if (shared == null) {
+            shared = start();
+            Runtime.getRuntime().addShutdownHook(new Thread(shared::close));
+        }
+        return shared;
+    }
+
     /** Starts the cluster on the image the build names. */
     public static KafkaTestCluster start() {
-        return start(System.getProperty(IMAGE_PROPERTY, DEFAULT_IMAGE));
+        return start(image());
     }
 
     /** Starts the three brokers together, because a controller quorum needs a majority to elect. */
@@ -77,6 +98,10 @@ public final class KafkaTestCluster implements AutoCloseable {
                 Map.entry("KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR", String.valueOf(BROKERS)),
                 Map.entry("KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR", String.valueOf(BROKERS)),
                 Map.entry("KAFKA_TRANSACTION_STATE_LOG_MIN_ISR", "2"),
+                // Authorization is on, as on a production cluster; the plaintext listener's principal is a super user.
+                Map.entry("KAFKA_AUTHORIZER_CLASS_NAME", "org.apache.kafka.metadata.authorizer.StandardAuthorizer"),
+                Map.entry("KAFKA_ALLOW_EVERYONE_IF_NO_ACL_FOUND", "true"),
+                Map.entry("KAFKA_SUPER_USERS", "User:ANONYMOUS"),
                 // Three brokers on one CI runner: small heaps keep them from starving each other.
                 Map.entry("KAFKA_HEAP_OPTS", "-Xms128m -Xmx384m"));
     }
@@ -93,12 +118,14 @@ public final class KafkaTestCluster implements AutoCloseable {
 
     /** What a caller of the driver passes to reach this cluster. */
     public ClusterSpec spec() {
-        return new ClusterSpec(
-                List.of(),
-                brokers.stream()
-                        .map(b -> Endpoint.of(Plane.DATA, KafkaOptions.PROTOCOL, b.getBootstrapServers()))
-                        .toList(),
-                Map.of());
+        List<NodeSpec> nodes = new ArrayList<>();
+        for (int i = 0; i < brokers.size(); i++) {
+            nodes.add(new NodeSpec(
+                    NodeId.of(String.valueOf(i + 1)),
+                    List.of(Endpoint.of(
+                            Plane.DATA, KafkaOptions.PROTOCOL, brokers.get(i).getBootstrapServers()))));
+        }
+        return new ClusterSpec(nodes, List.of(), Map.of());
     }
 
     @Override
