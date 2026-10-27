@@ -1,5 +1,6 @@
 package io.github.sudoitir.openbroker.spring.boot.autoconfigure;
 
+import io.github.sudoitir.openbroker.BrokerDrivers;
 import io.github.sudoitir.openbroker.ClusterSpec;
 import io.github.sudoitir.openbroker.Endpoint;
 import io.github.sudoitir.openbroker.Plane;
@@ -36,12 +37,17 @@ final class KafkaConnectionDeriver implements ConnectionDeriver {
     private static final String SASL_MECHANISM = "sasl.mechanism";
     private static final String SASL_JAAS_CONFIG = "sasl.jaas.config";
 
+    private final BrokerDrivers drivers;
     private final ObjectProvider<KafkaConnectionDetails> details;
     private final Environment environment;
     private final ObjectProvider<SslBundleTls> ssl;
 
     KafkaConnectionDeriver(
-            ObjectProvider<KafkaConnectionDetails> details, Environment environment, ObjectProvider<SslBundleTls> ssl) {
+            BrokerDrivers drivers,
+            ObjectProvider<KafkaConnectionDetails> details,
+            Environment environment,
+            ObjectProvider<SslBundleTls> ssl) {
+        this.drivers = drivers;
         this.details = details;
         this.environment = environment;
         this.ssl = ssl;
@@ -74,11 +80,17 @@ final class KafkaConnectionDeriver implements ConnectionDeriver {
         CredentialsProperties credentials = CredentialsProperties.unset();
         String needed = null;
         if (StringUtils.hasText(mechanism)) {
-            options.put(SASL_MECHANISM, mechanism);
-            credentials = login(mechanism, properties.get(SASL_JAAS_CONFIG));
-            if (!credentials.isSet()) {
-                needed = "Spring's Kafka properties use the SASL mechanism " + mechanism
-                        + ", whose credentials cannot be derived";
+            String normalised = mechanism.trim().toUpperCase(Locale.ROOT);
+            if (supported().contains(normalised)) {
+                options.put(SASL_MECHANISM, normalised);
+                credentials = login(normalised, properties.get(SASL_JAAS_CONFIG));
+                if (!credentials.isSet()) {
+                    needed = "Spring's Kafka properties use the SASL mechanism " + normalised
+                            + ", whose credentials cannot be derived";
+                }
+            } else {
+                needed = "Spring's Kafka properties use the SASL mechanism '" + mechanism.trim()
+                        + "', which the Kafka driver does not support, so neither it nor its credentials can be derived";
             }
         }
         Connection connection = new Connection(
@@ -91,6 +103,15 @@ final class KafkaConnectionDeriver implements ConnectionDeriver {
                 Connection.defaults().receiver(),
                 Connection.defaults().processor());
         return new Derived(connection, tls(available, admin), needed);
+    }
+
+    /** The SASL mechanisms the driver accepts, as its schema declares them. */
+    private List<String> supported() {
+        return drivers.descriptor(KAFKA)
+                .schema()
+                .option(SASL_MECHANISM)
+                .map(spec -> spec.allowedValues())
+                .orElse(List.of());
     }
 
     /** {@code spring.kafka.properties}, with the admin client's own laid over them. */

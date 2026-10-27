@@ -191,6 +191,37 @@ class DerivedConnectionsTest {
     }
 
     @Test
+    void theMechanismIsComparedWithoutCaseAndStoredInUpperCase() {
+        runner.withPropertyValues(
+                        "spring.kafka.bootstrap-servers=a:9092",
+                        "spring.kafka.properties.sasl.mechanism=scram-sha-256",
+                        "spring.kafka.properties.sasl.jaas.config=" + SCRAM)
+                .run(context -> assertThat(kafka.requests.getFirst().cluster().options())
+                        .containsEntry("sasl.mechanism", "SCRAM-SHA-256"));
+    }
+
+    @Test
+    void aMechanismTheDriverDoesNotKnowIsNotDerivedAndFailsTheStartWithAnAdvice() {
+        for (String mechanism : List.of("GSSAPI", "AWS_MSK_IAM")) {
+            runner.withPropertyValues(
+                            "spring.kafka.bootstrap-servers=a:9092",
+                            "spring.kafka.properties.sasl.mechanism=" + mechanism)
+                    .run(context -> {
+                        assertThat(context).hasFailed();
+                        assertThat(context.getStartupFailure())
+                                .hasRootCauseInstanceOf(ConnectionConfigurationException.class);
+                        assertThat(new ConnectionFailureAnalyzer()
+                                        .analyze(context.getStartupFailure())
+                                        .getDescription())
+                                .contains(mechanism)
+                                .contains("does not support")
+                                .contains("CredentialSource");
+                        assertThat(kafka.requests).isEmpty();
+                    });
+        }
+    }
+
+    @Test
     void artemisFromAServiceConnectionLikeDetailsDerivesCoreEndpointAndDataCredentials() {
         runner.withBean(ArtemisConnectionDetails.class, ArtemisDetailsFactory::nativeDetails)
                 .run(context -> {

@@ -131,10 +131,11 @@ public class OpenBrokerAutoConfiguration {
         @Bean
         @ConditionalOnMissingBean(KafkaConnectionDeriver.class)
         KafkaConnectionDeriver kafkaConnectionDeriver(
+                BrokerDrivers drivers,
                 ObjectProvider<KafkaConnectionDetails> details,
                 Environment environment,
                 ObjectProvider<SslBundleTls> ssl) {
-            return new KafkaConnectionDeriver(details, environment, ssl);
+            return new KafkaConnectionDeriver(drivers, details, environment, ssl);
         }
     }
 
