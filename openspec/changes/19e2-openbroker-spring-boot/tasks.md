@@ -20,7 +20,7 @@ Rules:
 
 ## 4. Building blocks and beans
 - [x] 4.1 Add the `BrokerDrivers` bean, `OpenBrokerConnectOptions`, `ConnectOptionsCustomizer` and `SslBundleTls` (D4, D8). Check: context-runner tests for interceptor, clock, customizers and the client defaults, plus a missing-bundle test and a bundle-reload test
-- [ ] 4.2 Add per-connection `ClusterConnection` and `Transport` beans by name, with the primary rule and back-off (D3). Check: context-runner tests for one connection, two connections and an overridden connection, and a `CredentialSource` bean that wins
+- [x] 4.2 Add per-connection `ClusterConnection` and `Transport` beans by name, with the primary rule and back-off (D3). Check: context-runner tests for one connection, two connections and an overridden connection, and a `CredentialSource` bean that wins
 
 ## 5. Spring Boot connection details
 - [ ] 5.1 Derive the `kafka` and `artemis` connections from Boot's details, with the overlay and the opt-out (D9). Check: context-runner tests for plaintext, SSL bundle, SCRAM, failing OAUTHBEARER, embedded Artemis skipped, overlay and opt-out

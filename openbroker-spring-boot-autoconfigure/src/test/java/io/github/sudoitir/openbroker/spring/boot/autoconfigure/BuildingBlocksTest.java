@@ -9,6 +9,7 @@ import io.github.sudoitir.openbroker.CallInterceptor;
 import io.github.sudoitir.openbroker.ConnectOptions;
 import io.github.sudoitir.openbroker.Dispatch;
 import io.github.sudoitir.openbroker.ErrorReasons;
+import io.github.sudoitir.openbroker.Permit;
 import io.github.sudoitir.openbroker.Status;
 import io.github.sudoitir.openbroker.TlsMaterial;
 import io.github.sudoitir.openbroker.TlsProvider;
@@ -54,7 +55,7 @@ class BuildingBlocksTest {
 
     @Test
     void connectOptionsCarryTheApplicationsBeansAndTheClientDefaults() {
-        CallInterceptor interceptor = call -> io.github.sudoitir.openbroker.Permit.unlimited();
+        CallInterceptor interceptor = call -> Permit.unlimited();
         Clock clock = Clock.fixed(Instant.EPOCH, ZoneOffset.UTC);
         runner.withBean(CallInterceptor.class, () -> interceptor)
                 .withBean(Clock.class, () -> clock)
