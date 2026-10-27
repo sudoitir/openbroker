@@ -22,6 +22,15 @@
 
     <dependencyManagement>
         <dependencies>
+            <!-- The driver's own Artemis versions come first: Spring Boot's BOM would hold the client's internals
+                 at an older release than the driver is built and tested against. -->
+            <dependency>
+                <groupId>org.apache.artemis</groupId>
+                <artifactId>artemis-bom</artifactId>
+                <version>${artemis.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
             <!-- Spring Boot's versions are managed here and nowhere else: no other module sees Spring. -->
             <dependency>
                 <groupId>org.springframework.boot</groupId>

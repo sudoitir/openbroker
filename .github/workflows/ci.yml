@@ -67,6 +67,34 @@ jobs:
           fi
           grep -q "org.springframework:spring-core.*banned" ban.log || { cat ban.log; echo "The build failed, but not on the ban."; exit 1; }
 
+  # The Spring Boot starter on a real broker, wired by @ServiceConnection with no openbroker.* key. The module
+  # needs both drivers, so the driver legs above leave it out and it runs here, one broker per entry: the
+  # Kafka entry runs the Kafka integration test and the Artemis entry the Artemis one. Its unit tests run on
+  # both. The upstream modules are built with their unit tests only.
+  spring:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { driver: artemis, image: "apache/artemis:2.57.0", it: SpringBootArtemisIT, property: artemis.image }
+          - { driver: kafka, image: "apache/kafka:4.4.0", it: SpringBootKafkaIT, property: kafka.image }
+    name: spring (${{ matrix.image }})
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+      - run: >-
+          ./mvnw -B verify
+          -pl openbroker-spring-boot-autoconfigure,openbroker-spring-boot-starter -am
+          -Dit.test=${{ matrix.it }} -Dit.failIfNoSpecifiedTests=false
+          -D${{ matrix.property }}=${{ matrix.image }}
+
   # The API may not break without the right version bump (SemVer; minor while 0.x), compared with
   # openbroker.previous.version, the last release on Central.
   api-check:
@@ -181,9 +209,9 @@ jobs:
   ci-ok:
     runs-on: ubuntu-latest
     if: always()
-    needs: [verify, framework-free, api-check, chaos, bench]
+    needs: [verify, spring, framework-free, api-check, chaos, bench]
     steps:
       - run: |
-          for r in "${{ needs.verify.result }}" "${{ needs.framework-free.result }}" "${{ needs.api-check.result }}" "${{ needs.chaos.result }}" "${{ needs.bench.result }}"; do
+          for r in "${{ needs.verify.result }}" "${{ needs.spring.result }}" "${{ needs.framework-free.result }}" "${{ needs.api-check.result }}" "${{ needs.chaos.result }}" "${{ needs.bench.result }}"; do
             case "$r" in success|skipped) ;; *) echo "A required job ended as $r"; exit 1;; esac
           done
