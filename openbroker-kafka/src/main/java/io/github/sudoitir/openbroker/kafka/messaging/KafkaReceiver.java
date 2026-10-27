@@ -41,6 +41,8 @@ import org.jspecify.annotations.Nullable;
  */
 final class KafkaReceiver implements Receiver, Consuming.Sink {
 
+    private static final Duration BATCH_LINGER = Duration.ofMillis(100);
+
     private final MessagingEnv env;
     private final Subscriptions.GroupTopic subscription;
     private final ReceiverOptions options;
@@ -106,7 +108,10 @@ final class KafkaReceiver implements Receiver, Consuming.Sink {
         try {
             while (out.size() < max) {
                 long left = end - System.nanoTime();
-                Delivery delivery = out.isEmpty() ? queue.poll(Math.max(0, left), TimeUnit.NANOSECONDS) : queue.poll();
+                // After the first record, wait a moment for the rest of the batch: records sent one after
+                // another arrive in separate fetches.
+                long wait = out.isEmpty() ? Math.max(0, left) : Math.min(Math.max(0, left), BATCH_LINGER.toNanos());
+                Delivery delivery = queue.poll(wait, TimeUnit.NANOSECONDS);
                 if (delivery == null) {
                     break;
                 }

@@ -432,9 +432,9 @@ class KafkaMessagingIT {
             } finally {
                 env.close();
             }
-        }
-        try (Receiver reader = transport.receiver(target, Scope.whole(), ReceiverOptions.consume())) {
-            assertThat(receive(reader, 2)).extracting(KafkaMessagingIT::seq).containsExactlyInAnyOrder(0L, 0L);
+            try (Receiver reader = transport.receiver(target, Scope.whole(), ReceiverOptions.consume())) {
+                assertThat(receive(reader, 2)).extracting(KafkaMessagingIT::seq).containsExactlyInAnyOrder(0L, 0L);
+            }
         }
     }
 }
