@@ -94,7 +94,8 @@
         <sonar.organization>sudoitir</sonar.organization>
         <sonar.projectKey>sudoitir_openbroker</sonar.projectKey>
         <sonar.host.url>https://sonarcloud.io</sonar.host.url>
-        <sonar.coverage.jacoco.xmlReportPaths>${maven.multiModuleProjectDirectory}/openbroker-artemis/target/site/jacoco-aggregate/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
+        <!-- The Artemis aggregate, and the Spring module's, one for each broker its integration tests ran against. -->
+        <sonar.coverage.jacoco.xmlReportPaths>${maven.multiModuleProjectDirectory}/openbroker-artemis/target/site/jacoco-aggregate/jacoco.xml,${maven.multiModuleProjectDirectory}/openbroker-spring-boot-autoconfigure/target/site/jacoco-aggregate-artemis/jacoco.xml,${maven.multiModuleProjectDirectory}/openbroker-spring-boot-autoconfigure/target/site/jacoco-aggregate-kafka/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
     </properties>
 
     <dependencyManagement>
