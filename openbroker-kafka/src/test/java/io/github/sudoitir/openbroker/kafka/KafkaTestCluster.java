@@ -77,6 +77,12 @@ public final class KafkaTestCluster implements AutoCloseable {
                 Map.entry("KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR", String.valueOf(BROKERS)),
                 Map.entry("KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR", String.valueOf(BROKERS)),
                 Map.entry("KAFKA_TRANSACTION_STATE_LOG_MIN_ISR", "2"),
+                // Groups rebalance on their members' heartbeats: at the default five seconds a join takes
+                // a quarter of a minute, and a member cut off is noticed after forty-five.
+                Map.entry("KAFKA_GROUP_CONSUMER_MIN_HEARTBEAT_INTERVAL_MS", "250"),
+                Map.entry("KAFKA_GROUP_CONSUMER_HEARTBEAT_INTERVAL_MS", "500"),
+                Map.entry("KAFKA_GROUP_CONSUMER_MIN_SESSION_TIMEOUT_MS", "1000"),
+                Map.entry("KAFKA_GROUP_CONSUMER_SESSION_TIMEOUT_MS", "6000"),
                 // Three brokers on one CI runner: small heaps keep them from starving each other.
                 Map.entry("KAFKA_HEAP_OPTS", "-Xms128m -Xmx384m"));
     }

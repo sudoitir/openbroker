@@ -33,10 +33,10 @@ Order and parallelism:
 - [ ] 2.9 ADR 0018. Check: `KafkaTckIT` green
 
 ## 3. Consumer-group messaging (files: openbroker-kafka/src/**/kafka/messaging/** except share)
-- [ ] 3.1 Sender: guarantees mapped to `acks` and idempotence, bounded `send` and `offer`, `SESSION` dedup scope, `resent` on driver re-sends. Check: `MessagingTck` send cases
-- [ ] 3.2 Receiver and processor: settlement tracker with contiguous commits, lanes per partition and per key, credit by pause and resume, the whole-subscription check. Check: ordering and flow-control cases, and a unit test of the tracker
-- [ ] 3.3 Rebalance handling: revoke drains within grace and commits; lost marks stale (`DELIVERY_STALE`); grace longer than the rebalance timeout is refused at open. Check: join, cut-off and grace ITs
-- [ ] 3.4 Transacted guarantee and joined transactions through `sendOffsetsToTransaction`, with one stable transactional id per processor instance and group-metadata fencing (KIP-447). Check: the consume-transform-produce case, and a zombie-fencing IT
+- [x] 3.1 Sender: guarantees mapped to `acks` and idempotence, bounded `send` and `offer`, `SESSION` dedup scope, `resent` on driver re-sends. Check: `MessagingTck` send cases
+- [x] 3.2 Receiver and processor: settlement tracker with contiguous commits, lanes per partition and per key, credit by pause and resume, the whole-subscription check. Check: ordering and flow-control cases, and a unit test of the tracker
+- [x] 3.3 Rebalance handling: revoke drains within grace and commits; lost marks stale (`DELIVERY_STALE`); grace longer than the rebalance timeout is refused at open. Check: join, cut-off and grace ITs
+- [x] 3.4 Transacted guarantee and joined transactions through `sendOffsetsToTransaction`, with one stable transactional id per processor instance and group-metadata fencing (KIP-447). Check: the consume-transform-produce case, and a zombie-fencing IT
 - [ ] 3.5 SASL PLAIN, SCRAM and OAUTHBEARER callback handlers, and the TLS engine factory over `TlsProvider`. Check: rotation and permission-denied cases against a SASL-enabled container
 - [ ] 3.6 ADR 0019. Check: `KafkaMessagingTckIT extends MessagingTck` green for consumer groups
 
