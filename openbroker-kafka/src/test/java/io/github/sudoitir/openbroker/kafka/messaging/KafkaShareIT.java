@@ -32,12 +32,18 @@ import java.util.function.BooleanSupplier;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 /** Share groups on a cluster whose {@code share.version} is 2, where the broker dead-letters. */
 class KafkaShareIT {
 
     private final Transport transport = SharedKafka.transport();
+
+    @BeforeAll
+    static void needDeadLettering() {
+        SharedKafka.assumeDeadLetteringShareGroups();
+    }
 
     private static void await(String what, BooleanSupplier condition) {
         long until = System.nanoTime() + Duration.ofSeconds(90).toNanos();
@@ -122,7 +128,7 @@ class KafkaShareIT {
         String topic = SharedKafka.topic("share-credit", 1);
         ResourceId group = SharedKafka.shareGroup(
                 topic,
-                Map.of("errors.deadletterqueue.topic.name", "dlq." + topic, "share.record.lock.duration.ms", "2000"));
+                Map.of("errors.deadletterqueue.topic.name", "dlq." + topic, "share.record.lock.duration.ms", "3000"));
         int total = 6;
         for (int i = 0; i < total; i++) {
             send(group, i);

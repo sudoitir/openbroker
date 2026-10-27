@@ -257,7 +257,9 @@ final class ShareConsumption implements Consuming {
         if (holding.isEmpty()) {
             return;
         }
-        long renewEvery = TimeUnit.MILLISECONDS.toNanos(lockMs() / 2);
+        // A renewal that arrives late loses the lock and counts a delivery, and a record is archived after a few.
+        // A third of the lock leaves room for two stalls of a loaded machine, where half left room for one.
+        long renewEvery = TimeUnit.MILLISECONDS.toNanos(lockMs() / 3);
         long untilRenewal = lastRenewal + renewEvery - System.nanoTime();
         long untilDue = nextDue();
         boolean credit = handedOut() + waiting.size() < settings.credit();
