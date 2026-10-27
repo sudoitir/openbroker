@@ -152,7 +152,8 @@ it connects. It uses `kafka-clients` alone and the consumer group protocol (KIP-
 
 - **Resources.** Brokers are nodes; topics, partitions, consumer groups, share groups, ACLs and
   transactional ids are kinds. Classic and streams groups are listed read-only, because their offsets
-  belong to the applications that run them.
+  belong to the applications that run them. Changes are watched by polling, every `watch.interval`
+  (ten seconds by default), including consumers joining and leaving a subscription.
 - **Lag and counts are estimates.** Offset arithmetic overcounts on compacted and transactional
   topics, so every total says so.
 - **Destructive operations are honest.** Purge and seek reset a group's committed offsets and fail

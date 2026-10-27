@@ -52,7 +52,7 @@ Order and parallelism:
 - [x] 5.3 CI: Kafka entries in the `verify` and `chaos` matrices (`apache/kafka:4.0.2` and `4.4.0`), still in `ci-ok`. Check: the PR's CI is green
 
 ## 6. Documentation and finish
-- [ ] 6.1 README and CLAUDE.md layout table: the Kafka driver, its supported range, what it declares unavailable and why, and the share-group kind. Check: the README examples compile in a doc test or are copied from an IT
+- [x] 6.1 README and CLAUDE.md layout table: the Kafka driver, its supported range, what it declares unavailable and why, and the share-group kind. Check: the README examples compile in a doc test or are copied from an IT
 - [ ] 6.2 Run the full `./mvnw verify` once, in a capped scope, before the PR. Check: green locally and in CI
 
 ## Workflow follow-up
