@@ -3,7 +3,10 @@ package io.github.sudoitir.openbroker.spring.boot.autoconfigure;
 import io.github.sudoitir.openbroker.BrokerDrivers;
 import io.github.sudoitir.openbroker.CallInterceptor;
 import io.github.sudoitir.openbroker.ClusterConnection;
+import io.github.sudoitir.openbroker.opentelemetry.OpenTelemetryMessaging;
 import io.micrometer.context.ContextSnapshotFactory;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.opentelemetry.api.OpenTelemetry;
 import java.time.Clock;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -35,6 +38,8 @@ import org.springframework.core.env.Environment;
 @AutoConfiguration(
         after = SslAutoConfiguration.class,
         afterName = {
+            "org.springframework.boot.micrometer.metrics.autoconfigure.CompositeMeterRegistryAutoConfiguration",
+            "org.springframework.boot.opentelemetry.autoconfigure.OpenTelemetrySdkAutoConfiguration",
             "org.springframework.boot.kafka.autoconfigure.KafkaAutoConfiguration",
             "org.springframework.boot.artemis.autoconfigure.ArtemisAutoConfiguration"
         })
@@ -172,6 +177,58 @@ public class OpenBrokerAutoConfiguration {
                 return null;
             }
             return new OpenBrokerHealth(CompositeHealthContributor.fromMap(indicators), indicators.values());
+        }
+    }
+
+    /** Combines what Micrometer and OpenTelemetry contribute; nothing is wired when neither is present. */
+    @Bean
+    @ConditionalOnMissingBean(ObserverSource.class)
+    @ConditionalOnBean(ObserverContribution.class)
+    OpenBrokerObservers openBrokerObservers(ObjectProvider<ObserverContribution> contributions) {
+        return new OpenBrokerObservers(contributions.orderedStream().toList());
+    }
+
+    /** Metrics go to the application's Micrometer registry. */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(MeterRegistry.class)
+    static class MicrometerObservation {
+
+        @Bean
+        @ConditionalOnBean(MeterRegistry.class)
+        @ConditionalOnMissingBean(MicrometerContribution.class)
+        MicrometerContribution micrometerObserverContribution(MeterRegistry registry) {
+            return new MicrometerContribution(registry);
+        }
+    }
+
+    /** Spans and metrics go to the application's OpenTelemetry when Micrometer is not recording the metrics. */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass({OpenTelemetry.class, OpenTelemetryMessaging.class})
+    @ConditionalOnBean(OpenTelemetry.class)
+    @ConditionalOnMissingBean(type = "io.micrometer.core.instrument.MeterRegistry")
+    static class OpenTelemetryObservation {
+
+        @Bean
+        @ConditionalOnMissingBean(OpenTelemetryContribution.class)
+        OpenTelemetryContribution openTelemetryObserverContribution(
+                OpenTelemetry openTelemetry, OpenBrokerProperties properties) {
+            return new OpenTelemetryContribution(
+                    openTelemetry, true, properties.tracing().injectContext());
+        }
+    }
+
+    /** Only spans go to OpenTelemetry when Micrometer records the metrics, so nothing is counted twice. */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass({OpenTelemetry.class, OpenTelemetryMessaging.class})
+    @ConditionalOnBean(value = OpenTelemetry.class, type = "io.micrometer.core.instrument.MeterRegistry")
+    static class OpenTelemetrySpansOnlyObservation {
+
+        @Bean
+        @ConditionalOnMissingBean(OpenTelemetryContribution.class)
+        OpenTelemetryContribution spansOnlyObserverContribution(
+                OpenTelemetry openTelemetry, OpenBrokerProperties properties) {
+            return new OpenTelemetryContribution(
+                    openTelemetry, false, properties.tracing().injectContext());
         }
     }
 }
