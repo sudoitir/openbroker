@@ -11,6 +11,8 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.springframework.beans.factory.BeanFactory;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.ApplicationEvent;
 import org.springframework.context.ApplicationListener;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.context.event.ContextClosedEvent;
@@ -24,7 +26,7 @@ import org.springframework.context.event.ContextClosedEvent;
  *
  * <p>A transport the application opened itself can be registered too; the starter never closes it.
  */
-public final class OpenBrokerProcessors implements SmartLifecycle, ApplicationListener<ContextClosedEvent> {
+public final class OpenBrokerProcessors implements SmartLifecycle, ApplicationListener<ApplicationEvent> {
 
     /** After the web server starts and before it stops: a handler runs only while the application can serve. */
     static final int PHASE = SmartLifecycle.DEFAULT_PHASE - 2048;
@@ -40,6 +42,7 @@ public final class OpenBrokerProcessors implements SmartLifecycle, ApplicationLi
     private final OpenBrokerConnections connections;
     private final List<Registration> registrations = new ArrayList<>();
     private final List<Started> running = new ArrayList<>();
+    private boolean ready;
     private boolean started;
     private boolean closed;
 
@@ -70,12 +73,12 @@ public final class OpenBrokerProcessors implements SmartLifecycle, ApplicationLi
     /** {@link #register(String, ResourceId, Scope, MessageHandler)} with options of its own. */
     public void register(
             String connection, ResourceId subscription, Scope scope, ProcessorOptions options, MessageHandler handler) {
-        register(
-                beans.getBean(connection + OpenBrokerConnectionRegistrar.TRANSPORT, Transport.class),
-                subscription,
-                scope,
-                options,
-                handler);
+        String beanName = connection + OpenBrokerConnectionRegistrar.TRANSPORT;
+        Object bean = beans.containsBean(beanName) ? beans.getBean(beanName) : null;
+        if (!(bean instanceof Transport transport)) {
+            throw new IllegalArgumentException("Connection '" + connection + "' has no messaging transport");
+        }
+        register(transport, subscription, scope, options, handler);
     }
 
     /**
@@ -101,9 +104,14 @@ public final class OpenBrokerProcessors implements SmartLifecycle, ApplicationLi
         }
     }
 
+    /**
+     * Starts the processors when the application is ready, which is after its runners have run, and again
+     * when a context that was stopped is started. The context's own start, in the middle of its refresh,
+     * does nothing: a handler must not run before the application's runners have finished.
+     */
     @Override
     public synchronized void start() {
-        if (!started) {
+        if (ready && !started) {
             started = true;
             registrations.forEach(this::run);
         }
@@ -133,9 +141,16 @@ public final class OpenBrokerProcessors implements SmartLifecycle, ApplicationLi
     }
 
     @Override
-    public void onApplicationEvent(ContextClosedEvent event) {
-        synchronized (this) {
-            closed = true;
+    public void onApplicationEvent(ApplicationEvent event) {
+        if (event instanceof ApplicationReadyEvent) {
+            synchronized (this) {
+                ready = true;
+            }
+            start();
+        } else if (event instanceof ContextClosedEvent) {
+            synchronized (this) {
+                closed = true;
+            }
         }
     }
 

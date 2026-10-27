@@ -16,9 +16,19 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.SmartInitializingSingleton;
+import org.springframework.boot.ApplicationArguments;
+import org.springframework.boot.ApplicationRunner;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
 import org.springframework.boot.autoconfigure.ssl.SslAutoConfiguration;
+import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 
 class ProcessorLifecycleTest {
 
@@ -46,8 +56,13 @@ class ProcessorLifecycleTest {
         }
     }
 
+    /** What Spring Boot publishes once the runners have run; the context runner does not. */
+    private static void ready(ConfigurableApplicationContext context) {
+        context.publishEvent(new ApplicationReadyEvent(new SpringApplication(), new String[0], context, Duration.ZERO));
+    }
+
     @Test
-    void aProcessorStartsOnlyWhenTheContextIsReady() {
+    void aProcessorStartsOnlyWhenTheApplicationIsReady() {
         List<Integer> startedWhenSingletonsWereReady = new CopyOnWriteArrayList<>();
         runner.withBean(EagerRegistrant.class)
                 .withBean(
@@ -57,13 +72,56 @@ class ProcessorLifecycleTest {
                                 .count()))
                 .run(context -> {
                     assertThat(startedWhenSingletonsWereReady).containsExactly(0);
+                    assertThat(driver.eventsCopy()).doesNotContain("process started");
+
+                    ready(context);
+
                     assertThat(driver.eventsCopy()).contains("process started");
                 });
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @ImportAutoConfiguration({SslAutoConfiguration.class, OpenBrokerAutoConfiguration.class})
+    static class RunnerApplication {
+
+        static final List<String> ORDER = new CopyOnWriteArrayList<>();
+        static FakeDriver driver;
+
+        @Bean
+        BrokerDrivers brokerDrivers() {
+            return BrokerDrivers.of(List.of(driver));
+        }
+
+        @Bean
+        EagerRegistrant eagerRegistrant(OpenBrokerProcessors processors) {
+            return new EagerRegistrant(processors);
+        }
+
+        @Bean
+        ApplicationRunner runner() {
+            return (ApplicationArguments args) -> {
+                ORDER.add("runner saw " + driver.eventsCopy().size() + " events");
+            };
+        }
+    }
+
+    @Test
+    void noHandlerStartsBeforeTheApplicationRunnersHaveRun() {
+        RunnerApplication.driver = driver;
+        RunnerApplication.ORDER.clear();
+        try (ConfigurableApplicationContext context = new SpringApplicationBuilder(RunnerApplication.class)
+                .web(WebApplicationType.NONE)
+                .properties("openbroker.connections.orders.system=fake")
+                .run()) {
+            assertThat(RunnerApplication.ORDER).containsExactly("runner saw 0 events");
+            assertThat(driver.eventsCopy()).contains("process started");
+        }
     }
 
     @Test
     void aProcessorRegisteredLaterStartsAtOnce() {
         runner.run(context -> {
+            ready(context);
             assertThat(driver.eventsCopy()).doesNotContain("process started");
 
             context.getBean(OpenBrokerProcessors.class).register("orders", SUBSCRIPTION, Scope.whole(), HANDLER);
@@ -74,7 +132,7 @@ class ProcessorLifecycleTest {
 
     @Test
     void shutdownStopsProcessorsWithinTheirGraceBeforeTheConnectionsClose() {
-        runner.withBean(EagerRegistrant.class).run(context -> {});
+        runner.withBean(EagerRegistrant.class).run(ProcessorLifecycleTest::ready);
 
         assertThat(driver.eventsCopy())
                 .containsExactly(
@@ -89,8 +147,11 @@ class ProcessorLifecycleTest {
         ProcessorOptions defaults = ProcessorOptions.defaults();
         ProcessorOptions options = new ProcessorOptions(
                 defaults.receive(), 1, defaults.ordering(), defaults.retry(), Duration.ofSeconds(5));
-        runner.run(context -> context.getBean(OpenBrokerProcessors.class)
-                .register(context.getBean(Transport.class), SUBSCRIPTION, Scope.whole(), options, HANDLER));
+        runner.run(context -> {
+            ready(context);
+            context.getBean(OpenBrokerProcessors.class)
+                    .register(context.getBean(Transport.class), SUBSCRIPTION, Scope.whole(), options, HANDLER);
+        });
 
         assertThat(driver.eventsCopy().stream().filter(e -> e.startsWith("processor stopped")))
                 .containsExactly("processor stopped within PT5S");
@@ -99,6 +160,7 @@ class ProcessorLifecycleTest {
     @Test
     void aStoppedAndStartedContextStartsTheProcessorsAgain() {
         runner.withBean(EagerRegistrant.class).run(context -> {
+            ready(context);
             context.stop();
             context.start();
 
@@ -109,6 +171,15 @@ class ProcessorLifecycleTest {
                                     + ProcessorOptions.defaults().stopGrace(),
                             "process started");
         });
+    }
+
+    @Test
+    void aConnectionWithoutMessagingCannotHaveAProcessor() {
+        driver.messaging = false;
+        runner.run(context -> assertThatThrownBy(() -> context.getBean(OpenBrokerProcessors.class)
+                        .register("orders", SUBSCRIPTION, Scope.whole(), HANDLER))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Connection 'orders' has no messaging transport"));
     }
 
     @Test
