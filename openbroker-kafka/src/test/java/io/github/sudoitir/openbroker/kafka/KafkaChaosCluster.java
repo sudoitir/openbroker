@@ -1,8 +1,5 @@
 package io.github.sudoitir.openbroker.kafka;
 
-import com.github.dockerjava.api.model.ExposedPort;
-import com.github.dockerjava.api.model.PortBinding;
-import com.github.dockerjava.api.model.Ports;
 import eu.rekawek.toxiproxy.Proxy;
 import eu.rekawek.toxiproxy.ToxiproxyClient;
 import eu.rekawek.toxiproxy.model.ToxicDirection;
@@ -12,10 +9,8 @@ import io.github.sudoitir.openbroker.NodeId;
 import io.github.sudoitir.openbroker.NodeSpec;
 import io.github.sudoitir.openbroker.Plane;
 import java.io.IOException;
-import java.net.ServerSocket;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,7 +37,7 @@ import org.testcontainers.toxiproxy.ToxiproxyContainer;
  * proxy, and the broker advertises that proxy to them, so a cut holds all traffic between the client
  * and one broker while the brokers keep talking to each other. The proxy port outlives a kill and
  * start of its broker. The tests find leaders and followers, and wait for brokers to return, through a
- * second listener that is published on a fixed port and bypasses the proxies.
+ * second listener behind proxies of its own, which no toxic touches.
  */
 final class KafkaChaosCluster implements AutoCloseable {
 
@@ -56,6 +51,7 @@ final class KafkaChaosCluster implements AutoCloseable {
     private static final int DIRECT = 9095;
     private static final int CONTROL = 8474;
     private static final int FIRST_PROXY_PORT = 8666;
+    private static final int FIRST_DIRECT_PROXY_PORT = 8670;
     private static final String CUT_UP = "cut-up";
     private static final String CUT_DOWN = "cut-down";
     private static final String OFFSETS_TOPIC = "__consumer_offsets";
@@ -65,14 +61,13 @@ final class KafkaChaosCluster implements AutoCloseable {
     private final ToxiproxyContainer toxiproxy;
     private final List<GenericContainer<?>> brokers = new ArrayList<>();
     private final List<Proxy> proxies = new ArrayList<>();
-    private final int[] directPorts = new int[BROKERS];
 
     KafkaChaosCluster(String image, String toxiproxyImage) {
-        Integer[] ports = new Integer[BROKERS + 1];
+        Integer[] ports = new Integer[2 * BROKERS + 1];
         ports[0] = CONTROL;
         for (int i = 0; i < BROKERS; i++) {
             ports[i + 1] = FIRST_PROXY_PORT + i;
-            directPorts[i] = freePort();
+            ports[BROKERS + i + 1] = FIRST_DIRECT_PROXY_PORT + i;
         }
         toxiproxy = new ToxiproxyContainer(toxiproxyImage).withNetwork(network).withExposedPorts(ports);
         toxiproxy.start();
@@ -83,6 +78,11 @@ final class KafkaChaosCluster implements AutoCloseable {
                         "kafka-" + (i + 1),
                         "0.0.0.0:" + (FIRST_PROXY_PORT + i),
                         KafkaTestCluster.host(i + 1) + ":" + CLIENT));
+                // The tests' own path never gets a toxic: they ask through it where the brokers are.
+                client.createProxy(
+                        "kafka-" + (i + 1) + "-direct",
+                        "0.0.0.0:" + (FIRST_DIRECT_PROXY_PORT + i),
+                        KafkaTestCluster.host(i + 1) + ":" + DIRECT);
             }
         } catch (IOException e) {
             throw new IllegalStateException("Cannot proxy the brokers", e);
@@ -129,16 +129,12 @@ final class KafkaChaosCluster implements AutoCloseable {
         env.put(
                 "KAFKA_ADVERTISED_LISTENERS",
                 "PLAINTEXT://" + toxiproxy.getHost() + ":" + toxiproxy.getMappedPort(FIRST_PROXY_PORT + index)
-                        + ",BROKER://" + host + ":" + INTERNAL + ",DIRECT://127.0.0.1:" + directPorts[index]);
-        int direct = directPorts[index];
+                        + ",BROKER://" + host + ":" + INTERNAL + ",DIRECT://" + toxiproxy.getHost() + ":"
+                        + toxiproxy.getMappedPort(FIRST_DIRECT_PROXY_PORT + index));
         return new GenericContainer<>(image)
                 .withNetwork(network)
                 .withNetworkAliases(host)
-                .withCreateContainerCmdModifier(cmd -> {
-                    cmd.withHostName(host);
-                    cmd.getHostConfig()
-                            .withPortBindings(new PortBinding(Ports.Binding.bindPort(direct), new ExposedPort(DIRECT)));
-                })
+                .withCreateContainerCmdModifier(cmd -> cmd.withHostName(host))
                 .withEnv(env)
                 .waitingFor(Wait.forLogMessage(".*Transitioning from RECOVERY to RUNNING.*", 1)
                         .withStartupTimeout(Duration.ofMinutes(3)));
@@ -318,8 +314,9 @@ final class KafkaChaosCluster implements AutoCloseable {
 
     /** Asks the brokers directly until the probe has an answer. */
     private <T> T await(String what, Duration within, Probe<T> probe) {
-        String bootstrap =
-                Arrays.stream(directPorts).mapToObj(p -> "127.0.0.1:" + p).collect(Collectors.joining(","));
+        String bootstrap = IntStream.range(0, BROKERS)
+                .mapToObj(i -> toxiproxy.getHost() + ":" + toxiproxy.getMappedPort(FIRST_DIRECT_PROXY_PORT + i))
+                .collect(Collectors.joining(","));
         return await(what, within, Map.of("bootstrap.servers", bootstrap), probe);
     }
 
@@ -366,14 +363,6 @@ final class KafkaChaosCluster implements AutoCloseable {
             }
         }
         return out.toString();
-    }
-
-    private static int freePort() {
-        try (ServerSocket socket = new ServerSocket(0)) {
-            return socket.getLocalPort();
-        } catch (IOException e) {
-            throw new IllegalStateException("No free port", e);
-        }
     }
 
     @Override
