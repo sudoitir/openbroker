@@ -57,11 +57,11 @@ class ConnectionBinderTest {
         assertThatThrownBy(() -> bind("""
                         openbroker.connections.orders:
                           system: fake
-                          cluster.options.pin: hunter2
+                          cluster.options.pin: ${test.bad}
                         """, null))
                 .isInstanceOf(ConnectionConfigurationException.class)
                 .hasMessageContaining("openbroker.connections.orders.cluster.options.pin")
-                .hasMessageNotContaining("hunter2");
+                .hasMessageNotContaining(TestSecrets.BAD);
     }
 
     @Test

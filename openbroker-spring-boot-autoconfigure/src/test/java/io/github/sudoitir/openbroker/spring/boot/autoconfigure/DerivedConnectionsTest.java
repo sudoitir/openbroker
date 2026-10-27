@@ -39,7 +39,8 @@ class DerivedConnectionsTest {
             .withBean(BrokerDrivers.class, () -> BrokerDrivers.of(List.of(kafka, artemis)));
 
     private static final String SCRAM =
-            "org.apache.kafka.common.security.scram.ScramLoginModule required username=\"app\" password=\"s3cret\";";
+            "org.apache.kafka.common.security.scram.ScramLoginModule required username=\"app\" password=\""
+                    + TestSecrets.PASSWORD + "\";";
 
     private record ArtemisDetails(
             @Nullable ArtemisMode mode,
@@ -69,7 +70,7 @@ class DerivedConnectionsTest {
     }
 
     private static ArtemisDetails nativeArtemis() {
-        return new ArtemisDetails(ArtemisMode.NATIVE, "tcp://broker:61616", "artemis", "pw");
+        return new ArtemisDetails(ArtemisMode.NATIVE, "tcp://broker:61616", "artemis", TestSecrets.PASSWORD);
     }
 
     @Test
@@ -155,11 +156,11 @@ class DerivedConnectionsTest {
                             .containsEntry("sasl.mechanism", "SCRAM-SHA-512")
                             .containsEntry("security.protocol", "SASL_PLAINTEXT");
                     assertThat(request.credentials().forPlane(Plane.DATA))
-                            .isEqualTo(Credentials.usernamePassword("app", "s3cret"));
+                            .isEqualTo(Credentials.usernamePassword("app", TestSecrets.PASSWORD));
                     assertThat(context.getBean(OpenBrokerConnections.class)
                                     .connection("kafka")
                                     .toString())
-                            .doesNotContain("s3cret");
+                            .doesNotContain(TestSecrets.PASSWORD);
                 });
     }
 
@@ -168,7 +169,8 @@ class DerivedConnectionsTest {
         ApplicationContextRunner oauth = runner.withPropertyValues(
                 "spring.kafka.bootstrap-servers=a:9092",
                 "spring.kafka.properties.sasl.mechanism=OAUTHBEARER",
-                "spring.kafka.properties.sasl.jaas.config=org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required clientSecret=\"hush\";");
+                "spring.kafka.properties.sasl.jaas.config=org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required clientSecret=\""
+                        + TestSecrets.BAD + "\";");
 
         oauth.run(context -> {
             assertThat(context).hasFailed();
@@ -179,11 +181,11 @@ class DerivedConnectionsTest {
                     .contains("OAUTHBEARER")
                     .contains("credentials")
                     .contains("CredentialSource");
-            assertThat(description).doesNotContain("hush");
+            assertThat(description).doesNotContain(TestSecrets.BAD);
         });
         oauth.withPropertyValues(
                         "openbroker.connections.kafka.credentials.form=bearer-token",
-                        "openbroker.connections.kafka.credentials.token=t",
+                        "openbroker.connections.kafka.credentials.token=" + TestSecrets.TOKEN,
                         "openbroker.connections.kafka.credentials.expires-at=2099-01-01T00:00:00Z")
                 .run(context -> assertThat(context).hasNotFailed());
         oauth.withBean("kafka", CredentialSource.class, CredentialSource::none)
@@ -232,7 +234,7 @@ class DerivedConnectionsTest {
                     assertThat(request.cluster().nodes().getFirst().endpoints())
                             .containsExactly(new Endpoint(Plane.DATA, "core", "tcp://broker:61616"));
                     assertThat(request.credentials().forPlane(Plane.DATA))
-                            .isEqualTo(Credentials.usernamePassword("artemis", "pw"));
+                            .isEqualTo(Credentials.usernamePassword("artemis", TestSecrets.PASSWORD));
                     assertThat(request.credentials().forPlane(Plane.MANAGEMENT)).isEqualTo(new Credentials.None());
                 });
     }
@@ -265,7 +267,7 @@ class DerivedConnectionsTest {
                         "openbroker.connections.artemis.cluster.nodes[0].endpoints[0].address=http://broker:8161/console/jolokia",
                         "openbroker.connections.artemis.management-credentials.form=username-password",
                         "openbroker.connections.artemis.management-credentials.username=console",
-                        "openbroker.connections.artemis.management-credentials.password=console-pw")
+                        "openbroker.connections.artemis.management-credentials.password=" + TestSecrets.OTHER_PASSWORD)
                 .run(context -> {
                     FakeDriver.Request request = artemis.requests.getFirst();
                     assertThat(request.cluster().nodes()).hasSize(1);
@@ -273,9 +275,9 @@ class DerivedConnectionsTest {
                             .extracting(Endpoint::protocol)
                             .containsExactlyInAnyOrder("core", "jolokia");
                     assertThat(request.credentials().forPlane(Plane.DATA))
-                            .isEqualTo(Credentials.usernamePassword("artemis", "pw"));
+                            .isEqualTo(Credentials.usernamePassword("artemis", TestSecrets.PASSWORD));
                     assertThat(request.credentials().forPlane(Plane.MANAGEMENT))
-                            .isEqualTo(Credentials.usernamePassword("console", "console-pw"));
+                            .isEqualTo(Credentials.usernamePassword("console", TestSecrets.OTHER_PASSWORD));
                 });
     }
 

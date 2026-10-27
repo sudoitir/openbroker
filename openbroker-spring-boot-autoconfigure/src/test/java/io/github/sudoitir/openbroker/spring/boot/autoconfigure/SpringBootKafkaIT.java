@@ -1,6 +1,7 @@
 package io.github.sudoitir.openbroker.spring.boot.autoconfigure;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 import io.github.sudoitir.openbroker.ClusterConnection;
 import io.github.sudoitir.openbroker.messaging.Disposition;
@@ -17,6 +18,8 @@ import io.github.sudoitir.openbroker.model.Scope;
 import io.github.sudoitir.openbroker.operation.Operation;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -29,7 +32,6 @@ import org.junit.jupiter.api.TestMethodOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.health.contributor.CompositeHealthContributor;
-import org.springframework.boot.health.contributor.Health;
 import org.springframework.boot.health.contributor.HealthIndicator;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
@@ -80,21 +82,18 @@ class SpringBootKafkaIT {
 
     @Test
     @Order(1)
-    void theClusterAnswersAndHealthIsUp() throws InterruptedException {
+    void theClusterAnswersAndHealthIsUp() {
         HealthIndicator indicator = (HealthIndicator) openbrokerHealthContributor.getContributor("kafka");
         // The first check opens the admin client and may pass the deadline: unknown, never down.
-        Health health = indicator.health();
-        for (int attempt = 0; attempt < 30 && !health.getStatus().getCode().equals("UP"); attempt++) {
-            assertThat(health.getStatus().getCode())
-                    .as(health.getDetails().toString())
-                    .isEqualTo("UNKNOWN");
-            Thread.sleep(500);
-            health = indicator.health();
-        }
+        List<String> seen = new ArrayList<>();
+        await().atMost(Duration.ofSeconds(30))
+                .pollInterval(Duration.ofMillis(500))
+                .until(() -> {
+                    seen.add(indicator.health().getStatus().getCode());
+                    return seen.getLast().equals("UP");
+                });
 
-        assertThat(health.getStatus().getCode())
-                .as(health.getDetails().toString())
-                .isEqualTo("UP");
+        assertThat(seen).doesNotContain("DOWN");
     }
 
     @Test

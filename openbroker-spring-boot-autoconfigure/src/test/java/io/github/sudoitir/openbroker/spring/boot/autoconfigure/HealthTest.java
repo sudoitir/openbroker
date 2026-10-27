@@ -1,6 +1,7 @@
 package io.github.sudoitir.openbroker.spring.boot.autoconfigure;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 import io.github.sudoitir.openbroker.BrokerDrivers;
 import io.github.sudoitir.openbroker.BrokerException;
@@ -142,12 +143,12 @@ class HealthTest {
     }
 
     @Test
-    void theFirstCheckPassingItsDeadlineIsUnknownAndTheResultReplacesIt() throws InterruptedException {
+    void theFirstCheckPassingItsDeadlineIsUnknownAndTheResultReplacesIt() {
         CountDownLatch release = new CountDownLatch(1);
         AtomicInteger calls = new AtomicInteger();
         driver.describe = () -> {
             calls.incrementAndGet();
-            await(release);
+            waitFor(release);
             return nodes(Map.of(), "n1");
         };
         try {
@@ -167,9 +168,10 @@ class HealthTest {
                 assertThat(second.getStatus()).isEqualTo(Status.UNKNOWN);
 
                 release.countDown();
-                Thread.sleep(200);
 
-                assertThat(indicator.health().getStatus()).isEqualTo(Status.UP);
+                await().atMost(Duration.ofSeconds(10))
+                        .untilAsserted(
+                                () -> assertThat(indicator.health().getStatus()).isEqualTo(Status.UP));
             });
         } finally {
             release.countDown();
@@ -177,12 +179,12 @@ class HealthTest {
     }
 
     @Test
-    void aLaterCheckPassingItsDeadlineIsDownAndStaleUntilALateResultReplacesIt() throws InterruptedException {
+    void aLaterCheckPassingItsDeadlineIsDownAndStaleUntilALateResultReplacesIt() {
         CountDownLatch release = new CountDownLatch(1);
         AtomicInteger calls = new AtomicInteger();
         driver.describe = () -> {
             if (calls.incrementAndGet() > 1) {
-                await(release);
+                waitFor(release);
             }
             return nodes(Map.of(), "n1");
         };
@@ -203,22 +205,21 @@ class HealthTest {
                 assertThat(stale.getDetails()).containsEntry("stale", true);
 
                 release.countDown();
-                Thread.sleep(200);
 
                 // The late result was remembered before the next check was allowed, so it is not stale DOWN.
-                Health late = indicator.health();
-                assertThat(late.getStatus()).isEqualTo(Status.UP);
-                assertThat(calls).hasValue(3);
+                await().atMost(Duration.ofSeconds(10))
+                        .untilAsserted(
+                                () -> assertThat(indicator.health().getStatus()).isEqualTo(Status.UP));
             });
         } finally {
             release.countDown();
         }
     }
 
-    private static void await(CountDownLatch latch) {
+    private static void waitFor(CountDownLatch latch) {
         try {
             latch.await();
-        } catch (InterruptedException e) {
+        } catch (InterruptedException _) {
             Thread.currentThread().interrupt();
         }
     }

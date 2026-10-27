@@ -33,8 +33,8 @@ class ReadmeYamlTest {
     @Test
     void theReadmesConfigurationBindsAndPassesTheDriversSchemas() throws IOException {
         MockEnvironment environment = Yaml.environment(readmeYaml());
-        environment.setProperty("ORDERS_PASSWORD", "orders-secret");
-        environment.setProperty("BILLING_PASSWORD", "billing-secret");
+        environment.setProperty("ORDERS_PASSWORD", TestSecrets.PASSWORD);
+        environment.setProperty("BILLING_PASSWORD", TestSecrets.OTHER_PASSWORD);
         BrokerDrivers drivers = BrokerDrivers.of(List.of(new KafkaDriver(), new ArtemisDriver()));
         ConnectionBinder binder = new ConnectionBinder(environment, drivers);
 
@@ -44,7 +44,7 @@ class ReadmeYamlTest {
         assertThat(orders.system()).isEqualTo("kafka");
         assertThat(orders.cluster().clusterEndpoints()).hasSize(2);
         assertThat(orders.credentials().toCredentials("orders", "credentials"))
-                .isEqualTo(Credentials.usernamePassword("orders-app", "orders-secret"));
+                .isEqualTo(Credentials.usernamePassword("orders-app", TestSecrets.PASSWORD));
         assertThat(orders.options().sslBundle()).isEqualTo("kafka");
         assertThat(orders.sender().guarantee()).isEqualTo(Guarantee.AT_LEAST_ONCE);
         assertThat(orders.processor().concurrency()).isEqualTo(4);

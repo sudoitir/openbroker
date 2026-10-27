@@ -110,25 +110,26 @@ class ConnectionBeansTest {
                         "openbroker.connections.orders.system=fake",
                         "openbroker.connections.orders.credentials.form=username-password",
                         "openbroker.connections.orders.credentials.username=app",
-                        "openbroker.connections.orders.credentials.password=secret",
+                        "openbroker.connections.orders.credentials.password=" + TestSecrets.PASSWORD,
                         "openbroker.connections.orders.management-credentials.form=none")
                 .run(context -> {
                     CredentialSource source = driver.requests.getFirst().credentials();
 
-                    assertThat(source.forPlane(Plane.DATA)).isEqualTo(Credentials.usernamePassword("app", "secret"));
+                    assertThat(source.forPlane(Plane.DATA))
+                            .isEqualTo(Credentials.usernamePassword("app", TestSecrets.PASSWORD));
                     assertThat(source.forPlane(Plane.MANAGEMENT)).isEqualTo(new Credentials.None());
                 });
     }
 
     @Test
     void aCredentialSourceBeanQualifiedByTheNameWinsOverProperties() {
-        CredentialSource own = CredentialSource.of(Credentials.usernamePassword("bean", "bean-secret"));
+        CredentialSource own = CredentialSource.of(Credentials.usernamePassword("bean", TestSecrets.OTHER_PASSWORD));
         runner.withBean("orders", CredentialSource.class, () -> own)
                 .withPropertyValues(
                         "openbroker.connections.orders.system=fake",
                         "openbroker.connections.orders.credentials.form=username-password",
                         "openbroker.connections.orders.credentials.username=app",
-                        "openbroker.connections.orders.credentials.password=secret")
+                        "openbroker.connections.orders.credentials.password=" + TestSecrets.PASSWORD)
                 .run(context ->
                         assertThat(driver.requests.getFirst().credentials()).isSameAs(own));
     }
@@ -139,7 +140,7 @@ class ConnectionBeansTest {
             try {
                 drivers.descriptor(FakeDriver.SYSTEM);
                 return true;
-            } catch (IllegalStateException closed) {
+            } catch (IllegalStateException _) {
                 return false;
             }
         };

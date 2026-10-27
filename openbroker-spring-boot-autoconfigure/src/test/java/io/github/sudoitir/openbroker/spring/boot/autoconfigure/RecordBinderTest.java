@@ -40,7 +40,7 @@ class RecordBinderTest {
                       credentials:
                         form: username-password
                         username: app
-                        password: secret
+                        password: ${test.password}
                       options:
                         connect-timeout: 5s
                         call-timeout: 20s
@@ -67,7 +67,7 @@ class RecordBinderTest {
                 .containsEntry("security.protocol", "SASL_SSL")
                 .containsEntry("sasl.mechanism", "SCRAM-SHA-512");
         assertThat(connection.credentials().toCredentials("orders", "credentials"))
-                .isEqualTo(Credentials.usernamePassword("app", "secret"));
+                .isEqualTo(Credentials.usernamePassword("app", TestSecrets.PASSWORD));
         assertThat(connection.options().connectTimeout()).isEqualTo(Duration.ofSeconds(5));
         assertThat(connection.options().callTimeout()).isEqualTo(Duration.ofSeconds(20));
         assertThat(connection.options().maxResponseBytes()).isEqualTo(1024L);
@@ -98,7 +98,7 @@ class RecordBinderTest {
                             endpoints:
                               - {plane: management, protocol: jolokia, address: "http://h:8161/console/jolokia"}
                               - {plane: data, protocol: core, address: "tcp://h:61616"}
-                      credentials: {form: bearer-token, token: abc, expires-at: "2099-01-01T00:00:00Z"}
+                      credentials: {form: bearer-token, token: "${test.token}", expires-at: "2099-01-01T00:00:00Z"}
                 """);
 
         assertThat(connection.cluster().nodes()).hasSize(1);
@@ -197,19 +197,19 @@ class RecordBinderTest {
                     orders:
                       credentials:
                         form: bearer-token
-                        token: abc
-                        expires-at: hunter2-not-a-date
+                        token: ${test.token}
+                        expires-at: ${test.bad}
                 """));
 
         assertThat(failure).isInstanceOf(ConnectionConfigurationException.class);
         for (Throwable t = failure; t != null; t = t.getCause()) {
-            assertThat(String.valueOf(t.getMessage())).doesNotContain("hunter2");
+            assertThat(String.valueOf(t.getMessage())).doesNotContain(TestSecrets.BAD);
         }
         FailureAnalysis analysis = new ConnectionFailureAnalyzer().analyze(new IllegalStateException(failure));
-        assertThat(analysis.getDescription()).contains("credentials.expires-at").doesNotContain("hunter2");
-        assertThat(analysis.getAction()).doesNotContain("hunter2");
+        assertThat(analysis.getDescription()).contains("credentials.expires-at").doesNotContain(TestSecrets.BAD);
+        assertThat(analysis.getAction()).doesNotContain(TestSecrets.BAD);
         for (Throwable t = analysis.getCause(); t != null; t = t.getCause()) {
-            assertThat(String.valueOf(t.getMessage())).doesNotContain("hunter2");
+            assertThat(String.valueOf(t.getMessage())).doesNotContain(TestSecrets.BAD);
         }
     }
 

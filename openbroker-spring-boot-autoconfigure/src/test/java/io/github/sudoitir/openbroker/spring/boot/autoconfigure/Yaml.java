@@ -15,6 +15,9 @@ final class Yaml {
     static MockEnvironment environment(String yaml) {
         MockEnvironment environment = new MockEnvironment();
         environment.getPropertySources().addFirst(source(yaml));
+        environment.setProperty("test.password", TestSecrets.PASSWORD);
+        environment.setProperty("test.token", TestSecrets.TOKEN);
+        environment.setProperty("test.bad", TestSecrets.BAD);
         return environment;
     }
 
