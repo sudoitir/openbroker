@@ -23,7 +23,7 @@ Order and parallelism:
 
 ## 2. Kafka management surface (files: openbroker-kafka/src/**/kafka/admin/**, driver entry, test cluster fixture)
 - [ ] 2.1 `KafkaDriver` (`system` `kafka`, `[4.0.0,)`, option schema for security protocol, SASL mechanism and client id), with verify refusing older clusters, nodes from `describeCluster` and quorum health. Check: unit tests and a `KafkaContainer` IT
-- [ ] 2.2 A three-broker KRaft test cluster fixture in the driver's tests (three `KafkaContainer`s, combined roles, RF 3, `min.insync.replicas` 2). Check: it starts on `apache/kafka:4.0.2` and `4.3.2`
+- [ ] 2.2 A three-broker KRaft test cluster fixture in the driver's tests (three `KafkaContainer`s, combined roles, RF 3, `min.insync.replicas` 2). Check: it starts on `apache/kafka:4.0.2` and `4.4.0`
 - [ ] 2.3 Kinds and resources: topics (CRUD, partition increase, configs), partitions, groups (all types; classic and streams read-only with no subscription), group-topic and share-group-topic subscriptions, ACLs and transactional ids, each with its label. Check: `KafkaTckIT extends OpenBrokerTck` for these kinds
 - [ ] 2.4 Lag as an estimate with per-partition breakdown, and unavailable partitions with a reason. Check: IT with six partitions and one never-committed partition
 - [ ] 2.5 Purge and seek (latest, earliest, time, offset) for consumer groups and, through `alterShareGroupOffsets`, share groups, with an empty-group precondition, a member list in the preview and an etag over generation and offsets. Check: TCK precondition cases and an active-group IT
@@ -43,13 +43,13 @@ Order and parallelism:
 ## 4. Retry, dead letters and share groups (files: openbroker-kafka/src/**/kafka/messaging/retry/**, …/share/**)
 - [ ] 4.1 In-place retry for ordered processing and for the resolved default, and one retry topic per backoff step with attempt and due-time headers for an explicitly managed unordered policy. Check: "a message that keeps failing" and "ordered retries keep the order" on Kafka
 - [ ] 4.2 Dead-letter topic with origin headers, transactional with the commit when transacted, and a `FAILED_PRECONDITION` refusal naming the topic and remedy when it cannot be created, including for a default processor. Check: the dead-letter IT
-- [ ] 4.3 The share-group processor on `KafkaShareConsumer` (explicit acknowledgement), lock renewal with `RENEW` at half the acquisition lock while a handler runs, the system retry by delivery count, system dead-letter where `share.version` ≥ 2 (refused at open when the group names no DLQ topic), otherwise a managed send-then-reject, and the kind declared from the cluster's features at connect (ctx7 first: which release and level ship `RENEW` and production share groups). Check: release, redeliver, lock-renewal and delivery-limit ITs on 4.3.2; the share-DLQ IT on `apache/kafka:4.4.0-rc4` (moved to `4.4.0` once it is published); kind unavailable on 4.0.2
+- [ ] 4.3 The share-group processor on `KafkaShareConsumer` (explicit acknowledgement), lock renewal with `RENEW` at half the acquisition lock while a handler runs, the system retry by delivery count, system dead-letter where `share.version` ≥ 2 (refused at open when the group names no DLQ topic), otherwise a managed send-then-reject, and the kind declared from the cluster's features at connect (ctx7 first: which release and level ship `RENEW` and production share groups). Check: release, redeliver, lock-renewal, delivery-limit and share-DLQ ITs on 4.4.0; the managed fallback on 4.4.0 with `share.version` set to 1; kind unavailable on 4.0.2
 - [ ] 4.4 ADR 0022. Check: `KafkaMessagingTckIT` green for both subscription kinds
 
 ## 5. Chaos, benchmarks and CI (files: openbroker-kafka/src/test/**/KafkaChaosIT*, openbroker-benchmarks/**, .github/workflows/ci.yml)
 - [ ] 5.1 `KafkaChaosIT extends ChaosTck`: one-partition chaos topics, Toxiproxy per broker, with advertised listeners through the proxies, leader kill and cut, follower takeover. Check: `-Pchaos -Dit.test=KafkaChaosIT` green on both images
 - [ ] 5.2 JMH benchmarks for the Kafka send and process paths, with their budgets in `budgets.json`. Check: the `bench` job passes
-- [ ] 5.3 CI: Kafka entries in the `verify` and `chaos` matrices (`apache/kafka:4.0.2` and `4.3.2`), still in `ci-ok`. Check: the PR's CI is green
+- [ ] 5.3 CI: Kafka entries in the `verify` and `chaos` matrices (`apache/kafka:4.0.2` and `4.4.0`), still in `ci-ok`. Check: the PR's CI is green
 
 ## 6. Documentation and finish
 - [ ] 6.1 README and CLAUDE.md layout table: the Kafka driver, its supported range, what it declares unavailable and why, and the share-group kind. Check: the README examples compile in a doc test or are copied from an IT

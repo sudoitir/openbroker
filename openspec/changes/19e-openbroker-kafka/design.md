@@ -61,7 +61,7 @@ Its two core ideas, contiguous offset commits and per-key queues, are small and 
 4.0 is KRaft-only and has the KIP-848 consumer group protocol. That gives one rebalance path to build and to test under chaos, with no ZooKeeper code.
 - **Supporting 3.9 was rejected.** It needs the classic protocol beside the consumer protocol, which means two rebalance paths and double the chaos matrix, for clusters that are leaving support.
 
-Verify reads the cluster's version and features and refuses older clusters. CI runs `apache/kafka` at 4.0.2 and at the newest final image (4.3.2 on 2026-10-21). The driver builds on `kafka-clients` 4.4.0 (checked on Maven Central), whose clients talk to 4.0 and later brokers. Testcontainers stays at the repository's 2.0.5, with `testcontainers-kafka`.
+Verify reads the cluster's version and features and refuses older clusters. CI runs `apache/kafka` at 4.0.2 and at the newest release (4.4.0, published 2026-10-27). The driver builds on `kafka-clients` 4.4.0 (checked on Maven Central), whose clients talk to 4.0 and later brokers. Testcontainers stays at the repository's 2.0.5, with `testcontainers-kafka`.
 
 ### D3. The resource model
 | Kind id | Class | Label | Notes |
@@ -230,7 +230,7 @@ The share-group kind's `SubscriptionCapabilities`:
 
 Purge and seek on a share group use `alterShareGroupOffsets`, under the same empty-group rule as consumer groups. A managed policy is refused when the broker's delivery limit would cut it short (ADR 0014's rule). Ordering is `NONE` only. Credit maps to `max.poll.records` and to not polling while full, which the broker's acquisition lock bounds.
 
-**Testing on 4.4.0.** Docker Hub has no final `apache/kafka:4.4.0` image yet (2026-10-21), only `4.4.0-rc4`. The maintainer chose to build system dead-lettering now. One IT runs it on `4.4.0-rc4`, and moves to `4.4.0` when that image is published. The CI matrix's newest entry stays at the newest final image (4.3.2), which tests the managed fallback.
+**Testing.** The CI matrix's newest entry is `apache/kafka:4.4.0`, where system dead-lettering is tested. The oldest entry, 4.0.2, tests the share kind's absence. A cluster with share groups but `share.version` below 2 cannot be tested in the matrix, so a unit test of the capability resolution covers the managed fallback's declaration, and an IT on 4.4.0 with `share.version` downgraded to 1 runs the fallback.
 
 ### D13. Credentials (SDK change)
 `Credentials` becomes `sealed interface Credentials permits UsernamePassword, BearerToken, None`:
