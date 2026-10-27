@@ -129,7 +129,7 @@ final class KafkaChaosCluster implements AutoCloseable {
         env.put(
                 "KAFKA_ADVERTISED_LISTENERS",
                 "PLAINTEXT://" + toxiproxy.getHost() + ":" + toxiproxy.getMappedPort(FIRST_PROXY_PORT + index)
-                        + ",BROKER://" + host + ":" + INTERNAL + ",DIRECT://localhost:" + directPorts[index]);
+                        + ",BROKER://" + host + ":" + INTERNAL + ",DIRECT://127.0.0.1:" + directPorts[index]);
         int direct = directPorts[index];
         return new GenericContainer<>(image)
                 .withNetwork(network)
@@ -319,13 +319,14 @@ final class KafkaChaosCluster implements AutoCloseable {
     /** Asks the brokers directly until the probe has an answer. */
     private <T> T await(String what, Duration within, Probe<T> probe) {
         String bootstrap =
-                Arrays.stream(directPorts).mapToObj(p -> "localhost:" + p).collect(Collectors.joining(","));
+                Arrays.stream(directPorts).mapToObj(p -> "127.0.0.1:" + p).collect(Collectors.joining(","));
         return await(what, within, Map.of("bootstrap.servers", bootstrap), probe);
     }
 
     /** Asks until the probe has an answer, with an Admin client of {@code base} settings. */
     private <T> T await(String what, Duration within, Map<String, Object> base, Probe<T> probe) {
         long deadline = System.nanoTime() + within.toNanos();
+        Exception last = null;
         while (true) {
             Map<String, Object> config = new HashMap<>(base);
             config.put("request.timeout.ms", "5000");
@@ -337,12 +338,13 @@ final class KafkaChaosCluster implements AutoCloseable {
                 }
             } catch (ExecutionException | TimeoutException | RuntimeException e) {
                 // The brokers are not ready yet: ask again.
+                last = e;
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new IllegalStateException("Interrupted waiting for " + what, e);
             }
             if (System.nanoTime() > deadline) {
-                throw new IllegalStateException("Timed out waiting for " + what);
+                throw new IllegalStateException("Timed out waiting for " + what + "\n" + logs(), last);
             }
             try {
                 Thread.sleep(250);
@@ -351,6 +353,19 @@ final class KafkaChaosCluster implements AutoCloseable {
                 throw new IllegalStateException("Interrupted waiting for " + what, e);
             }
         }
+    }
+
+    /** The end of each broker's log, for a failure that only shows on a machine we cannot see. */
+    private String logs() {
+        StringBuilder out = new StringBuilder();
+        for (GenericContainer<?> broker : brokers) {
+            String[] lines = broker.getLogs().split("\n");
+            out.append("--- ").append(broker.getContainerName()).append('\n');
+            for (int i = Math.max(0, lines.length - 25); i < lines.length; i++) {
+                out.append(lines[i]).append('\n');
+            }
+        }
+        return out.toString();
     }
 
     private static int freePort() {
