@@ -8,18 +8,24 @@ import io.github.sudoitir.openbroker.ConnectionReport;
 import io.github.sudoitir.openbroker.ConnectionSchema;
 import io.github.sudoitir.openbroker.CredentialSource;
 import io.github.sudoitir.openbroker.OptionSpec;
+import io.github.sudoitir.openbroker.Partial;
 import io.github.sudoitir.openbroker.messaging.LinkListener;
 import io.github.sudoitir.openbroker.messaging.Transport;
+import io.github.sudoitir.openbroker.model.NodeDescription;
+import io.github.sudoitir.openbroker.model.Nodes;
 import io.github.sudoitir.openbroker.spi.BrokerDriver;
 import io.github.sudoitir.openbroker.spi.DriverContext;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 
 /** A driver that declares options and opens connections that do nothing but record what happens. */
 class FakeDriver implements BrokerDriver {
@@ -53,6 +59,11 @@ class FakeDriver implements BrokerDriver {
     final List<String> events = new CopyOnWriteArrayList<>();
     final List<LinkListener> watchers = new CopyOnWriteArrayList<>();
     BooleanSupplier driversOpen = () -> true;
+    /** What {@code nodes().describe(...)} does: it may answer, throw or block. */
+    Supplier<Partial<List<NodeDescription>>> describe = () -> new Partial<>(List.of(), Map.of(), Map.of());
+    /** What the n-th connection (from 1) does instead of {@link #describe}. */
+    final Map<Integer, Supplier<Partial<List<NodeDescription>>>> describeOf = new ConcurrentHashMap<>();
+
     boolean messaging = true;
     private final BrokerSystem system;
     private final ConnectionSchema schema;
@@ -96,6 +107,11 @@ class FakeDriver implements BrokerDriver {
         return proxy(ClusterConnection.class, (self, method, args) -> switch (method.getName()) {
             case "system" -> system();
             case "transport" -> messaging ? Optional.of(transport) : Optional.empty();
+            case "nodes" ->
+                proxy(Nodes.class, (nodesSelf, nodesMethod, nodesArgs) -> switch (nodesMethod.getName()) {
+                    case "describe" -> describeOf.getOrDefault(number, describe).get();
+                    default -> throw new UnsupportedOperationException(nodesMethod.getName());
+                });
             case "close" -> {
                 events.add("closed " + number + (driversOpen.getAsBoolean() ? " with drivers open" : " after drivers"));
                 yield null;

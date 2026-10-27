@@ -2,8 +2,12 @@ package io.github.sudoitir.openbroker.spring.boot.autoconfigure;
 
 import io.github.sudoitir.openbroker.BrokerDrivers;
 import io.github.sudoitir.openbroker.CallInterceptor;
+import io.github.sudoitir.openbroker.ClusterConnection;
 import io.micrometer.context.ContextSnapshotFactory;
 import java.time.Clock;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import org.jspecify.annotations.Nullable;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.artemis.autoconfigure.ArtemisConnectionDetails;
@@ -14,6 +18,9 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.ssl.SslAutoConfiguration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.health.autoconfigure.contributor.ConditionalOnEnabledHealthIndicator;
+import org.springframework.boot.health.contributor.CompositeHealthContributor;
+import org.springframework.boot.health.contributor.HealthIndicator;
 import org.springframework.boot.kafka.autoconfigure.KafkaConnectionDetails;
 import org.springframework.boot.ssl.SslBundles;
 import org.springframework.context.annotation.Bean;
@@ -134,6 +141,37 @@ public class OpenBrokerAutoConfiguration {
         ArtemisConnectionDeriver artemisConnectionDeriver(
                 ObjectProvider<ArtemisConnectionDetails> details, Environment environment) {
             return new ArtemisConnectionDeriver(details, environment);
+        }
+    }
+
+    /** Health under {@code openbroker}: one indicator for each connection. */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(HealthIndicator.class)
+    @ConditionalOnEnabledHealthIndicator("openbroker")
+    static class HealthConfiguration {
+
+        @Bean
+        @ConditionalOnMissingBean(name = "openbrokerHealthContributor")
+        @Nullable OpenBrokerHealth openbrokerHealthContributor(
+                OpenBrokerConnections connections, ListableBeanFactory beans, OpenBrokerProperties properties) {
+            Map<String, ConnectionHealthIndicator> indicators = new LinkedHashMap<>();
+            for (String name : connections.names()) {
+                String beanName = name + OpenBrokerConnectionRegistrar.CLUSTER_CONNECTION;
+                ClusterConnection connection =
+                        beans.containsBean(beanName) && beans.getBean(beanName) instanceof ClusterConnection opened
+                                ? opened
+                                : null;
+                if (connection != null) {
+                    indicators.put(
+                            name,
+                            new ConnectionHealthIndicator(
+                                    connection, properties.health().timeout()));
+                }
+            }
+            if (indicators.isEmpty()) {
+                return null;
+            }
+            return new OpenBrokerHealth(CompositeHealthContributor.fromMap(indicators), indicators.values());
         }
     }
 }
