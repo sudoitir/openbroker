@@ -227,7 +227,9 @@ public abstract class MessagingTck {
                 }
                 if (attempt == 1) {
                     receiver.rollback();
-                    assertThat(exactCount(to)).as("a rollback delivers nothing").isZero();
+                    assertThat(drain(transport, to, QUIET))
+                            .as("a rollback delivers nothing")
+                            .isEmpty();
                     assertThat(exactCount(from))
                             .as("a rollback keeps the input")
                             .isEqualTo(5);
@@ -452,6 +454,22 @@ public abstract class MessagingTck {
             assertThat(held).hasSize(5);
             assertThat(limited.receive(20, QUIET)).as("credit is used up").isEmpty();
 
+            if (!env.competingReceivers()) {
+                // Another receiver would own other messages, not these: settling hands the credit back.
+                Set<Long> all = new HashSet<>(seqs(held));
+                held.forEach(m -> limited.settle(m, Disposition.accept()));
+                while (all.size() < 20) {
+                    List<Message> next = receiveN(limited, Math.min(5, 20 - all.size()), SECONDS_15);
+                    assertThat(next)
+                            .as("credit returns as messages settle")
+                            .isNotEmpty()
+                            .hasSizeLessThanOrEqualTo(5);
+                    next.forEach(m -> limited.settle(m, Disposition.accept()));
+                    all.addAll(seqs(next));
+                }
+                assertThat(all).as("no message is held twice").hasSize(20);
+                return;
+            }
             List<Message> rest;
             try (Receiver other = transport.receiver(id, Scope.whole(), ReceiverOptions.consume())) {
                 rest = receiveN(other, 15, SECONDS_15);

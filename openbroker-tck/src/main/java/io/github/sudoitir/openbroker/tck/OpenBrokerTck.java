@@ -12,7 +12,6 @@ import io.github.sudoitir.openbroker.ClusterConnection;
 import io.github.sudoitir.openbroker.ConnectRequest;
 import io.github.sudoitir.openbroker.Deadline;
 import io.github.sudoitir.openbroker.ErrorReasons;
-import io.github.sudoitir.openbroker.NodeId;
 import io.github.sudoitir.openbroker.NodeOutcome;
 import io.github.sudoitir.openbroker.Outcome;
 import io.github.sudoitir.openbroker.Partial;
@@ -73,6 +72,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -358,14 +358,13 @@ public abstract class OpenBrokerTck {
             for (int i = 0; i < 4; i++) {
                 send(id, 1, "n", String.valueOf(i));
             }
-            NodeId node = env.request().cluster().nodes().getFirst().id();
+            Shard shard = env.browseShard(id);
             BrowsePage second = connection
                     .messages()
                     .browse(
                             id,
-                            Scope.node(node),
-                            new BrowseRequest(
-                                    new Position.AtOffsets(Map.of(Shard.node(node), 2L)), 2, Optional.empty(), 1024));
+                            Scope.shards(Set.of(shard)),
+                            new BrowseRequest(new Position.AtOffsets(Map.of(shard, 2L)), 2, Optional.empty(), 1024));
             assertThat(second.messages())
                     .extracting(m -> m.properties().get("n"))
                     .containsExactly(PropertyValue.of("2"), PropertyValue.of("3"));

@@ -119,8 +119,13 @@ class ProcessorEngineTest {
 
     private ProcessorEngine start(
             ProcessorOptions options, FakeLanes lanes, MessageHandler handler, EngineContext context) {
-        ProcessorEngine engine =
-                ProcessorEngine.start("p", options, Fakes.info(OperationType.PROCESS), context, lanes, handler);
+        return start(options, options.ordering() != OrderingScope.NONE, lanes, handler, context);
+    }
+
+    private ProcessorEngine start(
+            ProcessorOptions options, boolean inPlace, FakeLanes lanes, MessageHandler handler, EngineContext context) {
+        ProcessorEngine engine = ProcessorEngine.start(
+                "p", options, inPlace, Fakes.info(OperationType.PROCESS), context, lanes, handler);
         started.add(engine);
         return engine;
     }
@@ -269,6 +274,25 @@ class ProcessorEngineTest {
         assertThat(byId.get("m2")).isEqualTo(new Disposition.Release(Optional.of(Duration.ofMillis(200)), true));
         assertThat(calls).hasValue(2);
         assertThat(sleeper.sleeps).isEmpty();
+    }
+
+    @Test
+    void aManagedRetryTheDriverAsksToRunInPlaceHoldsTheLaneEvenWhenUnordered() throws Exception {
+        FakeLanes lanes = new FakeLanes(false);
+        AtomicInteger calls = new AtomicInteger();
+        start(
+                options(1, OrderingScope.NONE, RetryPolicy.managed(3, PLAIN)),
+                true,
+                lanes,
+                ctx -> {
+                    calls.incrementAndGet();
+                    throw new IllegalStateException("boom");
+                },
+                Fakes.context(clock, sleeper));
+        lanes.inbox.add(delivered("m1", null, 1));
+        assertThat(lanes.settled().disposition()).isInstanceOf(Disposition.Reject.class);
+        assertThat(calls).hasValue(3);
+        assertThat(sleeper.sleeps).containsExactly(Duration.ofMillis(100), Duration.ofMillis(200));
     }
 
     @Test

@@ -57,6 +57,16 @@
 
     <build>
         <plugins>
+            <!-- The TCK and the broker integration tests (*IT) run against Testcontainers clusters. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <configuration>
+                    <systemPropertyVariables>
+                        <kafka.image>${kafka.image}</kafka.image>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
@@ -71,4 +81,8 @@
             </plugin>
         </plugins>
     </build>
+
+    <properties>
+        <kafka.image>apache/kafka:4.4.0</kafka.image>
+    </properties>
 </project>
