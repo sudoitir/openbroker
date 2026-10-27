@@ -52,12 +52,13 @@ import org.jspecify.annotations.Nullable;
 final class KafkaLanes implements ProcessorEngine.Lanes, Consuming.Sink, AutoCloseable {
 
     private static final System.Logger LOG = System.getLogger(KafkaLanes.class.getName());
+    private static final Duration REDELIVER_AFTER = Duration.ofSeconds(1);
 
     private final MessagingEnv env;
     private final String processorId;
     private final Subscriptions.GroupTopic subscription;
     private final ProcessorOptions options;
-    private final DeadLetters deadLetters;
+    private final DeadLetterSink deadLetters;
     private final @Nullable RetryTopics retryTopics;
     private final boolean brokerDeadLetters;
     private final boolean transacted;
@@ -76,7 +77,7 @@ final class KafkaLanes implements ProcessorEngine.Lanes, Consuming.Sink, AutoClo
             String processorId,
             Subscriptions.GroupTopic subscription,
             ProcessorOptions options,
-            DeadLetters deadLetters,
+            DeadLetterSink deadLetters,
             @Nullable RetryTopics retryTopics,
             boolean brokerDeadLetters,
             Function<Consuming.Sink, Consuming> consuming) {
@@ -166,16 +167,15 @@ final class KafkaLanes implements ProcessorEngine.Lanes, Consuming.Sink, AutoClo
     private final class Lane implements ProcessorEngine.Lane {
 
         private final int index;
-        private final @Nullable Transaction transaction;
+        private final String transactionalId;
+        private volatile @Nullable Transaction transaction;
         private final Map<String, Sender> joined = new HashMap<>();
         private @Nullable Delivery current;
 
         Lane(int index) {
             this.index = index;
-            this.transaction = transacted
-                    ? new Transaction(
-                            env.cluster(), "openbroker-" + subscription.group() + "-" + processorId + "-" + index)
-                    : null;
+            this.transactionalId = "openbroker-" + subscription.group() + "-" + processorId + "-" + index;
+            this.transaction = transacted ? new Transaction(env.cluster(), transactionalId) : null;
         }
 
         @Override
@@ -211,8 +211,9 @@ final class KafkaLanes implements ProcessorEngine.Lanes, Consuming.Sink, AutoClo
             if (delivery == null || delivery.message() != message) {
                 throw KafkaFailures.stale("The message " + message.ref() + " is not the one this lane holds.");
             }
-            if (transaction != null) {
-                settleInTransaction(delivery, disposition, transaction);
+            Transaction txn = transaction;
+            if (txn != null) {
+                settleInTransaction(delivery, disposition, txn);
                 return;
             }
             switch (disposition) {
@@ -220,11 +221,25 @@ final class KafkaLanes implements ProcessorEngine.Lanes, Consuming.Sink, AutoClo
                 case Disposition.Release r -> release(delivery, r);
                 case Disposition.Reject r -> {
                     if (!brokerDeadLetters) {
-                        deadLetters.reject(
-                                delivery, delivery.attempt(), r.reason().orElse("rejected"), null);
+                        try {
+                            deadLetters.reject(
+                                    delivery, delivery.attempt(), r.reason().orElse("rejected"), null);
+                        } catch (RuntimeException e) {
+                            // Unsettled it would hold the partition's commit for good: try it again shortly.
+                            retryLater(delivery);
+                            throw e;
+                        }
                     }
                     consuming.reject(delivery);
                 }
+            }
+        }
+
+        private void retryLater(Delivery delivery) {
+            try {
+                consuming.requeue(delivery, REDELIVER_AFTER, true);
+            } catch (BrokerException stale) {
+                // the partition moved on; the new owner has the record
             }
         }
 
@@ -257,6 +272,7 @@ final class KafkaLanes implements ProcessorEngine.Lanes, Consuming.Sink, AutoClo
                                 delivery, delivery.attempt(), r.reason().orElse("rejected"), this::sender);
                     } catch (RuntimeException e) {
                         handBack(delivery, txn, true);
+                        replaceIfBroken(txn, e);
                         throw e;
                     }
                     commit(delivery, txn);
@@ -279,6 +295,7 @@ final class KafkaLanes implements ProcessorEngine.Lanes, Consuming.Sink, AutoClo
                 });
             } catch (RuntimeException e) {
                 handBack(delivery, txn, true);
+                replaceIfBroken(txn, e);
                 throw e;
             }
         }
@@ -293,6 +310,22 @@ final class KafkaLanes implements ProcessorEngine.Lanes, Consuming.Sink, AutoClo
             }
         }
 
+        /** A producer that is fenced or broken is replaced, under the same id, with senders joined to the new one. */
+        private void replaceIfBroken(Transaction txn, RuntimeException failure) {
+            if (!producerLostIn(failure)) {
+                return;
+            }
+            joined.values().forEach(Sender::close);
+            joined.clear();
+            try {
+                transaction = new Transaction(env.cluster(), transactionalId);
+            } catch (RuntimeException e) {
+                LOG.log(System.Logger.Level.WARNING, "A lane's producer could not be replaced; it is tried again", e);
+                transaction = null;
+            }
+            txn.close();
+        }
+
         private void abort(Transaction txn) {
             try {
                 txn.abort();
@@ -303,7 +336,12 @@ final class KafkaLanes implements ProcessorEngine.Lanes, Consuming.Sink, AutoClo
 
         @Override
         public Sender sender(SendTarget target) {
-            Transaction txn = transaction;
+            Transaction open = transaction;
+            if (open == null && transacted) {
+                // A replacement that failed is tried again here, where the handler needs it.
+                open = transaction = new Transaction(env.cluster(), transactionalId);
+            }
+            Transaction txn = open;
             if (txn == null) {
                 throw KafkaFailures.precondition("Only a TRANSACTED processor has a transaction to join.");
             }
@@ -317,11 +355,22 @@ final class KafkaLanes implements ProcessorEngine.Lanes, Consuming.Sink, AutoClo
         @Override
         public void close() {
             joined.values().forEach(Sender::close);
-            if (transaction != null) {
-                abort(transaction);
-                transaction.close();
+            Transaction txn = transaction;
+            if (txn != null) {
+                abort(txn);
+                txn.close();
             }
         }
+    }
+
+    /** Whether the failure, or what caused it, says the producer itself is gone. */
+    static boolean producerLostIn(Throwable failure) {
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            if (!(cause instanceof BrokerException) && KafkaSender.producerLost(cause)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Stops polling, commits what was settled and leaves the group. */
