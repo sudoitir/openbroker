@@ -36,6 +36,7 @@ import io.github.sudoitir.openbroker.messaging.TransportCapabilities;
 import io.github.sudoitir.openbroker.model.ResourceId;
 import io.github.sudoitir.openbroker.model.Scope;
 import io.github.sudoitir.openbroker.support.Deadlines;
+import io.github.sudoitir.openbroker.support.messaging.Declared;
 import io.github.sudoitir.openbroker.support.messaging.ProcessorEngine;
 import io.github.sudoitir.openbroker.support.messaging.Retries;
 import java.util.List;
@@ -106,22 +107,6 @@ public final class ArtemisTransport implements Transport, AutoCloseable {
         return env.watch(listener);
     }
 
-    private static void requireDeclared(
-            Guarantee guarantee,
-            OrderingScope ordering,
-            Set<OrderingScope> orderings,
-            DeduplicationScope deduplication) {
-        if (!CAPABILITIES.deduplication().satisfies(deduplication)) {
-            throw Unimplemented.of("deduplicate in the scope " + deduplication);
-        }
-        if (!CAPABILITIES.guarantees().contains(guarantee)) {
-            throw Unimplemented.of("open a link with the guarantee " + guarantee);
-        }
-        if (!orderings.contains(ordering)) {
-            throw Unimplemented.of("keep " + ordering + " order: Artemis has no partitions");
-        }
-    }
-
     private NodeHandle single(Scope scope, String what) {
         List<NodeHandle> nodes = cluster.nodes(scope);
         // A primary and its backup are one logical node: a scope over exactly that group reads whichever serves.
@@ -138,7 +123,13 @@ public final class ArtemisTransport implements Transport, AutoCloseable {
     @Override
     public Receiver receiver(ResourceId subscription, Scope scope, ReceiverOptions options) {
         Targets.requireQueue(subscription);
-        requireDeclared(options.guarantee(), OrderingScope.NONE, Set.of(OrderingScope.NONE), DeduplicationScope.NONE);
+        Declared.require(
+                "Artemis",
+                CAPABILITIES,
+                options.guarantee(),
+                DeduplicationScope.NONE,
+                OrderingScope.NONE,
+                Set.of(OrderingScope.NONE));
         NodeHandle node = single(scope, "receiver");
         Deadline deadline = Deadlines.current(cluster.options());
         String selector = Selectors.bounded(Selectors.of(options.filter()), options.producedAtOrBefore());
@@ -160,7 +151,13 @@ public final class ArtemisTransport implements Transport, AutoCloseable {
 
     @Override
     public Sender sender(SendTarget target, Scope scope, SenderOptions options) {
-        requireDeclared(options.guarantee(), options.ordering(), CAPABILITIES.orderings(), options.deduplication());
+        Declared.require(
+                "Artemis",
+                CAPABILITIES,
+                options.guarantee(),
+                options.deduplication(),
+                options.ordering(),
+                CAPABILITIES.orderings());
         Deadline deadline = Deadlines.current(cluster.options());
         BrokerException last = null;
         for (NodeHandle node : cluster.nodes(scope)) {
@@ -191,8 +188,15 @@ public final class ArtemisTransport implements Transport, AutoCloseable {
     public Processor process(ResourceId subscription, Scope scope, ProcessorOptions asked, MessageHandler handler) {
         Targets.requireQueue(subscription);
         SubscriptionCapabilities queue = CAPABILITIES.subscription(subscription.kind());
-        ProcessorOptions options = asked.withRetry(Retries.resolve(asked.retry(), queue.retry()));
-        requireDeclared(options.receive().guarantee(), options.ordering(), queue.orderings(), DeduplicationScope.NONE);
+        Retries.Resolved retry = Retries.resolve(asked.retry(), queue.retry(), asked.ordering());
+        ProcessorOptions options = asked.withRetry(retry.policy());
+        Declared.require(
+                "Artemis",
+                CAPABILITIES,
+                options.receive().guarantee(),
+                DeduplicationScope.NONE,
+                options.ordering(),
+                queue.orderings());
         NodeHandle node = single(scope, "processor");
         Deadline deadline = Deadlines.current(cluster.options());
         String selector = Selectors.bounded(
@@ -214,7 +218,9 @@ public final class ArtemisTransport implements Transport, AutoCloseable {
             env.groups().learn(node);
             try {
                 return env.track(new CoreProcessor(
-                        env, ProcessorEngine.start(id, options, info, env.engine(), lanes, handler), lanes));
+                        env,
+                        ProcessorEngine.start(id, options, retry.inPlace(), info, env.engine(), lanes, handler),
+                        lanes));
             } catch (RuntimeException e) {
                 lanes.close();
                 throw e;
