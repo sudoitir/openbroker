@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.Supplier;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.DescribeTopicsOptions;
 import org.apache.kafka.clients.admin.ListTopicsOptions;
@@ -20,23 +21,22 @@ import org.jspecify.annotations.Nullable;
 
 /**
  * One bounded description of the cluster's topics and their partitions, shared by node health, the
- * partition kind and the polling watch, and kept for {@link #TTL}. Reading it costs a topic listing
+ * partition kind and the polling watch, and kept for the watch's poll interval. Reading it costs a topic listing
  * and one description request, so the three readers pay once per interval between them, however
  * often they ask. A change this driver makes drops it with {@link #invalidate()}.
  */
 public final class Topology {
 
-    /** How long a description is reused: the watch's poll interval. */
-    public static final Duration TTL = Duration.ofSeconds(10);
-
     /** How many topics one description covers; a cluster with more is described by its first ones. */
     public static final int MAX_TOPICS = 2_000;
 
     private final Clock clock;
+    private final Supplier<Duration> ttl;
     private @Nullable Snapshot current;
 
-    Topology(Clock clock) {
+    Topology(Clock clock, Supplier<Duration> ttl) {
         this.clock = clock;
+        this.ttl = ttl;
     }
 
     /** What one reading found. */
@@ -52,10 +52,10 @@ public final class Topology {
         }
     }
 
-    /** The description of the topics, as old as {@link #TTL} at most. */
+    /** The description of the topics, as old as the watch interval at most. */
     public synchronized Snapshot read(Admin admin, Await await) {
         Snapshot held = current;
-        if (held != null && Duration.between(held.takenAt(), clock.instant()).compareTo(TTL) < 0) {
+        if (held != null && Duration.between(held.takenAt(), clock.instant()).compareTo(ttl.get()) < 0) {
             return held;
         }
         Snapshot fresh = describe(admin, await);

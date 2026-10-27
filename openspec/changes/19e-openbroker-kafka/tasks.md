@@ -29,7 +29,7 @@ Order and parallelism:
 - [ ] 2.5 Purge and seek (latest, earliest, time, offset) for consumer groups and, through `alterShareGroupOffsets`, share groups, with an empty-group precondition, a member list in the preview and an etag over generation and offsets. Check: TCK precondition cases and an active-group IT
 - [x] 2.6 Truncate with a per-group loss preview and the compact-only refusal. Check: IT with three groups and a compacted topic
 - [ ] 2.7 Browse by partition, offset and time with no group, bounded by count and bytes; per-message move, copy and delete unavailable with the reason. Check: TCK browse cases, and an IT asserting no group appears
-- [ ] 2.8 Abort a hanging transaction; the polling watch for topics, groups and partitions. Check: TCK notification cases
+- [x] 2.8 Abort a hanging transaction; the polling watch for topics, groups and partitions. Check: TCK notification cases
 - [ ] 2.9 ADR 0018. Check: `KafkaTckIT` green
 
 ## 3. Consumer-group messaging (files: openbroker-kafka/src/**/kafka/messaging/** except share)

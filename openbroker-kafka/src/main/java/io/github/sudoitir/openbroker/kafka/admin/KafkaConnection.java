@@ -30,19 +30,21 @@ public final class KafkaConnection implements ClusterConnection {
     private final KafkaResources resources;
     private final KafkaOperations operations;
     private final KafkaMessages messages;
+    private final KafkaNotifications notifications;
     private final KafkaAccess access;
     private final KafkaTransport transport;
 
     public KafkaConnection(BrokerSystem system, ClusterSpec spec, CredentialSource credentials, DriverContext context) {
         this.system = system;
         this.cluster = new KafkaCluster(spec, credentials, context);
-        this.topology = new Topology(context.options().clock());
+        this.topology = new Topology(context.options().clock(), cluster::watchInterval);
         this.nodes = new KafkaNodes(cluster, topology);
         this.handlers = new Handlers(cluster, topology);
         this.resources = new KafkaResources(cluster, handlers);
         this.operations = new KafkaOperations(cluster, handlers);
         this.messages = new KafkaMessages(cluster, handlers);
         this.access = new KafkaAccess(cluster);
+        this.notifications = new KafkaNotifications(cluster, resources);
         this.transport = new KafkaTransport(cluster);
     }
 
@@ -91,7 +93,7 @@ public final class KafkaConnection implements ClusterConnection {
 
     @Override
     public Optional<Notifications> notifications() {
-        return Optional.empty();
+        return Optional.of(notifications);
     }
 
     @Override
@@ -105,6 +107,7 @@ public final class KafkaConnection implements ClusterConnection {
         cluster.reconfigure(spec);
         handlers.forget();
         messages.reset();
+        notifications.reset();
     }
 
     @Override
@@ -114,6 +117,7 @@ public final class KafkaConnection implements ClusterConnection {
 
     @Override
     public void close() {
+        notifications.close();
         transport.close();
         messages.close();
         cluster.close();

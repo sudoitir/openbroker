@@ -46,15 +46,17 @@ public final class KafkaAccess implements Access {
         if (read.status() != Assessment.Status.AVAILABLE) {
             settled = "Not assessed: management reads are not available.";
         }
-        for (Capability unsettled : new Capability[] {
-            Capability.MANAGEMENT_WRITE,
-            Capability.NOTIFICATIONS,
-            Capability.BROWSE,
-            Capability.SEND,
-            Capability.RECEIVE
-        }) {
+        for (Capability unsettled :
+                new Capability[] {Capability.MANAGEMENT_WRITE, Capability.BROWSE, Capability.SEND, Capability.RECEIVE
+                }) {
             out.put(unsettled, Assessment.unknown(settled));
         }
+        out.put(
+                Capability.NOTIFICATIONS,
+                read.status() == Assessment.Status.AVAILABLE
+                        ? Assessment.available("Kafka sends no events; the watch lists the cluster every "
+                                + cluster.watchInterval() + " with the read permission this account holds.")
+                        : Assessment.unknown(settled));
         Assessment appendOnly = Assessment.unavailable(KafkaMessages.LOG_IS_APPEND_ONLY, Optional.empty());
         out.put(MOVE_MESSAGES, appendOnly);
         out.put(COPY_MESSAGES, appendOnly);

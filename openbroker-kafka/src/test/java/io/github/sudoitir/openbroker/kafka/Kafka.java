@@ -27,8 +27,15 @@ final class Kafka {
     private Kafka() {}
 
     static ClusterConnection connect(BrokerDrivers drivers, KafkaTestCluster kafka) {
+        return connect(drivers, kafka, Map.of());
+    }
+
+    static ClusterConnection connect(BrokerDrivers drivers, KafkaTestCluster kafka, Map<String, String> options) {
         return drivers.connect(new ConnectRequest(
-                KafkaDriver.SYSTEM, kafka.spec(), CredentialSource.none(), ConnectOptions.defaults()));
+                KafkaDriver.SYSTEM,
+                kafka.spec().withOptions(options),
+                CredentialSource.none(),
+                ConnectOptions.defaults()));
     }
 
     static Admin admin(KafkaTestCluster kafka) {

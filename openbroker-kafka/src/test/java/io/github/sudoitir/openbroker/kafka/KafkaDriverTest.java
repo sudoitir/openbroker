@@ -21,10 +21,10 @@ class KafkaDriverTest {
     }
 
     @Test
-    void theSchemaDescribesTheSecurityProtocolTheMechanismAndTheClientId() {
+    void theSchemaDescribesTheSecurityProtocolTheMechanismTheClientIdAndTheWatchInterval() {
         assertThat(new KafkaDriver().schema().options())
                 .extracting(OptionSpec::key)
-                .containsExactly("security.protocol", "sasl.mechanism", "client.id");
+                .containsExactly("security.protocol", "sasl.mechanism", "client.id", "watch.interval");
         assertThat(new KafkaDriver()
                         .schema()
                         .option("security.protocol")

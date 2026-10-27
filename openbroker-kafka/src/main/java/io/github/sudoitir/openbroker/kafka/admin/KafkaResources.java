@@ -7,8 +7,10 @@ import io.github.sudoitir.openbroker.NodeId;
 import io.github.sudoitir.openbroker.NodeOutcome;
 import io.github.sudoitir.openbroker.Partial;
 import io.github.sudoitir.openbroker.Status;
+import io.github.sudoitir.openbroker.model.Attributes;
 import io.github.sudoitir.openbroker.model.Kind;
 import io.github.sudoitir.openbroker.model.Ordering;
+import io.github.sudoitir.openbroker.model.Placement;
 import io.github.sudoitir.openbroker.model.Resource;
 import io.github.sudoitir.openbroker.model.ResourceId;
 import io.github.sudoitir.openbroker.model.ResourcePage;
@@ -47,6 +49,28 @@ public final class KafkaResources implements Resources {
 
     @Override
     public Partial<List<ResourcePage>> read(List<ResourceQuery> queries) {
+        return read(queries, true);
+    }
+
+    /**
+     * The same listings with only what a listing gives for free: each resource's id and where it
+     * lives, none of its details. It is what the watch reads every interval.
+     */
+    Resources ids() {
+        return new Resources() {
+            @Override
+            public Partial<List<ResourcePage>> read(List<ResourceQuery> queries) {
+                return KafkaResources.this.read(queries, false);
+            }
+
+            @Override
+            public List<Kind> kinds() {
+                return KafkaResources.this.kinds();
+            }
+        };
+    }
+
+    private Partial<List<ResourcePage>> read(List<ResourceQuery> queries, boolean details) {
         Deadline deadline = Deadlines.current(cluster.options());
         List<ResourcePage> pages = new ArrayList<>();
         Map<NodeId, NodeOutcome> outcomes = new LinkedHashMap<>();
@@ -54,7 +78,8 @@ public final class KafkaResources implements Resources {
         for (ResourceQuery query : queries) {
             Partial<ResourcePage> one = Outcomes.of(
                     new ResourcePage(List.of(), Optional.empty()),
-                    () -> handlers.call("resources.read", Optional.empty(), deadline, context -> read(context, query)));
+                    () -> handlers.call(
+                            "resources.read", Optional.empty(), deadline, context -> read(context, query, details)));
             pages.add(one.value());
             one.outcomes().forEach((n, o) -> outcomes.merge(n, o, (a, b) -> a == NodeOutcome.APPLIED ? b : a));
             failures.putAll(one.failures());
@@ -62,7 +87,7 @@ public final class KafkaResources implements Resources {
         return new Partial<>(pages, outcomes, failures);
     }
 
-    private ResourcePage read(Context context, ResourceQuery query) {
+    private ResourcePage read(Context context, ResourceQuery query, boolean details) {
         List<Handler> selected = query.kind().isPresent()
                 ? List.of(handlers.of(context, query.kind().get()))
                 : handlers.ofClass(context, query.resourceClass().orElseThrow());
@@ -101,8 +126,21 @@ public final class KafkaResources implements Resources {
         page.forEach(e ->
                 byHandler.computeIfAbsent(e.getKey(), h -> new ArrayList<>()).add(e.getValue()));
         Map<ResourceId, Resource> read = new LinkedHashMap<>();
-        byHandler.forEach(
-                (handler, cs) -> handler.resources(context, cs, listing).forEach(r -> read.put(r.id(), r)));
+        byHandler.forEach((handler, cs) -> {
+            if (details) {
+                handler.resources(context, cs, listing).forEach(r -> read.put(r.id(), r));
+            } else {
+                // The watch reports that a resource exists, not where its replicas are: every one is on the cluster.
+                cs.forEach(c -> read.put(
+                        c.id(),
+                        new Resource(
+                                c.id(),
+                                c.attributes(),
+                                List.of(),
+                                List.of(Placement.instance(KafkaCluster.CLUSTER, Attributes.empty())),
+                                context.now())));
+            }
+        });
         List<Resource> items = new ArrayList<>();
         page.forEach(e -> {
             Resource r = read.get(e.getValue().id());

@@ -64,6 +64,23 @@ public final class KafkaCluster implements AutoCloseable {
         return context.options();
     }
 
+    /** How often the watch reads the cluster, and so how old the shared topic description may be. */
+    public Duration watchInterval() {
+        String text = spec.option(KafkaOptions.WATCH_INTERVAL, KafkaOptions.DEFAULT_WATCH_INTERVAL);
+        try {
+            Duration interval = Duration.parse(text);
+            if (interval.compareTo(Duration.ofSeconds(1)) < 0) {
+                throw new IllegalArgumentException(text);
+            }
+            return interval;
+        } catch (RuntimeException e) {
+            throw KafkaErrors.refused(
+                    Status.INVALID_ARGUMENT,
+                    ErrorReasons.INVALID_ARGUMENT,
+                    KafkaOptions.WATCH_INTERVAL + " is an ISO-8601 duration of one second or more, such as PT10S.");
+        }
+    }
+
     /** Points the connection at a new cluster description; the next call uses a new Admin client. */
     public void reconfigure(ClusterSpec spec) {
         this.spec = spec;
