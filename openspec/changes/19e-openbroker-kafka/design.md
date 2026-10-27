@@ -74,7 +74,7 @@ Verify reads the cluster's version and features and refuses older clusters. CI r
 | `kafka.acl` | ACCESS_RULE | ACL / ACLs | `describeAcls`, create, delete |
 | `kafka.transactional-id` | TRANSACTION | Transactional ID / Transactional IDs | List, describe, abort a hanging transaction |
 
-Brokers are nodes. The controller quorum (`describeMetadataQuorum`) and under-replicated partitions feed health. Classic and streams groups are listed read-only, with no subscription kind, because their offsets belong to the applications that run them. Only consumer and share groups get subscriptions.
+Brokers are nodes. The controller quorum (`describeMetadataQuorum`) and under-replicated partitions feed health. Classic and streams groups are listed read-only, with no subscription kind, because their offsets belong to the applications that run them. Only consumer and share groups get subscriptions. A group with no protocol (one that only ever committed offsets, as a subscription created by the driver does) counts as a consumer group's subscription too, because the cluster files such a group as classic.
 
 Seek reuses the SDK's existing `Position` and `Seek` (`Earliest`, `Latest`, `AtOffsets`, `AtTime`, `After`); `AtSnapshot` is unavailable on Kafka.
 
@@ -126,13 +126,13 @@ The callback runs on the poll thread, so the grace time must be shorter than the
 |---|---|---|
 | At most once | `acks=1` | commit before dispatch |
 | At least once | `acks=all`, idempotence on | commit after settlement |
-| Transacted | `transactional.id` per processor lane set, `acks=all` | `isolation.level=read_committed`; `sendOffsetsToTransaction` with the consumer's group metadata |
+| Transacted | `transactional.id` per processor lane, `acks=all` | `isolation.level=read_committed`; `sendOffsetsToTransaction` with the consumer's group metadata |
 
 At-least-once and transacted sends require the destination topic to be durable. A topic with `min.insync.replicas` of 1 is reported in the topic's status as weak durability, but it is not refused: that is the operator's choice.
 
 Joined transactions are declared. A transacted processor's sender joins the lane set's producer transaction.
 
-Each processor instance has one stable `transactional.id` (a configured prefix and an instance id). Zombie fencing goes through `sendOffsetsToTransaction(offsets, consumer.groupMetadata())` (KIP-447), not one producer per partition.
+Each processor lane has one stable `transactional.id`: the processor id and the lane index, so a restarted lane fences its own predecessor and no other. Zombie fencing goes through `sendOffsetsToTransaction(offsets, consumer.groupMetadata())` (KIP-447), not one producer per partition.
 - **Rejected: ids derived from the partition set.** With incremental rebalances the set changes constantly, so the ids would churn.
 
 ### D10. Idempotence scope (SDK change)
@@ -199,6 +199,7 @@ On a consumer group:
 - **The resolved default** retries in place, whatever the ordering, so a default processor never creates retry topics.
 - **Ordered** processing retries in place: pause the partition, back off, re-dispatch. This needs no seek, because the record is still held.
 - **An explicitly managed, unordered** policy releases through one retry topic per backoff step, `<topic>.retry-<n>`, as Spring for Apache Kafka does. Every record in a topic then has the same delay, and the head is always due first. Headers carry the attempt and the due time, and a retry consumer in the same processor pauses each retry partition until its head is due.
+- **A transacted processor** retries every managed policy in place, because a release to a retry topic would leave the lane's transaction to commit an offset the retry has not yet settled.
   - **Rejected: a single retry topic with mixed due times.** A late record at the head would block earlier-due ones behind it.
   - **Rejected: holding failed records in memory.** It blocks the commit position for the whole backoff, and the record is lost on a crash before the first retry is due.
 - **Dead letter** goes to the policy's target, or `<topic>.dlt` by default, with the headers `openbroker.origin.topic`, `.partition`, `.offset`, `.attempts` and `.reason`. In a transacted processor, the dead-letter send and the offset commit are one transaction.
@@ -226,7 +227,9 @@ The share-group kind's `SubscriptionCapabilities`:
 
 `deadLetters` is true only when the finalized `share.version` is at least 2. Under `SYSTEM`, the processor checks at open that the group has a DLQ topic configured; if not, it refuses with a remedy that names the three configs. Elsewhere, system dead-lettering is unavailable with that remedy, and a managed policy dead-letters by sending to `<topic>.dlt` and then rejecting.
 
-**Long handlers.** The processor renews a record's acquisition lock (`AcknowledgeType.RENEW`) at half of `acquisitionLockTimeoutMs()` while its handler runs. This is inside the driver and has no API, so a slow handler does not lose its record to another member. The apply session checks with ctx7 the release and feature level that ship `RENEW`, and the finalized `share.version` level at which share groups leave preview. Preview levels are not declared.
+**Long handlers.** The processor renews a record's acquisition lock (`AcknowledgeType.RENEW`) at half of `acquisitionLockTimeoutMs()` while its handler runs. This is inside the driver and has no API, so a slow handler does not lose its record to another member. The share kind is declared when the cluster's `metadata.version` is at level 28 (4.2-IV0) or higher and `share.version` is finalized at 1 or higher; 4.1's preview behind the same feature is not declared.
+
+A share processor offers at least once only: acknowledgements cannot join a transaction. A pull receiver on a share group is `UNIMPLEMENTED`. At `share.version` 1 the default policy resolves to the system policy, because the broker counts attempts, so a record past the delivery limit is archived with no dead-letter copy; a caller who needs the copy chooses a managed policy.
 
 Purge and seek on a share group use `alterShareGroupOffsets`, under the same empty-group rule as consumer groups. A managed policy is refused when the broker's delivery limit would cut it short (ADR 0014's rule). Ordering is `NONE` only. Credit maps to `max.poll.records` and to not polling while full, which the broker's acquisition lock bounds.
 
