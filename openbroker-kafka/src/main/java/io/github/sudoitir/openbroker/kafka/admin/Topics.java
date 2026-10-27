@@ -281,8 +281,19 @@ final class Topics implements Handler {
                         etag(context, id, operation, scope),
                         PreconditionEnforcement.CHECKED_BEFORE);
             }
+            case Operation.Truncate truncate -> {
+                return Truncation.preview(context, id, id.name(), Optional.empty(), scope, truncate.position());
+            }
             default -> throw unsupported(operation);
         }
+    }
+
+    @Override
+    public String etag(Context context, ResourceId id, Operation operation, Scope scope) {
+        if (operation instanceof Operation.Truncate) {
+            return Truncation.etag(context, id, id.name(), Optional.empty(), scope);
+        }
+        return Handler.super.etag(context, id, operation, scope);
     }
 
     @Override
@@ -291,6 +302,8 @@ final class Topics implements Handler {
             case Operation.Create create -> create(context, id, create.attributes());
             case Operation.Update update -> update(context, id, update.patch());
             case Operation.Delete delete -> delete(context, id, delete);
+            case Operation.Truncate truncate ->
+                Truncation.execute(context, id.name(), Optional.empty(), scope, truncate.position());
             default -> throw unsupported(operation);
         };
     }

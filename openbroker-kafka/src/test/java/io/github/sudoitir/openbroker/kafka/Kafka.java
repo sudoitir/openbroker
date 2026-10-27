@@ -69,7 +69,10 @@ final class Kafka {
             int partitions = producer.partitionsFor(topic).size();
             for (int i = 0; i < records; i++) {
                 producer.send(new ProducerRecord<>(
-                                topic, i % partitions, null, ("v" + i).getBytes(StandardCharsets.UTF_8)))
+                                topic,
+                                i % partitions,
+                                ("k" + i).getBytes(StandardCharsets.UTF_8),
+                                ("v" + i).getBytes(StandardCharsets.UTF_8)))
                         .get();
             }
         } catch (Exception e) {

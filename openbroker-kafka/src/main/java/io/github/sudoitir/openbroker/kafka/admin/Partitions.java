@@ -13,6 +13,10 @@ import io.github.sudoitir.openbroker.model.Resource;
 import io.github.sudoitir.openbroker.model.ResourceId;
 import io.github.sudoitir.openbroker.model.ResourcePath;
 import io.github.sudoitir.openbroker.model.ResourceQuery;
+import io.github.sudoitir.openbroker.model.Scope;
+import io.github.sudoitir.openbroker.operation.Operation;
+import io.github.sudoitir.openbroker.operation.OperationResult;
+import io.github.sudoitir.openbroker.operation.Preview;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -206,5 +210,32 @@ final class Partitions implements Handler {
                         .filter(c -> c.id().equals(id))
                         .toList();
         return resources(context, found, everything).stream().findFirst();
+    }
+
+    @Override
+    public Preview preview(Context context, ResourceId id, Operation operation, Scope scope) {
+        if (!(operation instanceof Operation.Truncate truncate)) {
+            throw unsupported(operation);
+        }
+        TopicPartition tp = partition(id);
+        return Truncation.preview(context, id, tp.topic(), Optional.of(tp.partition()), scope, truncate.position());
+    }
+
+    @Override
+    public String etag(Context context, ResourceId id, Operation operation, Scope scope) {
+        if (!(operation instanceof Operation.Truncate)) {
+            throw unsupported(operation);
+        }
+        TopicPartition tp = partition(id);
+        return Truncation.etag(context, id, tp.topic(), Optional.of(tp.partition()), scope);
+    }
+
+    @Override
+    public OperationResult execute(Context context, ResourceId id, Operation operation, Scope scope) {
+        if (!(operation instanceof Operation.Truncate truncate)) {
+            throw unsupported(operation);
+        }
+        TopicPartition tp = partition(id);
+        return Truncation.execute(context, tp.topic(), Optional.of(tp.partition()), scope, truncate.position());
     }
 }
