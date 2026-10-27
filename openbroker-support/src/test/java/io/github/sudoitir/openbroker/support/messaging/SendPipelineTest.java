@@ -11,6 +11,7 @@ import io.github.sudoitir.openbroker.Dispatch;
 import io.github.sudoitir.openbroker.ErrorInfo;
 import io.github.sudoitir.openbroker.ErrorReasons;
 import io.github.sudoitir.openbroker.Status;
+import io.github.sudoitir.openbroker.messaging.DeduplicationScope;
 import io.github.sudoitir.openbroker.messaging.Disposition;
 import io.github.sudoitir.openbroker.messaging.Guarantee;
 import io.github.sudoitir.openbroker.messaging.Message;
@@ -186,8 +187,9 @@ class SendPipelineTest {
     @Test
     void unconfirmedAtLeastOnceMessagesAreWrittenAgainInOrderAndMarkedResent() throws Exception {
         Wire first = new Wire();
-        SenderOptions o =
-                options(10, 1 << 20, Duration.ofSeconds(1)).withIdempotent(true).withOrdering(OrderingScope.GROUP);
+        SenderOptions o = options(10, 1 << 20, Duration.ofSeconds(1))
+                .withDeduplication(DeduplicationScope.SESSION)
+                .withOrdering(OrderingScope.GROUP);
         SendPipeline p = pipeline(o, first);
         CompletionStage<SendReceipt> r1 = accepted(p.offer(outbound("m1")));
         CompletionStage<SendReceipt> r2 = accepted(p.offer(outbound("m2")));
@@ -260,13 +262,14 @@ class SendPipelineTest {
     }
 
     @Test
-    void orderingNeedsAnIdempotentSenderForAtLeastOnce() {
+    void orderingNeedsSessionDeduplicationForAtLeastOnce() {
         SenderOptions o = SenderOptions.defaults().withOrdering(OrderingScope.PARTITION);
         assertThatThrownBy(() -> pipeline(o, new Wire())).isInstanceOfSatisfying(BrokerException.class, e -> {
             assertThat(e.status()).isEqualTo(Status.INVALID_ARGUMENT);
             assertThat(e.dispatch()).isEqualTo(Dispatch.NOT_SENT);
         });
-        pipeline(o.withIdempotent(true), new Wire());
+        pipeline(o.withDeduplication(DeduplicationScope.SESSION), new Wire());
+        pipeline(o.withDeduplication(DeduplicationScope.WINDOW), new Wire());
         pipeline(o.withGuarantee(Guarantee.AT_MOST_ONCE), new Wire());
     }
 
@@ -356,9 +359,10 @@ class SendPipelineTest {
     }
 
     @Test
-    void idempotentSendersGiveEveryMessageAnIdAndKeepTheCallersOwn() throws Exception {
+    void deduplicatingSendersGiveEveryMessageAnIdAndKeepTheCallersOwn() throws Exception {
         Wire wire = new Wire();
-        SendPipeline p = pipeline(options(10, 1 << 20, Duration.ofSeconds(1)).withIdempotent(true), wire);
+        SendPipeline p = pipeline(
+                options(10, 1 << 20, Duration.ofSeconds(1)).withDeduplication(DeduplicationScope.SESSION), wire);
         p.offer(outbound("a"));
         p.offer(outbound("b")
                 .withHeaders(MessageHeaders.builder().deduplicationId("mine").build()));

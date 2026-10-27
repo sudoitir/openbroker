@@ -23,6 +23,7 @@ import io.github.sudoitir.openbroker.ErrorReasons;
 import io.github.sudoitir.openbroker.Status;
 import io.github.sudoitir.openbroker.messaging.Backoff;
 import io.github.sudoitir.openbroker.messaging.Count;
+import io.github.sudoitir.openbroker.messaging.DeduplicationScope;
 import io.github.sudoitir.openbroker.messaging.Disposition;
 import io.github.sudoitir.openbroker.messaging.Enforcement;
 import io.github.sudoitir.openbroker.messaging.FlowControl;
@@ -238,7 +239,7 @@ public abstract class MessagingTck {
     }
 
     /**
-     * A guarantee, ordering or idempotence the transport does not declare is refused when the link
+     * A guarantee, ordering or deduplication scope the transport does not declare is refused when the link
      * is opened, as unimplemented and not sent, never accepted and then not kept.
      */
     @Test
@@ -247,8 +248,10 @@ public abstract class MessagingTck {
         missingGuarantees.removeAll(caps.guarantees());
         List<OrderingScope> missingOrderings = new ArrayList<>(List.of(OrderingScope.values()));
         missingOrderings.removeAll(caps.orderings());
+        List<DeduplicationScope> missingScopes = new ArrayList<>(List.of(DeduplicationScope.values()));
+        missingScopes.removeIf(caps.deduplication()::satisfies);
         assumeTrue(
-                !missingGuarantees.isEmpty() || !missingOrderings.isEmpty() || !caps.deduplication(),
+                !missingGuarantees.isEmpty() || !missingOrderings.isEmpty() || !missingScopes.isEmpty(),
                 "The transport declares everything");
         ResourceId id = newSubscription("undeclared");
         for (Guarantee guarantee : missingGuarantees) {
@@ -273,12 +276,12 @@ public abstract class MessagingTck {
                             ctx -> Disposition.accept())
                     .close());
         }
-        if (!caps.deduplication()) {
+        for (DeduplicationScope scope : missingScopes) {
             assertUnimplemented(() -> transport
                     .sender(
                             SendTarget.subscription(id),
                             Scope.whole(),
-                            SenderOptions.defaults().withIdempotent(true))
+                            SenderOptions.defaults().withDeduplication(scope))
                     .close());
         }
     }
@@ -305,7 +308,7 @@ public abstract class MessagingTck {
         assertThat(stored.getFirst().headers().durable()).isNotEqualTo(Optional.of(false));
     }
 
-    // Idempotence.
+    // Deduplication.
 
     /**
      * A message sent again with the same deduplication id, by the same sender or another, is stored
@@ -313,7 +316,7 @@ public abstract class MessagingTck {
      */
     @Test
     void sameDeduplicationIdIsStoredOnce() {
-        assumeTrue(caps.deduplication(), "The transport declares no deduplication");
+        assumeWindowDeduplication();
         ResourceId id = newSubscription("dedup");
         MessageHeaders same = MessageHeaders.builder()
                 .deduplicationId("tck-" + UUID.randomUUID())
@@ -341,7 +344,7 @@ public abstract class MessagingTck {
     void deduplicationWindowIsReported() {
         ResourceId id = newSubscription("window");
         try (Sender sender = transport.sender(SendTarget.subscription(id), Scope.whole(), SenderOptions.defaults())) {
-            if (caps.deduplication()) {
+            if (caps.deduplication().satisfies(DeduplicationScope.WINDOW)) {
                 assertThat(sender.deduplication())
                         .hasValueSatisfying(window -> assertThat(window.ids().isPresent()
                                         || window.time().isPresent())
@@ -934,11 +937,20 @@ public abstract class MessagingTck {
         assumeTrue(caps.guarantees().contains(guarantee), "The transport declares no " + guarantee);
     }
 
-    /** Ordered at-least-once sending needs an idempotent sender, hence deduplication. */
+    /** Ordered at-least-once sending needs deduplication of at least {@code SESSION} scope. */
     private void assumeOrdered(OrderingScope ordering) {
         assumeGuarantee(Guarantee.AT_LEAST_ONCE);
         assumeTrue(caps.orderings().contains(ordering), "The transport declares no " + ordering + " ordering");
-        assumeTrue(caps.deduplication(), "The transport declares no deduplication");
+        assumeTrue(
+                caps.deduplication().satisfies(DeduplicationScope.SESSION),
+                "The transport declares no deduplication of at least SESSION scope");
+    }
+
+    /** Caller-set deduplication ids are honoured only by a system that keeps a window of them. */
+    private void assumeWindowDeduplication() {
+        assumeTrue(
+                caps.deduplication().satisfies(DeduplicationScope.WINDOW),
+                "The transport declares no WINDOW deduplication");
     }
 
     private void assumeClientDeadLetter() {
@@ -970,12 +982,14 @@ public abstract class MessagingTck {
         }
     }
 
-    /** Sends in order through one idempotent sender of the given ordering, and waits for every receipt. */
+    /** Sends in order through one deduplicating sender of the given ordering, and waits for every receipt. */
     private void sendOrdered(ResourceId id, OrderingScope ordering, List<OutboundMessage> messages) {
         try (Sender sender = transport.sender(
                 SendTarget.subscription(id),
                 Scope.whole(),
-                SenderOptions.defaults().withIdempotent(true).withOrdering(ordering))) {
+                SenderOptions.defaults()
+                        .withDeduplication(DeduplicationScope.SESSION)
+                        .withOrdering(ordering))) {
             confirm(offerAll(sender, messages, SECONDS_60), SECONDS_60);
         }
     }

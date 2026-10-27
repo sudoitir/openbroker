@@ -10,6 +10,7 @@ import io.github.sudoitir.openbroker.Permit;
 import io.github.sudoitir.openbroker.Status;
 import io.github.sudoitir.openbroker.access.Remedy;
 import io.github.sudoitir.openbroker.artemis.ArtemisRemedies;
+import io.github.sudoitir.openbroker.messaging.DeduplicationScope;
 import io.github.sudoitir.openbroker.messaging.Enforcement;
 import io.github.sudoitir.openbroker.messaging.Guarantee;
 import io.github.sudoitir.openbroker.messaging.LinkListener;
@@ -67,7 +68,7 @@ public final class ArtemisTransport implements Transport, AutoCloseable {
 
     static final TransportCapabilities CAPABILITIES = new TransportCapabilities(
             Set.of(Guarantee.AT_MOST_ONCE, Guarantee.AT_LEAST_ONCE, Guarantee.TRANSACTED),
-            true,
+            DeduplicationScope.WINDOW,
             Set.of(OrderingScope.NONE, OrderingScope.GROUP, OrderingScope.SUBSCRIPTION),
             Set.of(PrefetchBound.BYTES),
             SettlementScope.RECEIVER,
@@ -97,7 +98,10 @@ public final class ArtemisTransport implements Transport, AutoCloseable {
         return env.watch(listener);
     }
 
-    private static void requireDeclared(Guarantee guarantee, OrderingScope ordering) {
+    private static void requireDeclared(Guarantee guarantee, OrderingScope ordering, DeduplicationScope deduplication) {
+        if (!CAPABILITIES.deduplication().satisfies(deduplication)) {
+            throw Unimplemented.of("deduplicate in the scope " + deduplication);
+        }
         if (!CAPABILITIES.guarantees().contains(guarantee)) {
             throw Unimplemented.of("open a link with the guarantee " + guarantee);
         }
@@ -117,7 +121,7 @@ public final class ArtemisTransport implements Transport, AutoCloseable {
     @Override
     public Receiver receiver(ResourceId subscription, Scope scope, ReceiverOptions options) {
         Targets.requireQueue(subscription);
-        requireDeclared(options.guarantee(), OrderingScope.NONE);
+        requireDeclared(options.guarantee(), OrderingScope.NONE, DeduplicationScope.NONE);
         NodeHandle node = single(scope, "receiver");
         Deadline deadline = Deadlines.current(cluster.options());
         String selector = Selectors.bounded(Selectors.of(options.filter()), options.producedAtOrBefore());
@@ -139,7 +143,7 @@ public final class ArtemisTransport implements Transport, AutoCloseable {
 
     @Override
     public Sender sender(SendTarget target, Scope scope, SenderOptions options) {
-        requireDeclared(options.guarantee(), options.ordering());
+        requireDeclared(options.guarantee(), options.ordering(), options.deduplication());
         Deadline deadline = Deadlines.current(cluster.options());
         BrokerException last = null;
         for (NodeHandle node : cluster.nodes(scope)) {
@@ -169,7 +173,7 @@ public final class ArtemisTransport implements Transport, AutoCloseable {
     @Override
     public Processor process(ResourceId subscription, Scope scope, ProcessorOptions options, MessageHandler handler) {
         Targets.requireQueue(subscription);
-        requireDeclared(options.receive().guarantee(), options.ordering());
+        requireDeclared(options.receive().guarantee(), options.ordering(), DeduplicationScope.NONE);
         NodeHandle node = single(scope, "processor");
         Deadline deadline = Deadlines.current(cluster.options());
         String selector = Selectors.bounded(

@@ -8,7 +8,7 @@ import java.util.Set;
  * UNIMPLEMENTED}.
  *
  * @param guarantees the guarantees a link can have
- * @param deduplication whether the system drops repeated message ids
+ * @param deduplication the strongest scope in which the system drops repeated messages
  * @param orderings the orderings a link can keep
  * @param prefetchBounds the units in which the system bounds what it delivers ahead
  * @param pullSettlement what a release on a pull receiver covers
@@ -18,7 +18,7 @@ import java.util.Set;
  */
 public record TransportCapabilities(
         Set<Guarantee> guarantees,
-        boolean deduplication,
+        DeduplicationScope deduplication,
         Set<OrderingScope> orderings,
         Set<PrefetchBound> prefetchBounds,
         SettlementScope pullSettlement,
@@ -30,6 +30,7 @@ public record TransportCapabilities(
         guarantees = Set.copyOf(guarantees);
         orderings = Set.copyOf(orderings);
         prefetchBounds = Set.copyOf(prefetchBounds);
+        Objects.requireNonNull(deduplication, "deduplication");
         Objects.requireNonNull(pullSettlement, "pullSettlement");
         Objects.requireNonNull(retry, "retry");
     }

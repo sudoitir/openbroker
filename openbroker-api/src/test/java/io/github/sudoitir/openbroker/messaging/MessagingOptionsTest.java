@@ -50,7 +50,7 @@ class MessagingOptionsTest {
         assertThat(FlowControl.none()).isEqualTo(new FlowControl(1, 0, 0));
         SenderOptions sender = SenderOptions.defaults();
         assertThat(sender.guarantee()).isEqualTo(Guarantee.AT_LEAST_ONCE);
-        assertThat(sender.idempotent()).isFalse();
+        assertThat(sender.deduplication()).isEqualTo(DeduplicationScope.NONE);
         assertThat(sender.ordering()).isEqualTo(OrderingScope.NONE);
         ReceiverOptions receiver = ReceiverOptions.consume();
         assertThat(receiver.mode()).isEqualTo(ReceiveMode.CONSUME);
@@ -67,10 +67,10 @@ class MessagingOptionsTest {
     void withMethodsChangeOnlyTheirField() {
         SenderOptions sender = SenderOptions.defaults()
                 .withGuarantee(Guarantee.TRANSACTED)
-                .withIdempotent(true)
+                .withDeduplication(DeduplicationScope.WINDOW)
                 .withOrdering(OrderingScope.GROUP);
         assertThat(sender.guarantee()).isEqualTo(Guarantee.TRANSACTED);
-        assertThat(sender.idempotent()).isTrue();
+        assertThat(sender.deduplication()).isEqualTo(DeduplicationScope.WINDOW);
         assertThat(sender.ordering()).isEqualTo(OrderingScope.GROUP);
         assertThat(sender.buffer()).isEqualTo(SendBuffer.defaults());
 

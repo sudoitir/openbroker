@@ -26,6 +26,7 @@ import io.github.sudoitir.openbroker.ErrorReasons;
 import io.github.sudoitir.openbroker.NodeId;
 import io.github.sudoitir.openbroker.Plane;
 import io.github.sudoitir.openbroker.Status;
+import io.github.sudoitir.openbroker.messaging.DeduplicationScope;
 import io.github.sudoitir.openbroker.messaging.Disposition;
 import io.github.sudoitir.openbroker.messaging.Guarantee;
 import io.github.sudoitir.openbroker.messaging.LinkEvent;
@@ -139,21 +140,23 @@ public abstract class ChaosTck {
     // Kill and restart.
 
     /**
-     * An idempotent at-least-once sender whose broker is killed and restarted mid-send delivers every
+     * A deduplicating at-least-once sender whose broker is killed and restarted mid-send delivers every
      * accepted message exactly once, in the order sent.
      */
     @Test
-    void brokerKilledMidSendIdempotentIsExactlyOnce() {
+    void brokerKilledMidSendDeduplicatedIsExactlyOnce() {
         ClusterConnection connection = connect(chaos.request());
         Transport transport = transport(connection);
         assumeGuarantee(transport, Guarantee.AT_LEAST_ONCE);
-        assumeTrue(transport.capabilities().deduplication(), "The transport declares no deduplication");
+        assumeDeduplication(transport, DeduplicationScope.SESSION);
         ResourceId id = newSubscription(connection, "kill-idem");
         int count = 300;
         Sender sender = own(transport.sender(
                 SendTarget.subscription(id),
                 Scope.whole(),
-                SenderOptions.defaults().withIdempotent(true).withBuffer(roomy())));
+                SenderOptions.defaults()
+                        .withDeduplication(DeduplicationScope.SESSION)
+                        .withBuffer(roomy())));
         confirm(sendAcrossKill(sender, count, chaos.node(), true), SECONDS_120);
         List<Message> stored = drain(transport, id, count, SECONDS_60, QUIET);
         assertThat(seqs(stored)).containsExactlyElementsOf(range(count));
@@ -252,7 +255,7 @@ public abstract class ChaosTck {
         ClusterConnection connection = connect(chaos.request());
         Transport transport = transport(connection);
         assumeGuarantee(transport, Guarantee.TRANSACTED);
-        assumeTrue(transport.capabilities().deduplication(), "The transport declares no deduplication");
+        assumeDeduplication(transport, DeduplicationScope.WINDOW);
         ResourceId id = newSubscription(connection, "kill-tx");
         int count = 20;
         String run = UUID.randomUUID().toString();
@@ -454,22 +457,24 @@ public abstract class ChaosTck {
     }
 
     /**
-     * An idempotent at-least-once sender whose primary fails over to its backup mid-send stores
+     * A deduplicating at-least-once sender whose primary fails over to its backup mid-send stores
      * every accepted message exactly once, in the order sent.
      */
     @Test
-    void failoverIdempotentSendIsExactlyOnce() {
+    void failoverDeduplicatedSendIsExactlyOnce() {
         ClusterConnection connection = connect(chaos.haRequest());
         Transport transport = transport(connection);
         assumeGuarantee(transport, Guarantee.AT_LEAST_ONCE);
         assumeTrue(transport.capabilities().failover(), "The transport declares no failover");
-        assumeTrue(transport.capabilities().deduplication(), "The transport declares no deduplication");
+        assumeDeduplication(transport, DeduplicationScope.SESSION);
         ResourceId id = newSubscription(connection, "failover-idem");
         int count = 300;
         Sender sender = own(transport.sender(
                 SendTarget.subscription(id),
                 Scope.whole(),
-                SenderOptions.defaults().withIdempotent(true).withBuffer(roomy())));
+                SenderOptions.defaults()
+                        .withDeduplication(DeduplicationScope.SESSION)
+                        .withBuffer(roomy())));
         confirm(sendAcrossKill(sender, count, chaos.primary(), false), SECONDS_120);
         assertThat(seqs(drain(transport, id, Scope.node(chaos.primary()), count, SECONDS_60, QUIET)))
                 .containsExactlyElementsOf(range(count));
@@ -567,6 +572,12 @@ public abstract class ChaosTck {
 
     private static void assumeGuarantee(Transport transport, Guarantee guarantee) {
         assumeTrue(transport.capabilities().guarantees().contains(guarantee), "The transport declares no " + guarantee);
+    }
+
+    private static void assumeDeduplication(Transport transport, DeduplicationScope minimum) {
+        assumeTrue(
+                transport.capabilities().deduplication().satisfies(minimum),
+                "The transport declares no deduplication of at least " + minimum + " scope");
     }
 
     private <T extends AutoCloseable> T own(T closeable) {

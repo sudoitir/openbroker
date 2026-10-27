@@ -96,8 +96,8 @@ Transport transport = cluster.transport().orElseThrow();
 ResourceId orders = ResourceId.of("artemis.address", "orders");
 ResourceId deadLetters = ResourceId.of("artemis.address", "orders.dead");
 
-// At-least-once and idempotent: resends after a failure are deduplicated, in order.
-SenderOptions sending = SenderOptions.defaults().withIdempotent(true).withOrdering(OrderingScope.GROUP);
+// At-least-once with deduplication: resends after a failure are deduplicated, in order.
+SenderOptions sending = SenderOptions.defaults().withDeduplication(DeduplicationScope.SESSION).withOrdering(OrderingScope.GROUP);
 try (Sender sender = transport.sender(SendTarget.destination(orders), Scope.whole(), sending)) {
     OutboundMessage message = OutboundMessage.of(MessageBody.of(payload))
             .withHeaders(MessageHeaders.builder().groupId("customer-7").build());
@@ -137,7 +137,7 @@ ConnectOptions options = ConnectOptions.defaults().withObserver(OpenTelemetryMes
 | `AT_MOST_ONCE` send | unconfirmed may be lost, never resent (`UNAVAILABLE`, `IN_DOUBT`) | non-durable lost | unconfirmed may be lost | buffered lost | n/a |
 | `AT_MOST_ONCE` receive | prefetched and handed-out lost | same | same | same | n/a |
 | `AT_LEAST_ONCE` send | resent in order: no loss, duplicates possible (`resent=true`) | confirmed survive; unconfirmed resent | same | unconfirmed in the buffer lost | resent: duplicate possible |
-| `AT_LEAST_ONCE` send, idempotent | resent and deduplicated: no loss, no duplicate, order kept | same, within the dedupe window | same | as above | resent and deduplicated |
+| `AT_LEAST_ONCE` send, deduplicating | resent and deduplicated: no loss, no duplicate, order kept | same, within the dedupe window | same | as above | resent and deduplicated |
 | `AT_LEAST_ONCE` receive, process | unsettled redelivered; a stale settle fails `DELIVERY_STALE` | redelivered | redelivered | redelivered | redelivered: duplicate |
 | `TRANSACTED`, joined included | rolled back; commit fails `ABORTED`; redo | rolled back | rolled back | rolled back | `IN_DOUBT`; redo with the same dedupe ids |
 

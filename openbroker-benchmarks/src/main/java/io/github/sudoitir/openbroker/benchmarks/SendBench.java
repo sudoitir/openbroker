@@ -1,6 +1,7 @@
 package io.github.sudoitir.openbroker.benchmarks;
 
 import io.github.sudoitir.openbroker.messaging.Blob;
+import io.github.sudoitir.openbroker.messaging.DeduplicationScope;
 import io.github.sudoitir.openbroker.messaging.Guarantee;
 import io.github.sudoitir.openbroker.messaging.MessageBody;
 import io.github.sudoitir.openbroker.messaging.MessagingObserver;
@@ -59,7 +60,7 @@ public class SendBench {
                         Scope.whole(),
                         SenderOptions.defaults()
                                 .withGuarantee(Guarantee.AT_LEAST_ONCE)
-                                .withIdempotent(true));
+                                .withDeduplication(DeduplicationScope.WINDOW));
         message = OutboundMessage.of(MessageBody.of(Blob.of(new byte[1024])));
     }
 

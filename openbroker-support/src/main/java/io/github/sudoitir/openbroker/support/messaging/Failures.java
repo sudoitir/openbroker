@@ -56,7 +56,7 @@ final class Failures {
                 ErrorInfo.of(ErrorReasons.INVALID_ARGUMENT),
                 Dispatch.NOT_SENT,
                 node,
-                "Ordering needs an idempotent sender with AT_LEAST_ONCE: a resend would reorder messages");
+                "Ordering needs deduplication of at least SESSION scope with AT_LEAST_ONCE: a resend would reorder messages");
     }
 
     static BrokerException unexpected(NodeId node, RuntimeException cause) {

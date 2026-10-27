@@ -2,6 +2,7 @@ package io.github.sudoitir.openbroker.artemis.internal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.sudoitir.openbroker.messaging.DeduplicationScope;
 import io.github.sudoitir.openbroker.messaging.Enforcement;
 import io.github.sudoitir.openbroker.messaging.Guarantee;
 import io.github.sudoitir.openbroker.messaging.OrderingScope;
@@ -18,7 +19,7 @@ class ArtemisTransportCapabilitiesTest {
     @Test
     void itOffersEveryGuaranteeAndDeduplicatesById() {
         assertThat(CAPABILITIES.guarantees()).containsExactlyInAnyOrder(Guarantee.values());
-        assertThat(CAPABILITIES.deduplication()).isTrue();
+        assertThat(CAPABILITIES.deduplication()).isEqualTo(DeduplicationScope.WINDOW);
     }
 
     @Test

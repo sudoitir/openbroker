@@ -4,6 +4,7 @@ import io.github.sudoitir.openbroker.BrokerException;
 import io.github.sudoitir.openbroker.Dispatch;
 import io.github.sudoitir.openbroker.NodeId;
 import io.github.sudoitir.openbroker.Status;
+import io.github.sudoitir.openbroker.messaging.DeduplicationScope;
 import io.github.sudoitir.openbroker.messaging.Guarantee;
 import io.github.sudoitir.openbroker.messaging.MessagingObserver;
 import io.github.sudoitir.openbroker.messaging.Observation;
@@ -134,7 +135,7 @@ public final class SendPipeline implements AutoCloseable {
      * @param linkLost called, on the writer thread, when {@code writer} reports the link down; a
      *     driver passes its supervisor's {@code lost}
      * @throws BrokerException {@code INVALID_ARGUMENT} when ordering is asked of an {@code
-     *     AT_LEAST_ONCE} sender that is not idempotent: a resend would reorder
+     *     AT_LEAST_ONCE} sender whose deduplication is below {@code SESSION}: a resend would reorder
      */
     public static SendPipeline open(
             String id,
@@ -146,7 +147,7 @@ public final class SendPipeline implements AutoCloseable {
             Consumer<BrokerException> linkLost) {
         if (options.guarantee() == Guarantee.AT_LEAST_ONCE
                 && options.ordering() != OrderingScope.NONE
-                && !options.idempotent()) {
+                && !options.deduplication().satisfies(DeduplicationScope.SESSION)) {
             throw Failures.unorderedResend(node);
         }
         SendPipeline pipeline = new SendPipeline(
@@ -338,7 +339,8 @@ public final class SendPipeline implements AutoCloseable {
 
     private Entry prepare(OutboundMessage message) {
         OutboundMessage prepared = message;
-        if (options.idempotent() && message.headers().deduplicationId().isEmpty()) {
+        if (options.deduplication() != DeduplicationScope.NONE
+                && message.headers().deduplicationId().isEmpty()) {
             prepared = message.withHeaders(message.headers().toBuilder()
                     .deduplicationId(uuidV7(context.clock(), context.random()))
                     .build());
