@@ -2,6 +2,7 @@ package io.github.sudoitir.openbroker.spring.boot.autoconfigure;
 
 import io.github.sudoitir.openbroker.BrokerException;
 import io.github.sudoitir.openbroker.ClusterConnection;
+import io.github.sudoitir.openbroker.ErrorReasons;
 import io.github.sudoitir.openbroker.NodeId;
 import io.github.sudoitir.openbroker.NodeOutcome;
 import io.github.sudoitir.openbroker.Partial;
@@ -28,6 +29,8 @@ import org.springframework.boot.health.contributor.HealthIndicator;
  *   <li>Up when the cluster answers. A partial answer counts: a cluster that serves must not flap
  *       readiness, and the details name each node that did not answer, with its status and reason.
  *   <li>Down when no node answers or the deadline passes, with the reason.
+ *   <li>Unknown when no node has a management endpoint to ask, as with a connection derived from Spring's
+ *       details: the cluster is neither shown up nor shown down.
  *   <li>Out of service while the connection closes.
  * </ul>
  *
@@ -110,15 +113,27 @@ final class ConnectionHealthIndicator implements HealthIndicator {
         described
                 .failures()
                 .forEach((node, error) -> failed.putIfAbsent(node.value(), failure(NodeOutcome.FAILED, error)));
-        Health.Builder health = answered > 0 ? Health.up() : Health.down();
+        Health.Builder health = answered > 0 ? Health.up() : unmanaged(described) ? Health.unknown() : Health.down();
         health.withDetail("nodes", answered + failed.size()).withDetail("answered", answered);
         if (!failed.isEmpty()) {
             health.withDetail("failed", failed);
         }
         if (answered == 0 && failed.isEmpty()) {
             health.withDetail("reason", "NO_NODES");
+        } else if (answered == 0 && unmanaged(described)) {
+            health.withDetail("reason", ErrorReasons.ENDPOINT_NOT_FOUND);
         }
         return health.build();
+    }
+
+    /**
+     * Whether no node could be asked because none has a management endpoint, as with a connection derived
+     * from Spring's details, which state only the data endpoint. That is not an answer either way.
+     */
+    private static boolean unmanaged(Partial<?> described) {
+        return !described.failures().isEmpty()
+                && described.failures().values().stream()
+                        .allMatch(error -> error.reason().equals(ErrorReasons.ENDPOINT_NOT_FOUND));
     }
 
     private static Map<String, String> failure(NodeOutcome outcome, @Nullable BrokerException error) {

@@ -109,6 +109,23 @@ class HealthTest {
     }
 
     @Test
+    void aConnectionWithNoManagementEndpointIsUnknownNotDown() {
+        BrokerException noEndpoint = new BrokerException(
+                io.github.sudoitir.openbroker.Status.FAILED_PRECONDITION,
+                ErrorInfo.of(ErrorReasons.ENDPOINT_NOT_FOUND),
+                Dispatch.NOT_SENT,
+                null,
+                "This node has no management endpoint.");
+        driver.describe = () -> nodes(Map.of("artemis", noEndpoint));
+        runner.run(context -> {
+            Health health = indicator(context, "orders").health();
+
+            assertThat(health.getStatus()).isEqualTo(Status.UNKNOWN);
+            assertThat(health.getDetails()).containsEntry("reason", ErrorReasons.ENDPOINT_NOT_FOUND);
+        });
+    }
+
+    @Test
     void aFailureOfTheCallIsDownWithTheReasonAndNoMessage() {
         driver.describe = () -> {
             throw unreachable();
