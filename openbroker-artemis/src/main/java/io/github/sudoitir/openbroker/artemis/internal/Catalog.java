@@ -25,6 +25,7 @@ import io.github.sudoitir.openbroker.model.AttributeSpec;
 import io.github.sudoitir.openbroker.model.Instrument;
 import io.github.sudoitir.openbroker.model.Kind;
 import io.github.sudoitir.openbroker.model.KindId;
+import io.github.sudoitir.openbroker.model.KindLabel;
 import io.github.sudoitir.openbroker.model.MetricKeys;
 import io.github.sudoitir.openbroker.model.ResourceClass;
 import io.github.sudoitir.openbroker.model.StandardAttributes;
@@ -41,12 +42,14 @@ public final class Catalog {
     public static final List<Kind> KINDS = List.of(
             kind(
                     ArtemisKinds.ADDRESS,
+                    new KindLabel("Address", "Addresses"),
                     ResourceClass.DESTINATION,
                     Set.of(LIST, GET, CREATE, UPDATE, DELETE, SEND, CLOSE),
                     Optional.empty(),
                     List.of(AttributeSpec.config(ArtemisKinds.ROUTING_TYPE, true, false))),
             kind(
                     ArtemisKinds.QUEUE,
+                    new KindLabel("Queue", "Queues"),
                     ResourceClass.SUBSCRIPTION,
                     Set.of(
                             LIST,
@@ -84,43 +87,67 @@ public final class Catalog {
                             AttributeSpec.metric(MetricKeys.EXPIRED.name(), Instrument.COUNTER, MESSAGE))),
             kind(
                     ArtemisKinds.DIVERT,
+                    new KindLabel("Divert", "Diverts"),
                     ResourceClass.ROUTE,
                     Set.of(LIST, GET, CREATE, DELETE),
                     Optional.of(ArtemisKinds.ADDRESS),
                     List.of()),
-            kind(ArtemisKinds.BRIDGE, ResourceClass.ROUTE, Set.of(LIST, GET), Optional.empty(), List.of()),
-            kind(ArtemisKinds.CONNECTION, ResourceClass.CONNECTION, Set.of(LIST, CLOSE), Optional.empty(), List.of()),
+            kind(
+                    ArtemisKinds.BRIDGE,
+                    new KindLabel("Bridge", "Bridges"),
+                    ResourceClass.ROUTE,
+                    Set.of(LIST, GET),
+                    Optional.empty(),
+                    List.of()),
+            kind(
+                    ArtemisKinds.CONNECTION,
+                    new KindLabel("Connection", "Connections"),
+                    ResourceClass.CONNECTION,
+                    Set.of(LIST, CLOSE),
+                    Optional.empty(),
+                    List.of()),
             kind(
                     ArtemisKinds.SESSION,
+                    new KindLabel("Session", "Sessions"),
                     ResourceClass.CHANNEL,
                     Set.of(LIST, CLOSE),
                     Optional.of(ArtemisKinds.CONNECTION),
                     List.of()),
             kind(
                     ArtemisKinds.CONSUMER,
+                    new KindLabel("Consumer", "Consumers"),
                     ResourceClass.CONSUMER,
                     Set.of(LIST, CLOSE),
                     Optional.of(ArtemisKinds.SESSION),
                     List.of()),
             kind(
                     ArtemisKinds.PRODUCER,
+                    new KindLabel("Producer", "Producers"),
                     ResourceClass.PRODUCER,
                     Set.of(LIST),
                     Optional.of(ArtemisKinds.SESSION),
                     List.of()),
             kind(
                     ArtemisKinds.ADDRESS_SETTING,
+                    new KindLabel("Address setting", "Address settings"),
                     ResourceClass.POLICY,
                     Set.of(GET, CREATE, DELETE),
                     Optional.empty(),
                     List.of()),
             kind(
                     ArtemisKinds.SECURITY_SETTING,
+                    new KindLabel("Security setting", "Security settings"),
                     ResourceClass.ACCESS_RULE,
                     Set.of(GET, CREATE, DELETE),
                     Optional.empty(),
                     List.of()),
-            kind(ArtemisKinds.USER, ResourceClass.PRINCIPAL, Set.of(GET), Optional.empty(), List.of()));
+            kind(
+                    ArtemisKinds.USER,
+                    new KindLabel("User", "Users"),
+                    ResourceClass.PRINCIPAL,
+                    Set.of(GET),
+                    Optional.empty(),
+                    List.of()));
 
     private Catalog() {}
 
@@ -136,7 +163,12 @@ public final class Catalog {
     }
 
     private static Kind kind(
-            KindId id, ResourceClass rc, Set<Verb> verbs, Optional<KindId> parent, List<AttributeSpec> attributes) {
-        return new Kind(id, rc, verbs, parent, new AttributeSchema(attributes), Set.of());
+            KindId id,
+            KindLabel label,
+            ResourceClass rc,
+            Set<Verb> verbs,
+            Optional<KindId> parent,
+            List<AttributeSpec> attributes) {
+        return new Kind(id, label, rc, verbs, parent, new AttributeSchema(attributes), Set.of());
     }
 }

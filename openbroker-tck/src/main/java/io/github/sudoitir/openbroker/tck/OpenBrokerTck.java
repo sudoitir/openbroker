@@ -195,6 +195,14 @@ public abstract class OpenBrokerTck {
     }
 
     @Test
+    void everyKindHasALabel() {
+        assertThat(connection.resources().kinds()).allSatisfy(k -> {
+            assertThat(k.label().singular()).isNotBlank();
+            assertThat(k.label().plural()).isNotBlank();
+        });
+    }
+
+    @Test
     void aCreatedSubscriptionIsListedWithItsClass() {
         ResourceId id = createSubscription();
         try {
