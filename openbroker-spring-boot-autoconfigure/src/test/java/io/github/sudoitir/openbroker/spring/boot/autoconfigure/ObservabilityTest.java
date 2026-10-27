@@ -207,6 +207,27 @@ class ObservabilityTest {
     }
 
     @Test
+    void aRuntimeConnectionGetsTheMatchingLinkListenerAndAnInertOneWithoutObservers() {
+        MeterRegistry registry = new SimpleMeterRegistry();
+        LinkEvent event = new LinkEvent(
+                "l1", NodeId.of("n1"), LinkState.RECOVERING, Optional.empty(), Optional.empty(), Instant.EPOCH);
+        runner.withBean(MeterRegistry.class, () -> registry).run(context -> {
+            context.getBean(OpenBrokerConnectOptions.class)
+                    .linkListener("c1", "artemis")
+                    .changed(event);
+
+            assertThat(registry.get("openbroker.messaging.link.recoveries")
+                            .tag("openbroker.connection", "c1")
+                            .counter()
+                            .count())
+                    .isEqualTo(1);
+        });
+        runner.run(context -> context.getBean(OpenBrokerConnectOptions.class)
+                .linkListener("c1", "artemis")
+                .changed(event));
+    }
+
+    @Test
     void openTelemetryAloneEmitsSpansAndMetrics() {
         runner.withBean(OpenTelemetry.class, () -> sdk).run(context -> {
             MessagingObserver observer = observerOf(context);

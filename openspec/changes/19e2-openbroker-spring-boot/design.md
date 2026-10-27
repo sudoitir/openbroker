@@ -154,6 +154,7 @@ Applications that open connections at runtime from their own store get the beans
   - the observer (D6), tagged with the name and system;
   - the client defaults, `openbroker.client.*`: `connect-timeout`, `call-timeout`, `max-response-bytes` and `spool-directory`, with the SDK's own defaults as fallbacks;
   - the customizers.
+- **`OpenBrokerConnectOptions.linkListener(name, system)`** returns the link listener matching those observers (the Micrometer recoveries counter and/or the OpenTelemetry observer), or a no-op one; a runtime connection passes it to `transport.watch`, and configured connections do so themselves.
 - **`SslBundleTls.forBundle(bundle, verifyHostname)`** and **`forBundle(SslBundle, verifyHostname)`.**
   - Each returns a `TlsProvider` whose material is current on every connect and whose `onChange` fires on a reload.
   - A missing bundle is a `BrokerException`: `UNAVAILABLE`, reason `TLS_HANDSHAKE_FAILED`, `NOT_SENT`. Its message names the bundle and says to add it under `spring.ssl.bundle`.

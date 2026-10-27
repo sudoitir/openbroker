@@ -80,9 +80,8 @@ public class OpenBrokerAutoConfiguration {
             OpenBrokerConnectOptions connectOptions,
             ObjectProvider<SslBundleTls> ssl,
             ObjectProvider<ConnectionDeriver> derivers,
-            ObjectProvider<ObserverSource> observers,
             ListableBeanFactory beans) {
-        return new OpenBrokerConnections(environment, drivers, connectOptions, ssl, derivers, observers, beans);
+        return new OpenBrokerConnections(environment, drivers, connectOptions, ssl, derivers, beans);
     }
 
     /** The processors the application registers: started when the context is ready, stopped before connections close. */

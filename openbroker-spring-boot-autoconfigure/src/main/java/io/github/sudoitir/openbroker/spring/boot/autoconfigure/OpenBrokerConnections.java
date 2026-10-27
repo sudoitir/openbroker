@@ -8,7 +8,6 @@ import io.github.sudoitir.openbroker.CredentialSource;
 import io.github.sudoitir.openbroker.Credentials;
 import io.github.sudoitir.openbroker.Plane;
 import io.github.sudoitir.openbroker.TlsProvider;
-import io.github.sudoitir.openbroker.messaging.LinkListener;
 import io.github.sudoitir.openbroker.messaging.Transport;
 import java.util.ArrayList;
 import java.util.List;
@@ -42,7 +41,6 @@ public final class OpenBrokerConnections implements DisposableBean {
     private final OpenBrokerConnectOptions connectOptions;
     private final ObjectProvider<SslBundleTls> ssl;
     private final ObjectProvider<ConnectionDeriver> derivers;
-    private final ObjectProvider<ObserverSource> observers;
     private final ListableBeanFactory beans;
     private final Map<String, Connection> bound = new ConcurrentHashMap<>();
     private final Map<String, Optional<ConnectionDeriver.Derived>> derivedByName = new ConcurrentHashMap<>();
@@ -54,14 +52,12 @@ public final class OpenBrokerConnections implements DisposableBean {
             OpenBrokerConnectOptions connectOptions,
             ObjectProvider<SslBundleTls> ssl,
             ObjectProvider<ConnectionDeriver> derivers,
-            ObjectProvider<ObserverSource> observers,
             ListableBeanFactory beans) {
         this.environment = environment;
         this.drivers = drivers;
         this.connectOptions = connectOptions;
         this.ssl = ssl;
         this.derivers = derivers;
-        this.observers = observers;
         this.beans = beans;
     }
 
@@ -139,14 +135,10 @@ public final class OpenBrokerConnections implements DisposableBean {
         if (transport.isEmpty()) {
             return null;
         }
-        ObserverSource source = observers.getIfAvailable();
-        if (source != null) {
-            for (LinkListener listener :
-                    source.linkListeners(name, connection(name).system())) {
-                synchronized (watches) {
-                    watches.add(transport.get().watch(listener));
-                }
-            }
+        synchronized (watches) {
+            watches.add(transport
+                    .get()
+                    .watch(connectOptions.linkListener(name, connection(name).system())));
         }
         return transport.get();
     }

@@ -4,7 +4,9 @@ import io.github.sudoitir.openbroker.CallInterceptor;
 import io.github.sudoitir.openbroker.ConnectOptions;
 import io.github.sudoitir.openbroker.Timeouts;
 import io.github.sudoitir.openbroker.TlsProvider;
+import io.github.sudoitir.openbroker.messaging.LinkListener;
 import java.time.Clock;
+import java.util.List;
 import java.util.function.UnaryOperator;
 import org.jspecify.annotations.Nullable;
 import org.springframework.beans.factory.ObjectProvider;
@@ -48,6 +50,18 @@ public final class OpenBrokerConnectOptions {
      */
     public ConnectOptions forConnection(String name, String system, TlsProvider tls) {
         return forConnection(name, system, tls, ConnectionOptions.unset());
+    }
+
+    /**
+     * The listener of link events that matches the observers {@link #forConnection} wires: the Micrometer
+     * recoveries counter and the OpenTelemetry observer, whichever are present, or one that does nothing.
+     * A connection opened at runtime passes it to {@code Transport.watch}; configured connections do so
+     * themselves.
+     */
+    public LinkListener linkListener(String name, String system) {
+        ObserverSource source = observers.getIfAvailable();
+        List<LinkListener> listeners = source == null ? List.of() : source.linkListeners(name, system);
+        return event -> listeners.forEach(listener -> listener.changed(event));
     }
 
     /** {@link #forConnection(String, String, TlsProvider)} with the connection's own keys laid over the client defaults. */
