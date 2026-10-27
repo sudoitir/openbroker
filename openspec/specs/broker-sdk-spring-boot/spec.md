@@ -108,7 +108,7 @@ An application that opens connections at runtime from its own store SHALL get `B
 - **THEN** the application's health is unchanged
 
 ### Requirement: Health reflects each connection
-With Actuator present, every configured or derived connection SHALL contribute a health indicator under `openbroker`: up when the cluster answers within a timeout, even partially; down with the reason otherwise; out of service while closing. The first check ever passing its timeout SHALL be unknown, not down, so that a cold client does not fail readiness at startup. A check SHALL never block past its timeout, at most one SHALL run per connection, and its details SHALL never carry credentials, endpoints or option values.
+With Actuator present, each configured or derived connection SHALL report health under `openbroker`: up when the cluster answers in time, even partially; down with the reason otherwise; unknown before a first result; out of service while closing. A check SHALL never block past its timeout, run twice at once, or carry credentials, endpoints or option values.
 
 #### Scenario: A cluster stops answering
 - **WHEN** a connection's brokers stop answering
