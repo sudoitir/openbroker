@@ -25,6 +25,7 @@ import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.common.config.SaslConfigs;
@@ -136,15 +137,28 @@ public final class KafkaCluster implements AutoCloseable {
      * deadline}.
      */
     public <T> T call(String operation, Optional<ResourceId> target, Deadline deadline, AdminCall<T> work) {
+        return guarded(operation, Plane.MANAGEMENT, target, deadline, () -> withAdmin(deadline, work));
+    }
+
+    /** Runs {@code work} on the Admin client within {@code deadline}, for a call already admitted. */
+    public <T> T withAdmin(Deadline deadline, AdminCall<T> work) {
+        return work.run(admin(), new Await(deadline, options().clock(), CLUSTER));
+    }
+
+    /**
+     * Runs {@code work} as one call to the cluster on {@code plane}: refused if the deadline has
+     * passed, admitted by the caller's interceptor, and its failures reported as the SDK's.
+     */
+    public <T> T guarded(
+            String operation, Plane plane, Optional<ResourceId> target, Deadline deadline, Supplier<T> work) {
         ConnectOptions options = options();
         if (deadline.expired(options.clock())) {
             throw Deadlines.exceeded(CLUSTER, Dispatch.NOT_SENT);
         }
         String servers = bootstrapServers();
-        try (Permit permit =
-                options.interceptor().admit(new CallInfo(CLUSTER, servers, Plane.MANAGEMENT, operation, 1, target))) {
+        try (Permit permit = options.interceptor().admit(new CallInfo(CLUSTER, servers, plane, operation, 1, target))) {
             try {
-                T result = work.run(admin(), new Await(deadline, options.clock(), CLUSTER));
+                T result = work.get();
                 permit.complete(Outcome.succeeded(), Optional.empty());
                 return result;
             } catch (RuntimeException e) {

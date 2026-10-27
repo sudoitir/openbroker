@@ -2,6 +2,7 @@ package io.github.sudoitir.openbroker.kafka.admin;
 
 import io.github.sudoitir.openbroker.Deadline;
 import io.github.sudoitir.openbroker.ErrorReasons;
+import io.github.sudoitir.openbroker.Plane;
 import io.github.sudoitir.openbroker.Status;
 import io.github.sudoitir.openbroker.model.Kind;
 import io.github.sudoitir.openbroker.model.KindId;
@@ -64,6 +65,24 @@ final class Handlers {
                         admin,
                         await,
                         cluster.options().clock().instant())));
+    }
+
+    /** Like {@link #call}, on another plane's credentials and permission. */
+    <T> T callAs(
+            String operation, Plane plane, Optional<ResourceId> target, Deadline deadline, Function<Context, T> work) {
+        return cluster.guarded(
+                operation,
+                plane,
+                target,
+                deadline,
+                () -> cluster.withAdmin(
+                        deadline,
+                        (admin, await) -> work.apply(new Context(
+                                cluster,
+                                topology,
+                                admin,
+                                await,
+                                cluster.options().clock().instant()))));
     }
 
     private boolean sharesInProduction(Context context) {

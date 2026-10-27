@@ -19,6 +19,12 @@ import java.util.Optional;
  */
 public final class KafkaAccess implements Access {
 
+    /** Moving a single message: unavailable on Kafka, whatever the account may do. */
+    public static final Capability MOVE_MESSAGES = new Capability("messages.move");
+
+    public static final Capability COPY_MESSAGES = new Capability("messages.copy");
+    public static final Capability DELETE_MESSAGES = new Capability("messages.delete");
+
     private final KafkaCluster cluster;
 
     public KafkaAccess(KafkaCluster cluster) {
@@ -49,6 +55,10 @@ public final class KafkaAccess implements Access {
         }) {
             out.put(unsettled, Assessment.unknown(settled));
         }
+        Assessment appendOnly = Assessment.unavailable(KafkaMessages.LOG_IS_APPEND_ONLY, Optional.empty());
+        out.put(MOVE_MESSAGES, appendOnly);
+        out.put(COPY_MESSAGES, appendOnly);
+        out.put(DELETE_MESSAGES, appendOnly);
         return new AccessSnapshot(out, cluster.options().clock().instant());
     }
 

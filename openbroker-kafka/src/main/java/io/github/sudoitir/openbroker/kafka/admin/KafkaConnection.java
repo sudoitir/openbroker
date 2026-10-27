@@ -41,7 +41,7 @@ public final class KafkaConnection implements ClusterConnection {
         this.handlers = new Handlers(cluster, topology);
         this.resources = new KafkaResources(cluster, handlers);
         this.operations = new KafkaOperations(cluster, handlers);
-        this.messages = new KafkaMessages(cluster);
+        this.messages = new KafkaMessages(cluster, handlers);
         this.access = new KafkaAccess(cluster);
         this.transport = new KafkaTransport(cluster);
     }
@@ -104,6 +104,7 @@ public final class KafkaConnection implements ClusterConnection {
     public void reconfigure(ClusterSpec spec) {
         cluster.reconfigure(spec);
         handlers.forget();
+        messages.reset();
     }
 
     @Override
@@ -114,6 +115,7 @@ public final class KafkaConnection implements ClusterConnection {
     @Override
     public void close() {
         transport.close();
+        messages.close();
         cluster.close();
     }
 }
