@@ -2,10 +2,11 @@ package io.github.sudoitir.openbroker.tck;
 
 import io.github.sudoitir.openbroker.ConnectRequest;
 import io.github.sudoitir.openbroker.NodeId;
+import io.github.sudoitir.openbroker.model.ResourceId;
 
 /**
  * What a driver gives {@link ChaosTck}: requests to a test cluster whose nodes the TCK can cut off,
- * kill and start again, and a primary/backup pair that fails over.
+ * kill and start again, and a cluster whose nodes fail over to each other.
  *
  * <p>The requests must use short timeouts (a second or two) so that a lost link is noticed within
  * seconds. Every method that changes a node returns once the change has taken effect. Cutting,
@@ -26,11 +27,18 @@ public interface TckChaos {
     /** The node of {@link #request()}. */
     NodeId node();
 
-    /** The node of {@link #haRequest()} that serves while the pair is healthy. */
-    NodeId primary();
+    /**
+     * The node of {@link #haRequest()} that serves {@code subscription} while the cluster is healthy:
+     * the member that holds its messages, such as a pair's live member or a partition's leader.
+     * Resolved when called, so a subscription created after the request is covered.
+     */
+    NodeId serving(ResourceId subscription);
 
-    /** The node of {@link #haRequest()} that takes over when the primary fails. */
-    NodeId backup();
+    /**
+     * The node of {@link #haRequest()} that takes over {@code subscription} when {@link #serving} fails,
+     * such as a pair's backup or an in-sync follower.
+     */
+    NodeId successor(ResourceId subscription);
 
     /** Drops all traffic between the clients and the node, until {@link #heal}. */
     void cut(NodeId node);

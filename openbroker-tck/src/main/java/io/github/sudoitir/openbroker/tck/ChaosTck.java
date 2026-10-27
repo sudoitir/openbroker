@@ -93,6 +93,7 @@ public abstract class ChaosTck {
     private final List<ClusterConnection> connections = new ArrayList<>();
     private final List<ResourceId> created = new ArrayList<>();
     private final Deque<AutoCloseable> open = new ArrayDeque<>();
+    private final Set<NodeId> touched = new LinkedHashSet<>();
 
     /** The environment, for its driver and the names and attributes of subscriptions; called once per test. */
     protected abstract TckEnvironment environment();
@@ -104,12 +105,13 @@ public abstract class ChaosTck {
     void setUp() {
         env = environment();
         chaos = chaos();
+        touched.add(chaos.node());
         drivers = BrokerDrivers.of(List.of(env.driver()));
     }
 
     @AfterEach
     void tearDown() {
-        for (NodeId node : Set.of(chaos.node(), chaos.primary(), chaos.backup())) {
+        for (NodeId node : touched) {
             try {
                 chaos.heal(node);
             } catch (RuntimeException ignored) {
@@ -431,9 +433,9 @@ public abstract class ChaosTck {
     // Failover.
 
     /**
-     * When the primary of a high-availability pair fails and the backup takes over, a processor at
-     * least once still handles every message: none is lost. The processor reads the primary's node,
-     * and its links move to the backup.
+     * When the serving node of a high-availability pair fails and its successor takes over, a processor at
+     * least once still handles every message: none is lost. The processor's links move to the
+     * successor.
      */
     @Test
     void failoverAtLeastOnceLosesNothing() {
@@ -445,19 +447,19 @@ public abstract class ChaosTck {
         int count = 100;
         sendDirect(connection, id, count);
         Set<Long> seen = ConcurrentHashMap.newKeySet();
-        own(transport.process(
-                id, Scope.node(chaos.primary()), ProcessorOptions.defaults().withConcurrency(4), ctx -> {
-                    Thread.sleep(20);
-                    seen.add(seq(ctx.message()));
-                    return Disposition.accept();
-                }));
+        NodeId serving = serving(id);
+        own(transport.process(id, Scope.whole(), ProcessorOptions.defaults().withConcurrency(4), ctx -> {
+            Thread.sleep(20);
+            seen.add(seq(ctx.message()));
+            return Disposition.accept();
+        }));
         await("some handled", SECONDS_60, () -> seen.size() >= 10);
-        chaos.kill(chaos.primary());
+        chaos.kill(serving);
         await("every message handled", SECONDS_120, () -> seen.size() == count);
     }
 
     /**
-     * A deduplicating at-least-once sender whose primary fails over to its backup mid-send stores
+     * A deduplicating at-least-once sender whose serving node fails over to its successor mid-send stores
      * every accepted message exactly once, in the order sent.
      */
     @Test
@@ -475,12 +477,11 @@ public abstract class ChaosTck {
                 SenderOptions.defaults()
                         .withDeduplication(DeduplicationScope.SESSION)
                         .withBuffer(roomy())));
-        confirm(sendAcrossKill(sender, count, chaos.primary(), false), SECONDS_120);
-        assertThat(seqs(drain(transport, id, Scope.node(chaos.primary()), count, SECONDS_60, QUIET)))
-                .containsExactlyElementsOf(range(count));
+        confirm(sendAcrossKill(sender, count, serving(id), false), SECONDS_120);
+        assertThat(seqs(drain(transport, id, count, SECONDS_60, QUIET))).containsExactlyElementsOf(range(count));
     }
 
-    /** After a failover the listener sees the link recovering and then open, served by the backup. */
+    /** After a failover the listener sees the link recovering and then open, served by the successor. */
     @Test
     void failoverEventNamesServingBackup() {
         ClusterConnection connection = connect(chaos.haRequest());
@@ -493,18 +494,20 @@ public abstract class ChaosTck {
         Sender sender = own(transport.sender(SendTarget.subscription(id), Scope.whole(), SenderOptions.defaults()));
         await("the link open", SECONDS_15, () -> sender.state() == LinkState.OPEN);
 
-        chaos.kill(chaos.primary());
+        NodeId serving = serving(id);
+        NodeId successor = successor(id);
+        chaos.kill(serving);
         await(
-                "the link served by the backup",
+                "the link served by the successor",
                 SECONDS_120,
                 () -> events.stream()
                         .anyMatch(e -> e.link().equals(sender.id())
                                 && e.state() == LinkState.OPEN
-                                && e.servedBy().filter(chaos.backup()::equals).isPresent()));
+                                && e.servedBy().filter(successor::equals).isPresent()));
         List<LinkEvent> mine =
                 events.stream().filter(e -> e.link().equals(sender.id())).toList();
         assertThat(mine.stream().map(LinkEvent::state).toList()).contains(LinkState.RECOVERING);
-        assertThat(mine).allSatisfy(e -> assertThat(e.node()).isEqualTo(chaos.primary()));
+        assertThat(mine).allSatisfy(e -> assertThat(e.node()).isEqualTo(serving));
         confirm(offerAll(sender, List.of(message(1)), SECONDS_60), SECONDS_60);
     }
 
@@ -568,6 +571,20 @@ public abstract class ChaosTck {
         Transport transport = connection.transport().orElse(null);
         assumeTrue(transport != null, "The driver offers no transport");
         return transport;
+    }
+
+    /** The node serving {@code subscription}, resolved now and healed when the case ends. */
+    private NodeId serving(ResourceId subscription) {
+        NodeId node = chaos.serving(subscription);
+        touched.add(node);
+        return node;
+    }
+
+    /** The node that takes over for {@code subscription}, resolved now and healed when the case ends. */
+    private NodeId successor(ResourceId subscription) {
+        NodeId node = chaos.successor(subscription);
+        touched.add(node);
+        return node;
     }
 
     private static void assumeGuarantee(Transport transport, Guarantee guarantee) {

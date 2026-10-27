@@ -124,6 +124,11 @@ public final class ArtemisTransport implements Transport, AutoCloseable {
 
     private NodeHandle single(Scope scope, String what) {
         List<NodeHandle> nodes = cluster.nodes(scope);
+        // A primary and its backup are one logical node: a scope over exactly that group reads whichever serves.
+        if (nodes.size() > 1
+                && env.groups().candidates(nodes.getFirst(), nodes.getFirst()).containsAll(nodes)) {
+            return env.groups().serving(nodes.getFirst());
+        }
         if (nodes.size() != 1) {
             throw Queries.invalid("A " + what + " reads one node; scope it to one node instance.");
         }

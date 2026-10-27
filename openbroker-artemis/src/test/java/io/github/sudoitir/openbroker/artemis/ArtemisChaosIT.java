@@ -160,12 +160,12 @@ class ArtemisChaosIT extends ChaosTck {
             }
 
             @Override
-            public NodeId primary() {
+            public NodeId serving(ResourceId subscription) {
                 return PRIMARY;
             }
 
             @Override
-            public NodeId backup() {
+            public NodeId successor(ResourceId subscription) {
                 return BACKUP;
             }
 
