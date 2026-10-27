@@ -19,7 +19,8 @@ import org.junit.jupiter.api.BeforeAll;
 /**
  * The chaos TCK against a three-broker cluster of the image the build names ({@code kafka.image}),
  * every broker behind Toxiproxy. The cluster as a whole is the TCK's node: cutting it holds the
- * traffic to every broker, and killing it stops them all. The serving node of a subscription is its
+ * traffic to every broker, and killing it stops them all; a broker named by {@code serving} or
+ * {@code successor} is acted on alone. The serving node of a subscription is its
  * partition's leader and the successor an in-sync follower; the chaos topics have one partition.
  */
 class KafkaChaosIT extends ChaosTck {
@@ -70,6 +71,11 @@ class KafkaChaosIT extends ChaosTck {
             @Override
             public NodeId successor(ResourceId subscription) {
                 return cluster.follower(topic(subscription));
+            }
+
+            @Override
+            public boolean linksNameTheirServingNode() {
+                return false;
             }
 
             @Override

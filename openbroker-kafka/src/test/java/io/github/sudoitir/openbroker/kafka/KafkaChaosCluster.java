@@ -262,6 +262,28 @@ final class KafkaChaosCluster implements AutoCloseable {
             admin.listConsumerGroupOffsets(probes).all().get(10, TimeUnit.SECONDS);
             return Optional.of(true);
         });
+        // Clients list groups on every broker, so each must answer on the listener they use.
+        await("every broker on the client listener", RETURN, viaProxies(), admin -> {
+            admin.listConsumerGroups().all().get(10, TimeUnit.SECONDS);
+            return Optional.of(true);
+        });
+    }
+
+    /** An Admin client's settings for the way clients reach the brokers: through the proxies, logged in. */
+    private Map<String, Object> viaProxies() {
+        String bootstrap = IntStream.range(0, BROKERS)
+                .mapToObj(i -> toxiproxy.getHost() + ":" + toxiproxy.getMappedPort(FIRST_PROXY_PORT + i))
+                .collect(Collectors.joining(","));
+        return Map.of(
+                "bootstrap.servers",
+                bootstrap,
+                "security.protocol",
+                "SASL_PLAINTEXT",
+                "sasl.mechanism",
+                "PLAIN",
+                "sasl.jaas.config",
+                "org.apache.kafka.common.security.plain.PlainLoginModule required username=\"" + USER + "\" password=\""
+                        + PASSWORD + "\";");
     }
 
     /** Group ids that cover every partition of the offsets topic, which is how a group finds its coordinator. */
@@ -298,12 +320,17 @@ final class KafkaChaosCluster implements AutoCloseable {
     private <T> T await(String what, Duration within, Probe<T> probe) {
         String bootstrap =
                 Arrays.stream(directPorts).mapToObj(p -> "localhost:" + p).collect(Collectors.joining(","));
+        return await(what, within, Map.of("bootstrap.servers", bootstrap), probe);
+    }
+
+    /** Asks until the probe has an answer, with an Admin client of {@code base} settings. */
+    private <T> T await(String what, Duration within, Map<String, Object> base, Probe<T> probe) {
         long deadline = System.nanoTime() + within.toNanos();
         while (true) {
-            try (Admin admin = Admin.create(Map.of(
-                    "bootstrap.servers", bootstrap,
-                    "request.timeout.ms", "5000",
-                    "default.api.timeout.ms", "10000"))) {
+            Map<String, Object> config = new HashMap<>(base);
+            config.put("request.timeout.ms", "5000");
+            config.put("default.api.timeout.ms", "10000");
+            try (Admin admin = Admin.create(config)) {
                 Optional<T> answer = probe.read(admin);
                 if (answer.isPresent()) {
                     return answer.get();

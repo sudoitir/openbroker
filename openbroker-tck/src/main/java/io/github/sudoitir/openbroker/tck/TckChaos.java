@@ -40,6 +40,15 @@ public interface TckChaos {
      */
     NodeId successor(ResourceId subscription);
 
+    /**
+     * Whether a link's events name the node that serves it, such as a pair's live member. A link on a
+     * partitioned log is served by the cluster, not by one node, so its events name the cluster and
+     * the case that expects the successor's name is skipped.
+     */
+    default boolean linksNameTheirServingNode() {
+        return true;
+    }
+
     /** Drops all traffic between the clients and the node, until {@link #heal}. */
     void cut(NodeId node);
 

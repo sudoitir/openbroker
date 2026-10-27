@@ -488,6 +488,7 @@ public abstract class ChaosTck {
         Transport transport = transport(connection);
         assumeGuarantee(transport, Guarantee.AT_LEAST_ONCE);
         assumeTrue(transport.capabilities().failover(), "The transport declares no failover");
+        assumeTrue(chaos.linksNameTheirServingNode(), "The links of this cluster are served by the cluster");
         ResourceId id = newSubscription(connection, "failover-event");
         List<LinkEvent> events = new CopyOnWriteArrayList<>();
         own(transport.watch(events::add));
