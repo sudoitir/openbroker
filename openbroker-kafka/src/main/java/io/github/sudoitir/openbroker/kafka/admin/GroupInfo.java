@@ -41,7 +41,11 @@ record GroupInfo(
             "Its offsets belong to the application that runs it, so this driver reads them and does not change them.";
 
     /** A running member of a group, as an operator names it. */
-    record Member(String id, String clientId, String host) {
+    record Member(String id, String clientId, String host, Set<String> topics) {
+
+        Member {
+            topics = Set.copyOf(topics);
+        }
 
         String describe() {
             return clientId + "@" + host + " (" + id + ")";
@@ -122,8 +126,10 @@ record GroupInfo(
         List<Member> members = new ArrayList<>();
         Set<String> topics = new HashSet<>();
         for (MemberDescription m : d.members()) {
-            members.add(new Member(m.consumerId(), m.clientId(), m.host()));
-            m.assignment().topicPartitions().forEach(tp -> topics.add(tp.topic()));
+            Set<String> own = new HashSet<>();
+            m.assignment().topicPartitions().forEach(tp -> own.add(tp.topic()));
+            members.add(new Member(m.consumerId(), m.clientId(), m.host(), own));
+            topics.addAll(own);
         }
         return new GroupInfo(
                 d.groupId(),
@@ -141,8 +147,10 @@ record GroupInfo(
         List<Member> members = new ArrayList<>();
         Set<String> topics = new HashSet<>();
         for (ShareMemberDescription m : d.members()) {
-            members.add(new Member(m.consumerId(), m.clientId(), m.host()));
-            m.assignment().topicPartitions().forEach(tp -> topics.add(tp.topic()));
+            Set<String> own = new HashSet<>();
+            m.assignment().topicPartitions().forEach(tp -> own.add(tp.topic()));
+            members.add(new Member(m.consumerId(), m.clientId(), m.host(), own));
+            topics.addAll(own);
         }
         return new GroupInfo(
                 d.groupId(),
@@ -159,7 +167,7 @@ record GroupInfo(
     private static GroupInfo of(StreamsGroupDescription d) {
         List<Member> members = new ArrayList<>();
         for (StreamsGroupMemberDescription m : d.members()) {
-            members.add(new Member(m.memberId(), m.clientId(), ""));
+            members.add(new Member(m.memberId(), m.clientId(), "", Set.of()));
         }
         return new GroupInfo(
                 d.groupId(),

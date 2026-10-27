@@ -200,7 +200,7 @@ final class KafkaSender implements Sender {
 
     /** The answer of a failed send: a lost producer is recovered and the message written again, any other failure ends this send. */
     private void answered(Throwable failure, int written, SendPipeline.Confirmation confirmation) {
-        if (producerLost(failure) && options.guarantee() != Guarantee.AT_MOST_ONCE) {
+        if (supervisor != null && producerLost(failure) && options.guarantee() != Guarantee.AT_MOST_ONCE) {
             lost(written, failure);
             return;
         }
@@ -211,7 +211,8 @@ final class KafkaSender implements Sender {
 
     /** The failure of a write that threw: a dead producer keeps the message for the recovery; a refusal ends its receipt. */
     private BrokerException refused(RuntimeException e, int written) {
-        if (producerLost(e)) {
+        // Joined to its owner's producer there is no recovery to wait for: the owner replaces the producer.
+        if (supervisor != null && producerLost(e)) {
             BrokerException down = down(e);
             lost(written, e);
             return down;

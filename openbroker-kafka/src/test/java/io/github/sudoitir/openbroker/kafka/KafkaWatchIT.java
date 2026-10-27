@@ -18,6 +18,7 @@ import io.github.sudoitir.openbroker.model.Attributes;
 import io.github.sudoitir.openbroker.model.ResourceId;
 import io.github.sudoitir.openbroker.model.ResourcePath;
 import io.github.sudoitir.openbroker.model.Scope;
+import io.github.sudoitir.openbroker.model.StandardAttributes;
 import io.github.sudoitir.openbroker.notification.BrokerEvent;
 import io.github.sudoitir.openbroker.notification.EventTypes;
 import io.github.sudoitir.openbroker.notification.Gap;
@@ -120,6 +121,37 @@ class KafkaWatchIT {
                     .execute(topic, Operation.delete(), Scope.whole())
                     .orThrow();
             assertThat(heard.event(EventTypes.RESOURCE_DELETED, topic)).isPresent();
+        }
+    }
+
+    @Test
+    void aConsumerJoiningAndLeavingASubscriptionIsAnEvent() throws Exception {
+        String name = Kafka.unique("members");
+        String group = Kafka.unique("g");
+        ResourceId topic = new ResourceId(KafkaKinds.TOPIC, ResourcePath.of(name));
+        ResourceId subscription = new ResourceId(KafkaKinds.GROUP_TOPIC, ResourcePath.of(group, name));
+        connection
+                .operations()
+                .execute(topic, new Operation.Create(Attributes.empty()), Scope.whole())
+                .orThrow();
+        connection
+                .operations()
+                .execute(subscription, new Operation.Create(Attributes.empty()), Scope.whole())
+                .orThrow();
+        Heard heard = new Heard();
+        try (AutoCloseable watch = connection.notifications().orElseThrow().subscribe(Scope.whole(), heard)) {
+            assertThat(heard.heard.poll(30, TimeUnit.SECONDS)).isInstanceOf(Gap.class);
+            // Let the watch read the members once while there are none.
+            Thread.sleep(2500);
+
+            try (var member = Kafka.member(kafka, group, name, "consumer")) {
+                BrokerEvent attached =
+                        heard.event(EventTypes.CONSUMER_ATTACHED, subscription).orElseThrow();
+                assertThat(attached.data().get(StandardAttributes.SUBSCRIPTION)).contains(subscription);
+                assertThat(member.assignment()).isNotEmpty();
+            }
+
+            assertThat(heard.event(EventTypes.CONSUMER_DETACHED, subscription)).isPresent();
         }
     }
 

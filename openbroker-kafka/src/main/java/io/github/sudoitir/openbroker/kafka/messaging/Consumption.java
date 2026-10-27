@@ -6,6 +6,7 @@ import io.github.sudoitir.openbroker.kafka.admin.KafkaCluster;
 import io.github.sudoitir.openbroker.kafka.codec.RecordCodec;
 import io.github.sudoitir.openbroker.messaging.Guarantee;
 import io.github.sudoitir.openbroker.messaging.LinkState;
+import io.github.sudoitir.openbroker.messaging.Message;
 import io.github.sudoitir.openbroker.model.ResourceId;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -15,6 +16,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.PriorityQueue;
 import java.util.Set;
 import java.util.TreeMap;
@@ -31,6 +33,7 @@ import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.InterruptException;
+import org.apache.kafka.common.header.internals.RecordHeaders;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.jspecify.annotations.Nullable;
 
@@ -221,10 +224,14 @@ final class Consumption implements Consuming {
     private Tracking requireCurrent(Delivery delivery) {
         Tracking t = tracking.get(delivery.partition());
         if (!delivery.current() || t == null || t.assignment != delivery.assignment()) {
-            throw KafkaFailures.stale("The partition " + delivery.partition()
-                    + " is no longer this consumer's; its records are delivered again to the new owner.");
+            throw staleRecord(delivery);
         }
         return t;
+    }
+
+    private static BrokerException staleRecord(Delivery delivery) {
+        return KafkaFailures.stale("The partition " + delivery.partition()
+                + " is no longer this consumer's; its records are delivered again to the new owner.");
     }
 
     /**
@@ -235,31 +242,29 @@ final class Consumption implements Consuming {
         commitLock.lock();
         try {
             Map<TopicPartition, List<Long>> byPartition = new HashMap<>();
+            Map<TopicPartition, Tracking> claimed = new HashMap<>();
             for (Delivery delivery : settled) {
-                requireCurrent(delivery);
+                // One look at each partition: a rebalance on the poll thread may drop it at any moment.
+                Tracking t = claimed.computeIfAbsent(delivery.partition(), tracking::get);
+                if (!delivery.current() || t == null || t.assignment != delivery.assignment()) {
+                    throw staleRecord(delivery);
+                }
                 byPartition
                         .computeIfAbsent(delivery.partition(), p -> new ArrayList<>())
                         .add(delivery.offset());
             }
             Map<TopicPartition, OffsetAndMetadata> offsets = new HashMap<>();
-            byPartition.forEach((partition, list) -> tracking.get(partition)
+            byPartition.forEach((partition, list) -> claimed.get(partition)
                     .tracker
                     .pendingCommitAfter(list)
                     .ifPresent(position -> offsets.put(partition, new OffsetAndMetadata(position))));
             transaction.commit(offsets, groupMetadata);
             for (Delivery delivery : settled) {
-                Tracking t = tracking.get(delivery.partition());
                 delivery.finish();
-                if (t != null) {
-                    t.tracker.settled(delivery.offset());
-                }
+                claimed.get(delivery.partition()).tracker.settled(delivery.offset());
             }
-            offsets.forEach((partition, offset) -> {
-                Tracking t = tracking.get(partition);
-                if (t != null) {
-                    t.tracker.committed(offset.offset());
-                }
-            });
+            offsets.forEach(
+                    (partition, offset) -> claimed.get(partition).tracker.committed(offset.offset()));
         } finally {
             commitLock.unlock();
         }
@@ -331,11 +336,7 @@ final class Consumption implements Consuming {
                 continue;
             }
             int attempt = old.attempt() + (requeue.failed() ? 1 : 0);
-            Delivery again = new Delivery(
-                    RecordCodec.message(settings.source(), old.record(), Long.MAX_VALUE, attempt),
-                    old.record(),
-                    attempt,
-                    t.assignment);
+            Delivery again = new Delivery(message(old.record(), attempt), old.record(), attempt, t.assignment);
             t.held.put(again.offset(), again);
         }
     }
@@ -409,9 +410,7 @@ final class Consumption implements Consuming {
                 continue;
             }
             for (ConsumerRecord<byte[], byte[]> record : records.records(partition)) {
-                long due = RecordCodec.header(record, RecordCodec.DUE)
-                        .map(Long::parseLong)
-                        .orElse(0L);
+                long due = number(record, RecordCodec.DUE).orElse(0);
                 if (due > now) {
                     consumer.seek(partition, record.offset());
                     delayed.put(
@@ -419,17 +418,52 @@ final class Consumption implements Consuming {
                             System.nanoTime() + Duration.ofMillis(due - now).toNanos());
                     break;
                 }
-                int attempt = RecordCodec.header(record, RecordCodec.ATTEMPT)
-                        .map(failed -> Integer.parseInt(failed) + 1)
-                        .orElse(1);
+                int attempt = (int) number(record, RecordCodec.ATTEMPT).orElse(0) + 1;
+                // The message first: a record that cannot be turned into one must not be left half taken.
+                Message message = message(record, attempt);
                 t.tracker.fetched(record.offset());
-                Delivery delivery = new Delivery(
-                        RecordCodec.message(settings.source(), record, Long.MAX_VALUE, attempt),
-                        record,
-                        attempt,
-                        t.assignment);
+                Delivery delivery = new Delivery(message, record, attempt, t.assignment);
                 t.held.put(record.offset(), delivery);
             }
+        }
+    }
+
+    /** A header holding a number, or empty when it is missing or not one: any producer can set a header. */
+    static OptionalLong number(ConsumerRecord<byte[], byte[]> record, String header) {
+        try {
+            return RecordCodec.header(record, header)
+                    .map(text -> OptionalLong.of(Long.parseLong(text.trim())))
+                    .orElse(OptionalLong.empty());
+        } catch (NumberFormatException e) {
+            return OptionalLong.empty();
+        }
+    }
+
+    /**
+     * The message for a record. A record whose headers the codec cannot read is handed out with its
+     * key, value and no headers, rather than lost.
+     */
+    private Message message(ConsumerRecord<byte[], byte[]> record, int attempt) {
+        try {
+            return RecordCodec.message(settings.source(), record, Long.MAX_VALUE, attempt);
+        } catch (RuntimeException e) {
+            LOG.log(
+                    System.Logger.Level.WARNING,
+                    "A record's headers could not be read; it is handed out without them",
+                    e);
+            ConsumerRecord<byte[], byte[]> bare = new ConsumerRecord<>(
+                    record.topic(),
+                    record.partition(),
+                    record.offset(),
+                    record.timestamp(),
+                    record.timestampType(),
+                    record.serializedKeySize(),
+                    record.serializedValueSize(),
+                    record.key(),
+                    record.value(),
+                    new RecordHeaders(),
+                    record.leaderEpoch());
+            return RecordCodec.message(settings.source(), bare, Long.MAX_VALUE, attempt);
         }
     }
 

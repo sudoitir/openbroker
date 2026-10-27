@@ -396,4 +396,45 @@ class KafkaMessagingIT {
                 .isPositive();
         assertThat(handled.values()).allSatisfy(count -> assertThat(count).hasValue(1));
     }
+
+    @Test
+    void aLanesFencedProducerIsReplacedAndTheRecordIsMovedOnTheNextAttempt() {
+        String from = SharedKafka.topic("fenced-from", 1);
+        String to = SharedKafka.topic("fenced-to", 1);
+        ResourceId source = SharedKafka.group(from);
+        ResourceId target = SharedKafka.group(to);
+        List<String> seen = Collections.synchronizedList(new ArrayList<>());
+        try (Processor processor = transport.process(
+                source,
+                Scope.whole(),
+                new ProcessorOptions(
+                        ReceiverOptions.consume().withGuarantee(Guarantee.TRANSACTED),
+                        1,
+                        OrderingScope.NONE,
+                        RetryPolicy.defaults(),
+                        Duration.ofSeconds(30)),
+                ctx -> {
+                    seen.add(seq(ctx.message()) + "#" + ctx.attempt());
+                    ctx.sender(SendTarget.subscription(target)).send(OutboundMessage.copyOf(ctx.message()));
+                    return Disposition.accept();
+                })) {
+            send(source, 1);
+            await("the first record moved", Duration.ofSeconds(30), () -> seen.size() >= 1);
+            MessagingEnv env = SharedKafka.env();
+            String id = "openbroker-" + source.path().segments().getFirst() + "-" + processor.id() + "-0";
+            // Another owner of the lane's transactional id fences the lane's producer, as a restart would.
+            try (Transaction usurper = new Transaction(env.cluster(), id)) {
+                send(source, 1);
+                await(
+                        "the second record handled again after the fence",
+                        Duration.ofSeconds(60),
+                        () -> seen.size() >= 3);
+            } finally {
+                env.close();
+            }
+            try (Receiver reader = transport.receiver(target, Scope.whole(), ReceiverOptions.consume())) {
+                assertThat(receive(reader, 2)).extracting(KafkaMessagingIT::seq).containsExactlyInAnyOrder(0L, 0L);
+            }
+        }
+    }
 }

@@ -44,7 +44,7 @@ public final class KafkaConnection implements ClusterConnection {
         this.operations = new KafkaOperations(cluster, handlers);
         this.messages = new KafkaMessages(cluster, handlers);
         this.access = new KafkaAccess(cluster);
-        this.notifications = new KafkaNotifications(cluster, resources);
+        this.notifications = new KafkaNotifications(cluster, resources, handlers);
         this.transport = new KafkaTransport(cluster);
     }
 

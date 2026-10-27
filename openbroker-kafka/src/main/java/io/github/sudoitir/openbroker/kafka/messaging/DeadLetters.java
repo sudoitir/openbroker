@@ -24,7 +24,7 @@ import org.jspecify.annotations.Nullable;
  * its reason as headers, and only then settled. They are created on demand; when they cannot be, the
  * open is refused, naming the topic and the remedy.
  */
-final class DeadLetters implements AutoCloseable {
+final class DeadLetters implements DeadLetterSink, AutoCloseable {
 
     private final MessagingEnv env;
     private final Topics topics;
@@ -58,7 +58,8 @@ final class DeadLetters implements AutoCloseable {
      *
      * @param joined opens a sender joined to the caller's transaction, or null to send on its own
      */
-    void reject(Delivery delivery, int attempts, String reason, @Nullable Function<SendTarget, Sender> joined) {
+    @Override
+    public void reject(Delivery delivery, int attempts, String reason, @Nullable Function<SendTarget, Sender> joined) {
         ensure(List.of(delivery.originTopic()));
         String dead = topicFor(delivery.originTopic());
         OutboundMessage copy = OutboundMessage.copyOf(delivery.message())
@@ -78,7 +79,8 @@ final class DeadLetters implements AutoCloseable {
     }
 
     /** A sender to the policy's dead-letter target, for the engine to dead-letter through. */
-    Sender sender(SendTarget policyTarget) {
+    @Override
+    public Sender sender(SendTarget policyTarget) {
         return sender(Subscriptions.topicOf(policyTarget));
     }
 

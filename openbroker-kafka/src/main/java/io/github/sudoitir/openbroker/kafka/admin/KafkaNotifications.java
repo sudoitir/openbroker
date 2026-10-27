@@ -17,7 +17,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * Kafka sends no events, so the watch reads the cluster every {@code watch.interval} and reports
  * what appeared and disappeared: topics, partitions (per broker that holds a replica), groups and
  * subscriptions. A read that fails is followed by a gap for the nodes it covered. The stream's
- * events are creations and deletions; a member joining a group is not one.
+ * events are creations and deletions, and consumers attaching to and leaving a subscription.
  */
 public final class KafkaNotifications implements Notifications, AutoCloseable {
 
@@ -26,12 +26,14 @@ public final class KafkaNotifications implements Notifications, AutoCloseable {
 
     private final KafkaCluster cluster;
     private final KafkaResources resources;
+    private final Handlers handlers;
     private final Set<AutoCloseable> open = ConcurrentHashMap.newKeySet();
     private volatile Notifications polling;
 
-    KafkaNotifications(KafkaCluster cluster, KafkaResources resources) {
+    KafkaNotifications(KafkaCluster cluster, KafkaResources resources, Handlers handlers) {
         this.cluster = cluster;
         this.resources = resources;
+        this.handlers = handlers;
         this.polling = polling();
     }
 
@@ -51,10 +53,12 @@ public final class KafkaNotifications implements Notifications, AutoCloseable {
     @Override
     public AutoCloseable subscribe(Scope scope, NotificationListener listener) {
         AutoCloseable subscription = polling.subscribe(scope, listener);
+        MemberWatch members = new MemberWatch(cluster, handlers, listener);
         AutoCloseable tracked = new AutoCloseable() {
             @Override
             public void close() throws Exception {
                 open.remove(this);
+                members.close();
                 subscription.close();
             }
         };
