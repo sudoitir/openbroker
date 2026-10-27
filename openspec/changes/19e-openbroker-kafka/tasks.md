@@ -24,13 +24,13 @@ Order and parallelism:
 ## 2. Kafka management surface (files: openbroker-kafka/src/**/kafka/admin/**, driver entry, test cluster fixture)
 - [x] 2.1 `KafkaDriver` (`system` `kafka`, `[4.0.0,)`, option schema for security protocol, SASL mechanism and client id), with verify refusing older clusters, nodes from `describeCluster` and quorum health. Check: unit tests and a `KafkaContainer` IT
 - [x] 2.2 A three-broker KRaft test cluster fixture in the driver's tests (three `KafkaContainer`s, combined roles, RF 3, `min.insync.replicas` 2). Check: it starts on `apache/kafka:4.0.2` and `4.4.0`
-- [ ] 2.3 Kinds and resources: topics (CRUD, partition increase, configs), partitions, groups (all types; classic and streams read-only with no subscription), group-topic and share-group-topic subscriptions, ACLs and transactional ids, each with its label. Check: `KafkaTckIT extends OpenBrokerTck` for these kinds
+- [x] 2.3 Kinds and resources: topics (CRUD, partition increase, configs), partitions, groups (all types; classic and streams read-only with no subscription), group-topic and share-group-topic subscriptions, ACLs and transactional ids, each with its label. Check: `KafkaTckIT extends OpenBrokerTck` for these kinds
 - [x] 2.4 Lag as an estimate with per-partition breakdown, and unavailable partitions with a reason. Check: IT with six partitions and one never-committed partition
-- [ ] 2.5 Purge and seek (latest, earliest, time, offset) for consumer groups and, through `alterShareGroupOffsets`, share groups, with an empty-group precondition, a member list in the preview and an etag over generation and offsets. Check: TCK precondition cases and an active-group IT
+- [x] 2.5 Purge and seek (latest, earliest, time, offset) for consumer groups and, through `alterShareGroupOffsets`, share groups, with an empty-group precondition, a member list in the preview and an etag over generation and offsets. Check: TCK precondition cases and an active-group IT
 - [x] 2.6 Truncate with a per-group loss preview and the compact-only refusal. Check: IT with three groups and a compacted topic
-- [ ] 2.7 Browse by partition, offset and time with no group, bounded by count and bytes; per-message move, copy and delete unavailable with the reason. Check: TCK browse cases, and an IT asserting no group appears
+- [x] 2.7 Browse by partition, offset and time with no group, bounded by count and bytes; per-message move, copy and delete unavailable with the reason. Check: TCK browse cases, and an IT asserting no group appears
 - [x] 2.8 Abort a hanging transaction; the polling watch for topics, groups and partitions. Check: TCK notification cases
-- [ ] 2.9 ADR 0018. Check: `KafkaTckIT` green
+- [x] 2.9 ADR 0018. Check: `KafkaTckIT` green
 
 ## 3. Consumer-group messaging (files: openbroker-kafka/src/**/kafka/messaging/** except share)
 - [ ] 3.1 Sender: guarantees mapped to `acks` and idempotence, bounded `send` and `offer`, `SESSION` dedup scope, `resent` on driver re-sends. Check: `MessagingTck` send cases
