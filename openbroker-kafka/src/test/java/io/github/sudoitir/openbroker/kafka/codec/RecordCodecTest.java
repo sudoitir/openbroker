@@ -1,4 +1,4 @@
-package io.github.sudoitir.openbroker.kafka.admin;
+package io.github.sudoitir.openbroker.kafka.codec;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

@@ -1,7 +1,8 @@
-package io.github.sudoitir.openbroker.kafka.admin;
+package io.github.sudoitir.openbroker.kafka.codec;
 
 import io.github.sudoitir.openbroker.ErrorReasons;
 import io.github.sudoitir.openbroker.Status;
+import io.github.sudoitir.openbroker.kafka.admin.KafkaErrors;
 import io.github.sudoitir.openbroker.messaging.Blob;
 import io.github.sudoitir.openbroker.messaging.Message;
 import io.github.sudoitir.openbroker.messaging.MessageBody;
@@ -123,7 +124,9 @@ public final class RecordCodec {
 
     private static void property(Headers headers, String name, PropertyValue value) {
         if (name.isEmpty() || name.startsWith(PREFIX)) {
-            throw Attrs.invalid(
+            throw KafkaErrors.refused(
+                    Status.INVALID_ARGUMENT,
+                    ErrorReasons.INVALID_ARGUMENT,
                     "A property cannot be named \"" + name + "\": names starting with " + PREFIX + " are reserved.");
         }
         switch (value) {

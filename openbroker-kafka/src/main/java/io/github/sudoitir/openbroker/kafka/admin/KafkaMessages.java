@@ -6,6 +6,7 @@ import io.github.sudoitir.openbroker.ErrorReasons;
 import io.github.sudoitir.openbroker.Partial;
 import io.github.sudoitir.openbroker.Plane;
 import io.github.sudoitir.openbroker.Status;
+import io.github.sudoitir.openbroker.kafka.codec.RecordCodec;
 import io.github.sudoitir.openbroker.messaging.BrowsePage;
 import io.github.sudoitir.openbroker.messaging.BrowseRequest;
 import io.github.sudoitir.openbroker.messaging.BulkOutcome;
