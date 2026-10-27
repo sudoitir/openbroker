@@ -11,7 +11,6 @@
     </parent>
 
     <artifactId>openbroker-spring-boot-starter</artifactId>
-    <packaging>pom</packaging>
     <name>OpenBroker Spring Boot starter</name>
     <description>Everything a Spring Boot application needs to use OpenBroker; add the drivers it uses.</description>
 
@@ -47,4 +46,39 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!-- The starter is an empty jar, like Spring Boot's own starters. Central wants a sources jar and a javadoc
+             jar next to it, so both are made empty; the javadoc plugin makes none for a jar with no sources. -->
+        <profile>
+            <id>release</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-source-plugin</artifactId>
+                        <configuration>
+                            <forceCreation>true</forceCreation>
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-jar-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>empty-javadoc-jar</id>
+                                <phase>package</phase>
+                                <goals><goal>jar</goal></goals>
+                                <configuration>
+                                    <classifier>javadoc</classifier>
+                                    <forceCreation>true</forceCreation>
+                                    <skipIfEmpty>false</skipIfEmpty>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>
