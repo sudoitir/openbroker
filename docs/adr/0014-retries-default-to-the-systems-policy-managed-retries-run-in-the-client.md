@@ -1,6 +1,6 @@
 # ADR-0014: Retries default to the system's policy; managed retries run in the client
 
-- **Status**: accepted
+- **Status**: accepted; the default and `RetrySupport` are superseded by [ADR-0021](0021-the-retry-default-follows-what-the-system-enforces.md)
 - **Date**: 2026-10-21
 - **Deciders**: Mahdi Amirabdollahi
 
