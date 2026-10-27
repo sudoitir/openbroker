@@ -68,6 +68,16 @@ final class Consumption implements Consuming {
     private static final Duration CLOSE_WAIT = Duration.ofSeconds(5);
     private static final int MAX_POLL_RECORDS = 500;
 
+    /**
+     * How long the group coordinator may go without answering a heartbeat before the link is {@code
+     * RECOVERING}. The client retries a lost connection quietly and its poll never fails, so the
+     * answers are the only sign that the cluster is out of reach. Brokers answer every few seconds.
+     */
+    private static final Duration SILENT_AFTER = Duration.ofSeconds(15);
+
+    private static final Duration HEARTBEATS_EVERY = Duration.ofSeconds(1);
+    private static final String HEARTBEAT_ANSWERS = "heartbeat-total";
+
     /** How long a member may go without polling before the group drops it: the group's rebalance timeout. */
     static final Duration REBALANCE_TIMEOUT = Duration.ofSeconds(60);
 
@@ -120,6 +130,9 @@ final class Consumption implements Consuming {
     private volatile @Nullable BrokerException failure;
     private volatile boolean closing;
     private volatile boolean ended;
+    private volatile long lastAnswer = System.nanoTime();
+    private long lastHeartbeatCount;
+    private long lastHeartbeatCheck;
     private long lastCommit;
     private int cursor;
 
@@ -173,7 +186,7 @@ final class Consumption implements Consuming {
         if (closing || ended) {
             return LinkState.CLOSED;
         }
-        return LinkState.OPEN;
+        return System.nanoTime() - lastAnswer > SILENT_AFTER.toNanos() ? LinkState.RECOVERING : LinkState.OPEN;
     }
 
     /** The failure the last poll ended with (a denied topic, a rejected login), or null while polling works. */
@@ -271,6 +284,7 @@ final class Consumption implements Consuming {
                     ConsumerRecords<byte[], byte[]> records = consumer.poll(POLL);
                     groupMetadata = consumer.groupMetadata();
                     failure = null;
+                    watchCoordinator();
                     ingest(records);
                     dispatch();
                     commitDue();
@@ -284,6 +298,23 @@ final class Consumption implements Consuming {
             }
         } finally {
             shutdown();
+        }
+    }
+
+    /** Notes that the coordinator answered a heartbeat since the last look, which is what keeps the link open. */
+    private void watchCoordinator() {
+        long now = System.nanoTime();
+        if (now - lastHeartbeatCheck < HEARTBEATS_EVERY.toNanos()) {
+            return;
+        }
+        lastHeartbeatCheck = now;
+        for (var metric : consumer.metrics().entrySet()) {
+            if (metric.getKey().name().equals(HEARTBEAT_ANSWERS)
+                    && metric.getValue().metricValue() instanceof Number count
+                    && count.longValue() != lastHeartbeatCount) {
+                lastHeartbeatCount = count.longValue();
+                lastAnswer = now;
+            }
         }
     }
 
