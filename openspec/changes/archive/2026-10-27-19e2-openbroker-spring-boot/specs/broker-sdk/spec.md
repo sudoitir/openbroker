@@ -31,3 +31,22 @@ The SDK SHALL ship as `openbroker-api` (the consumer API and the driver SPI in s
 #### Scenario: The starter is aligned
 - **WHEN** an application imports the BOM and adds the starter and a driver without versions
 - **THEN** all three resolve to the same SDK release
+
+### Requirement: Consumers connect through one entry point
+A consumer SHALL connect through `BrokerDrivers` in the API package, never through the SPI. Drivers SHALL be found through `ServiceLoader` on the SDK's own class loader, never the thread context class loader, or be supplied explicitly. Connecting and verifying SHALL refuse a cluster whose options break the driver's connection schema (an unknown key, a missing required key, a wrong type or a value that is not allowed), before any call is sent, naming every key and never a sensitive value.
+
+#### Scenario: A driver is discovered
+- **WHEN** a driver jar is on the class or module path of the SDK's class loader
+- **THEN** `BrokerDrivers.load()` finds it, and the driver names its system, supported versions, connection schema and native packages
+
+#### Scenario: A plugin cannot contribute a driver
+- **WHEN** code running in a child class loader carries a driver service file and calls `BrokerDrivers.load()`
+- **THEN** that driver is not loaded and receives no credentials
+
+#### Scenario: A misspelt option
+- **WHEN** a consumer connects with a cluster option its driver's schema does not declare
+- **THEN** the connect fails with an invalid-argument error, not sent, naming the option
+
+#### Scenario: A sensitive option has a wrong value
+- **WHEN** a sensitive option's value is not of its declared type
+- **THEN** the error names the key and never contains the value

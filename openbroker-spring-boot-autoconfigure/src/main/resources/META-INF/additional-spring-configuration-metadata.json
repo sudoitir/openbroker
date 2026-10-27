@@ -1,0 +1,425 @@
+{
+  "properties": [
+    {
+      "name": "openbroker.connections",
+      "type": "java.util.Map<java.lang.String,io.github.sudoitir.openbroker.spring.boot.autoconfigure.Connection>",
+      "description": "The connections, each named by the key under which it is declared. A connection named kafka or artemis is laid over the one derived from Spring Boot's connection details."
+    },
+    {
+      "name": "openbroker.connections.*.cluster.cluster-endpoints[].address",
+      "type": "java.lang.String",
+      "description": "The address of a cluster endpoint, in the form the driver expects (for example host:port for Kafka, a Core URL for Artemis)."
+    },
+    {
+      "name": "openbroker.connections.*.cluster.cluster-endpoints[].plane",
+      "type": "io.github.sudoitir.openbroker.Plane",
+      "description": "The plane a cluster endpoint serves: management or data."
+    },
+    {
+      "name": "openbroker.connections.*.cluster.cluster-endpoints[].protocol",
+      "type": "java.lang.String",
+      "description": "The protocol of a cluster endpoint, as the driver names it (for example kafka, core or jolokia)."
+    },
+    {
+      "name": "openbroker.connections.*.cluster.nodes[].endpoints[].address",
+      "type": "java.lang.String",
+      "description": "The address of a node endpoint, in the form the driver expects (for example host:port for Kafka, a Core URL for Artemis)."
+    },
+    {
+      "name": "openbroker.connections.*.cluster.nodes[].endpoints[].plane",
+      "type": "io.github.sudoitir.openbroker.Plane",
+      "description": "The plane a node endpoint serves: management or data."
+    },
+    {
+      "name": "openbroker.connections.*.cluster.nodes[].endpoints[].protocol",
+      "type": "java.lang.String",
+      "description": "The protocol of a node endpoint, as the driver names it (for example kafka, core or jolokia)."
+    },
+    {
+      "name": "openbroker.connections.*.cluster.nodes[].id",
+      "type": "java.lang.String",
+      "description": "The node's id, unique within the cluster. A node of the same id as a derived node adds its endpoints to it."
+    },
+    {
+      "name": "openbroker.connections.*.cluster.options",
+      "type": "java.util.Map<java.lang.String,java.lang.String>",
+      "description": "The driver's connection options, such as security.protocol or sasl.mechanism. The driver declares which keys exist; an unknown key fails the start."
+    },
+    {
+      "name": "openbroker.connections.*.credentials.expires-at",
+      "type": "java.time.Instant",
+      "description": "When the bearer token expires, for the form bearer-token (every plane)."
+    },
+    {
+      "name": "openbroker.connections.*.credentials.form",
+      "type": "io.github.sudoitir.openbroker.spring.boot.autoconfigure.CredentialsProperties$Form",
+      "description": "The form of the credentials for every plane: username-password, bearer-token or none. Unset means the connection sets none."
+    },
+    {
+      "name": "openbroker.connections.*.credentials.password",
+      "type": "java.lang.String",
+      "description": "The password, for the form username-password (every plane). Never logged."
+    },
+    {
+      "name": "openbroker.connections.*.credentials.token",
+      "type": "java.lang.String",
+      "description": "The bearer token, for the form bearer-token (every plane). Never logged."
+    },
+    {
+      "name": "openbroker.connections.*.credentials.username",
+      "type": "java.lang.String",
+      "description": "The user name, for the form username-password (every plane)."
+    },
+    {
+      "name": "openbroker.connections.*.management-credentials.expires-at",
+      "type": "java.time.Instant",
+      "description": "When the bearer token expires, for the form bearer-token (the management plane)."
+    },
+    {
+      "name": "openbroker.connections.*.management-credentials.form",
+      "type": "io.github.sudoitir.openbroker.spring.boot.autoconfigure.CredentialsProperties$Form",
+      "description": "The form of the credentials for the management plane: username-password, bearer-token or none. Unset means the connection sets none."
+    },
+    {
+      "name": "openbroker.connections.*.management-credentials.password",
+      "type": "java.lang.String",
+      "description": "The password, for the form username-password (the management plane). Never logged."
+    },
+    {
+      "name": "openbroker.connections.*.management-credentials.token",
+      "type": "java.lang.String",
+      "description": "The bearer token, for the form bearer-token (the management plane). Never logged."
+    },
+    {
+      "name": "openbroker.connections.*.management-credentials.username",
+      "type": "java.lang.String",
+      "description": "The user name, for the form username-password (the management plane)."
+    },
+    {
+      "name": "openbroker.connections.*.options.call-timeout",
+      "type": "java.time.Duration",
+      "description": "How long a call may take. Defaults to openbroker.client.call-timeout."
+    },
+    {
+      "name": "openbroker.connections.*.options.connect-timeout",
+      "type": "java.time.Duration",
+      "description": "How long a connection attempt may take. Defaults to openbroker.client.connect-timeout."
+    },
+    {
+      "name": "openbroker.connections.*.options.max-response-bytes",
+      "type": "java.lang.Long",
+      "description": "The largest response the client reads, in bytes. Defaults to openbroker.client.max-response-bytes."
+    },
+    {
+      "name": "openbroker.connections.*.options.spool-directory",
+      "type": "java.nio.file.Path",
+      "description": "Where the client spools large bodies. Defaults to openbroker.client.spool-directory."
+    },
+    {
+      "name": "openbroker.connections.*.options.ssl-bundle",
+      "type": "java.lang.String",
+      "description": "The name of the Spring SSL bundle (spring.ssl.bundle) that supplies TLS. Unset means no TLS from a bundle."
+    },
+    {
+      "name": "openbroker.connections.*.options.verify-hostname",
+      "type": "java.lang.Boolean",
+      "description": "Whether the server's host name is checked against its certificate.",
+      "defaultValue": true
+    },
+    {
+      "name": "openbroker.connections.*.processor.concurrency",
+      "type": "java.lang.Integer",
+      "description": "How many messages a processor handles at once, from 1 to 64.",
+      "defaultValue": 8
+    },
+    {
+      "name": "openbroker.connections.*.processor.ordering",
+      "type": "io.github.sudoitir.openbroker.messaging.OrderingScope",
+      "description": "The ordering a processor keeps.",
+      "defaultValue": "none"
+    },
+    {
+      "name": "openbroker.connections.*.processor.receive.filter.dialect",
+      "type": "java.lang.String",
+      "description": "The dialect of the filter the receiver inside a processor applies."
+    },
+    {
+      "name": "openbroker.connections.*.processor.receive.filter.expression",
+      "type": "java.lang.String",
+      "description": "The filter expression the receiver inside a processor applies, in the named dialect."
+    },
+    {
+      "name": "openbroker.connections.*.processor.receive.flow.max-unsettled",
+      "type": "java.lang.Integer",
+      "description": "The most messages the receiver inside a processor holds delivered but not settled.",
+      "defaultValue": 100
+    },
+    {
+      "name": "openbroker.connections.*.processor.receive.flow.prefetch-bytes",
+      "type": "java.lang.Long",
+      "description": "How many bytes the receiver inside a processor fetches ahead.",
+      "defaultValue": 1048576
+    },
+    {
+      "name": "openbroker.connections.*.processor.receive.flow.prefetch-messages",
+      "type": "java.lang.Integer",
+      "description": "How many messages the receiver inside a processor fetches ahead.",
+      "defaultValue": 100
+    },
+    {
+      "name": "openbroker.connections.*.processor.receive.guarantee",
+      "type": "io.github.sudoitir.openbroker.messaging.Guarantee",
+      "description": "The delivery guarantee of the receiver inside a processor: at-most-once, at-least-once or transacted.",
+      "defaultValue": "at-least-once"
+    },
+    {
+      "name": "openbroker.connections.*.processor.receive.mode",
+      "type": "io.github.sudoitir.openbroker.messaging.ReceiveMode",
+      "description": "Whether the receiver inside a processor consumes or browses.",
+      "defaultValue": "consume"
+    },
+    {
+      "name": "openbroker.connections.*.processor.receive.produced-at-or-before",
+      "type": "java.time.Instant",
+      "description": "Only messages produced at or before this instant are received by the receiver inside a processor."
+    },
+    {
+      "name": "openbroker.connections.*.processor.receive.recovery.backoff.initial",
+      "type": "The first delay",
+      "description": "java.time.Duration of the delay between recovery attempts of the receiver inside a processor.",
+      "defaultValue": "100ms"
+    },
+    {
+      "name": "openbroker.connections.*.processor.receive.recovery.backoff.jitter",
+      "type": "The share of each delay that is random, from 0 to 1",
+      "description": "java.lang.Double of the delay between recovery attempts of the receiver inside a processor.",
+      "defaultValue": "0.2"
+    },
+    {
+      "name": "openbroker.connections.*.processor.receive.recovery.backoff.max",
+      "type": "The longest delay",
+      "description": "java.time.Duration of the delay between recovery attempts of the receiver inside a processor.",
+      "defaultValue": "10s"
+    },
+    {
+      "name": "openbroker.connections.*.processor.receive.recovery.backoff.multiplier",
+      "type": "How much each delay grows over the last",
+      "description": "java.lang.Double of the delay between recovery attempts of the receiver inside a processor.",
+      "defaultValue": "2.0"
+    },
+    {
+      "name": "openbroker.connections.*.processor.receive.recovery.give-up-after",
+      "type": "java.time.Duration",
+      "description": "How long the receiver inside a processor keeps trying to recover a lost link before it gives up. Unset means never."
+    },
+    {
+      "name": "openbroker.connections.*.processor.retry.backoff.initial",
+      "type": "The first delay",
+      "description": "java.time.Duration of the delay between retries of a message in a processor.",
+      "defaultValue": "100ms"
+    },
+    {
+      "name": "openbroker.connections.*.processor.retry.backoff.jitter",
+      "type": "The share of each delay that is random, from 0 to 1",
+      "description": "java.lang.Double of the delay between retries of a message in a processor.",
+      "defaultValue": "0.2"
+    },
+    {
+      "name": "openbroker.connections.*.processor.retry.backoff.max",
+      "type": "The longest delay",
+      "description": "java.time.Duration of the delay between retries of a message in a processor.",
+      "defaultValue": "10s"
+    },
+    {
+      "name": "openbroker.connections.*.processor.retry.backoff.multiplier",
+      "type": "How much each delay grows over the last",
+      "description": "java.lang.Double of the delay between retries of a message in a processor.",
+      "defaultValue": "2.0"
+    },
+    {
+      "name": "openbroker.connections.*.processor.retry.max-attempts",
+      "type": "java.lang.Integer",
+      "description": "How many times a message is tried before it is given up on.",
+      "defaultValue": 10
+    },
+    {
+      "name": "openbroker.connections.*.processor.retry.mode",
+      "type": "io.github.sudoitir.openbroker.messaging.RetryMode",
+      "description": "Who retries a failed message: the default, the system or the client (managed).",
+      "defaultValue": "default"
+    },
+    {
+      "name": "openbroker.connections.*.processor.stop-grace",
+      "type": "java.time.Duration",
+      "description": "How long a stopping processor lets in-flight handlers finish.",
+      "defaultValue": "30s"
+    },
+    {
+      "name": "openbroker.connections.*.receiver.filter.dialect",
+      "type": "java.lang.String",
+      "description": "The dialect of the filter a receiver applies."
+    },
+    {
+      "name": "openbroker.connections.*.receiver.filter.expression",
+      "type": "java.lang.String",
+      "description": "The filter expression a receiver applies, in the named dialect."
+    },
+    {
+      "name": "openbroker.connections.*.receiver.flow.max-unsettled",
+      "type": "java.lang.Integer",
+      "description": "The most messages a receiver holds delivered but not settled.",
+      "defaultValue": 100
+    },
+    {
+      "name": "openbroker.connections.*.receiver.flow.prefetch-bytes",
+      "type": "java.lang.Long",
+      "description": "How many bytes a receiver fetches ahead.",
+      "defaultValue": 1048576
+    },
+    {
+      "name": "openbroker.connections.*.receiver.flow.prefetch-messages",
+      "type": "java.lang.Integer",
+      "description": "How many messages a receiver fetches ahead.",
+      "defaultValue": 100
+    },
+    {
+      "name": "openbroker.connections.*.receiver.guarantee",
+      "type": "io.github.sudoitir.openbroker.messaging.Guarantee",
+      "description": "The delivery guarantee of a receiver: at-most-once, at-least-once or transacted.",
+      "defaultValue": "at-least-once"
+    },
+    {
+      "name": "openbroker.connections.*.receiver.mode",
+      "type": "io.github.sudoitir.openbroker.messaging.ReceiveMode",
+      "description": "Whether a receiver consumes or browses.",
+      "defaultValue": "consume"
+    },
+    {
+      "name": "openbroker.connections.*.receiver.produced-at-or-before",
+      "type": "java.time.Instant",
+      "description": "Only messages produced at or before this instant are received by a receiver."
+    },
+    {
+      "name": "openbroker.connections.*.receiver.recovery.backoff.initial",
+      "type": "The first delay",
+      "description": "java.time.Duration of the delay between recovery attempts of a receiver.",
+      "defaultValue": "100ms"
+    },
+    {
+      "name": "openbroker.connections.*.receiver.recovery.backoff.jitter",
+      "type": "The share of each delay that is random, from 0 to 1",
+      "description": "java.lang.Double of the delay between recovery attempts of a receiver.",
+      "defaultValue": "0.2"
+    },
+    {
+      "name": "openbroker.connections.*.receiver.recovery.backoff.max",
+      "type": "The longest delay",
+      "description": "java.time.Duration of the delay between recovery attempts of a receiver.",
+      "defaultValue": "10s"
+    },
+    {
+      "name": "openbroker.connections.*.receiver.recovery.backoff.multiplier",
+      "type": "How much each delay grows over the last",
+      "description": "java.lang.Double of the delay between recovery attempts of a receiver.",
+      "defaultValue": "2.0"
+    },
+    {
+      "name": "openbroker.connections.*.receiver.recovery.give-up-after",
+      "type": "java.time.Duration",
+      "description": "How long a receiver keeps trying to recover a lost link before it gives up. Unset means never."
+    },
+    {
+      "name": "openbroker.connections.*.sender.buffer.max-block",
+      "type": "java.time.Duration",
+      "description": "How long a send waits for room in the buffer before it fails.",
+      "defaultValue": "30s"
+    },
+    {
+      "name": "openbroker.connections.*.sender.buffer.max-bytes",
+      "type": "java.lang.Long",
+      "description": "The most bytes a sender holds unconfirmed.",
+      "defaultValue": 16777216
+    },
+    {
+      "name": "openbroker.connections.*.sender.buffer.max-in-flight",
+      "type": "java.lang.Integer",
+      "description": "The most messages a sender holds unconfirmed.",
+      "defaultValue": 1000
+    },
+    {
+      "name": "openbroker.connections.*.sender.deduplication",
+      "type": "io.github.sudoitir.openbroker.messaging.DeduplicationScope",
+      "description": "Which duplicates a sender asks the broker to drop.",
+      "defaultValue": "none"
+    },
+    {
+      "name": "openbroker.connections.*.sender.guarantee",
+      "type": "io.github.sudoitir.openbroker.messaging.Guarantee",
+      "description": "The delivery guarantee of a sender: at-most-once, at-least-once or transacted.",
+      "defaultValue": "at-least-once"
+    },
+    {
+      "name": "openbroker.connections.*.sender.ordering",
+      "type": "io.github.sudoitir.openbroker.messaging.OrderingScope",
+      "description": "The ordering a sender keeps.",
+      "defaultValue": "none"
+    },
+    {
+      "name": "openbroker.connections.*.sender.recovery.backoff.initial",
+      "type": "The first delay",
+      "description": "java.time.Duration of the delay between recovery attempts of a sender.",
+      "defaultValue": "100ms"
+    },
+    {
+      "name": "openbroker.connections.*.sender.recovery.backoff.jitter",
+      "type": "The share of each delay that is random, from 0 to 1",
+      "description": "java.lang.Double of the delay between recovery attempts of a sender.",
+      "defaultValue": "0.2"
+    },
+    {
+      "name": "openbroker.connections.*.sender.recovery.backoff.max",
+      "type": "The longest delay",
+      "description": "java.time.Duration of the delay between recovery attempts of a sender.",
+      "defaultValue": "10s"
+    },
+    {
+      "name": "openbroker.connections.*.sender.recovery.backoff.multiplier",
+      "type": "How much each delay grows over the last",
+      "description": "java.lang.Double of the delay between recovery attempts of a sender.",
+      "defaultValue": "2.0"
+    },
+    {
+      "name": "openbroker.connections.*.sender.recovery.give-up-after",
+      "type": "java.time.Duration",
+      "description": "How long a sender keeps trying to recover a lost link before it gives up. Unset means never."
+    },
+    {
+      "name": "openbroker.connections.*.system",
+      "type": "java.lang.String",
+      "description": "The broker system, such as kafka or artemis. Required unless the connection is derived from Spring Boot's connection details."
+    },
+    {
+      "name": "openbroker.client.connect-timeout",
+      "type": "java.time.Duration",
+      "description": "How long a connection attempt may take, for every connection.",
+      "defaultValue": "3s"
+    },
+    {
+      "name": "openbroker.client.call-timeout",
+      "type": "java.time.Duration",
+      "description": "How long a call may take, for every connection.",
+      "defaultValue": "10s"
+    },
+    {
+      "name": "openbroker.client.max-response-bytes",
+      "type": "java.lang.Long",
+      "description": "The largest response the client reads, in bytes, for every connection.",
+      "defaultValue": 268435456
+    },
+    {
+      "name": "openbroker.client.spool-directory",
+      "type": "java.nio.file.Path",
+      "description": "Where the client spools large bodies, for every connection. Defaults to openbroker-spool under java.io.tmpdir."
+    }
+  ]
+}

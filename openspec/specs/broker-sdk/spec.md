@@ -7,14 +7,19 @@ Defines OpenBroker's consumer API and driver SPI: one vocabulary for managing, o
 ### Requirement: The SDK is a framework-free library with a driver SPI
 The SDK SHALL ship as `openbroker-api` (the consumer API and the driver SPI in separate packages, with a `module-info.java`), `openbroker-support`, `openbroker-tck`, `openbroker-bom` and `openbroker-parent`, targeting Java 25, from its own public repository.
 - `openbroker-api` SHALL depend on nothing except nullness annotations.
+- No driver, `openbroker-support` or `openbroker-tck` SHALL depend on a framework; Spring SHALL appear only in the optional Spring Boot modules.
 - The SDK SHALL carry no product type or brand other than its own.
 
 #### Scenario: An outside project adopts the SDK
 - **WHEN** a project with no Spring dependency adds `openbroker-api` and a driver
 - **THEN** it can connect to a cluster through `BrokerDrivers` and use every facet the driver offers, without importing the SPI
 
+#### Scenario: Spring leaks into a driver
+- **WHEN** a change adds a Spring dependency to a driver or to `openbroker-api`
+- **THEN** the build fails its dependency check
+
 ### Requirement: Consumers connect through one entry point
-A consumer SHALL connect through `BrokerDrivers` in the API package, never through the SPI. Drivers SHALL be found through `ServiceLoader` on the SDK's own class loader, never the thread context class loader, or be supplied explicitly.
+A consumer SHALL connect through `BrokerDrivers` in the API package, never through the SPI. Drivers SHALL be found through `ServiceLoader` on the SDK's own class loader, never the thread context class loader, or be supplied explicitly. Connecting and verifying SHALL refuse a cluster whose options break the driver's connection schema (an unknown key, a missing required key, a wrong type or a value that is not allowed), before any call is sent, naming every key and never a sensitive value.
 
 #### Scenario: A driver is discovered
 - **WHEN** a driver jar is on the class or module path of the SDK's class loader
@@ -23,6 +28,14 @@ A consumer SHALL connect through `BrokerDrivers` in the API package, never throu
 #### Scenario: A plugin cannot contribute a driver
 - **WHEN** code running in a child class loader carries a driver service file and calls `BrokerDrivers.load()`
 - **THEN** that driver is not loaded and receives no credentials
+
+#### Scenario: A misspelt option
+- **WHEN** a consumer connects with a cluster option its driver's schema does not declare
+- **THEN** the connect fails with an invalid-argument error, not sent, naming the option
+
+#### Scenario: A sensitive option has a wrong value
+- **WHEN** a sensitive option's value is not of its declared type
+- **THEN** the error names the key and never contains the value
 
 ### Requirement: A connection follows the cluster without reconnecting
 A `ClusterConnection` SHALL accept a changed cluster specification and SHALL apply it without closing the resources of nodes that did not change. Credentials and TLS material SHALL be asked for on every (re)connect, so rotation needs no reconnect. A cluster without addressable nodes SHALL be reported as one synthetic node.
@@ -244,7 +257,7 @@ The TCK SHALL test every capability a driver declares against a real broker the 
 - The SDK SHALL follow Semantic Versioning, `0.x` until the first stable release, and SHALL be released to Maven Central from a version tag.
 - A binary or source break in the API, outside types marked incubating, SHALL require a new minor version while in `0.x`.
 - A consumer's release SHALL never depend on an unreleased SDK version.
-- Optional modules (`openbroker-opentelemetry`) SHALL be versioned and released with the SDK and listed in the BOM; the benchmark module SHALL NOT be published.
+- Optional modules (`openbroker-opentelemetry`, `openbroker-spring-boot-autoconfigure`, `openbroker-spring-boot-starter`) SHALL be versioned and released with the SDK and listed in the BOM; the benchmark module SHALL NOT be published.
 
 #### Scenario: A breaking change in the API
 - **WHEN** a pull request removes a public method of `openbroker-api` without raising the minor version
@@ -253,6 +266,10 @@ The TCK SHALL test every capability a driver declares against a real broker the 
 #### Scenario: The transport leaves incubation
 - **WHEN** the transport types change shape and lose the incubating mark
 - **THEN** the release raises the minor version
+
+#### Scenario: The starter is aligned
+- **WHEN** an application imports the BOM and adds the starter and a driver without versions
+- **THEN** all three resolve to the same SDK release
 
 ### Requirement: Credentials take the forms systems use
 Credentials SHALL be one of a closed set: a username and password, a bearer token with its expiry, or none (as with mutual TLS). A credential source SHALL be asked for the current credentials on every (re)connect. A driver SHALL refuse a form it cannot use with `INVALID_ARGUMENT`, naming the forms it accepts, and never reveal the secret.

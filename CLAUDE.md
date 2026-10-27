@@ -15,11 +15,16 @@ Apache-2.0, public.
 | `openbroker-tck` | Abstract JUnit contract tests a driver extends | api, JUnit, AssertJ |
 | `openbroker-artemis` | The Apache ActiveMQ Artemis driver (Jolokia + Core) | api, support, Artemis client, Jackson 3 |
 | `openbroker-kafka` | The Apache Kafka driver (Admin, producer, consumer, share consumer) | api, support, Kafka clients |
+| `openbroker-opentelemetry` | Traces and metrics for messaging through OpenTelemetry | api, OpenTelemetry API |
+| `openbroker-spring-boot-autoconfigure` | Spring Boot 4 auto-configuration: connections, health, metrics, tracing, lifecycle | api; Spring Boot, the drivers and telemetry optional |
+| `openbroker-spring-boot-starter` | Pom of the autoconfigure module and `openbroker-support`; applications add the drivers | autoconfigure, support |
 
 ## Non-negotiables
 
 1. **Framework-free.** No Spring, no DI container, no logging framework (`System.Logger`).
-   `openbroker-api` depends on nothing but JSpecify.
+   `openbroker-api` depends on nothing but JSpecify. The one exception is the two Spring modules
+   (`openbroker-spring-boot-*`): Spring lives only there (ADR-0027), the Enforcer bans it everywhere else, and
+   Spring Boot's versions are managed in the autoconfigure module alone.
 2. **Neutral names.** Every public name must read right for Kafka, RabbitMQ, ActiveMQ Classic and
    Artemis, Pulsar, NATS JetStream, Solace, SQS, Azure Service Bus and Google Pub/Sub. A name shaped
    by one system or by JMS is a defect. Native behaviour goes through `unwrap`; native data is

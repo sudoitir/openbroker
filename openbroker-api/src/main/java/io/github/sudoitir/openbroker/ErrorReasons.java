@@ -8,6 +8,9 @@ public final class ErrorReasons {
     /** Metadata key: the plane, {@code MANAGEMENT} or {@code DATA}, whose account a failure is about. */
     public static final String PLANE = "openbroker.plane";
 
+    /** Metadata key: the connection options a refusal is about, comma-separated, never their values. */
+    public static final String OPTIONS = "openbroker.options";
+
     /** Metadata key: the id of the resource a refusal or failure is about. */
     public static final String RESOURCE = "openbroker.resource";
 

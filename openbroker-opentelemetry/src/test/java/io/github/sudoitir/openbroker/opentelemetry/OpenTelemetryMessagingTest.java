@@ -37,6 +37,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -47,13 +48,14 @@ class OpenTelemetryMessagingTest {
 
     private InMemorySpanExporter spans;
     private InMemoryMetricReader metrics;
+    private OpenTelemetrySdk sdk;
     private OpenTelemetryMessaging observer;
 
     @BeforeEach
     void setUp() {
         spans = InMemorySpanExporter.create();
         metrics = InMemoryMetricReader.create();
-        OpenTelemetrySdk sdk = OpenTelemetrySdk.builder()
+        sdk = OpenTelemetrySdk.builder()
                 .setTracerProvider(SdkTracerProvider.builder()
                         .addSpanProcessor(SimpleSpanProcessor.create(spans))
                         .build())
@@ -83,7 +85,7 @@ class OpenTelemetryMessagingTest {
                 MessageHeaders.builder().id("m-1").build(),
                 properties,
                 MessageBody.of(new byte[] {1}),
-                java.util.Set.of(),
+                Set.of(),
                 Map.of());
     }
 
@@ -130,6 +132,16 @@ class OpenTelemetryMessagingTest {
         assertThat(span.getAttributes().get(MessagingAttributes.BODY_SIZE)).isEqualTo(2L);
         assertThat(span.getAttributes().get(MessagingAttributes.SERVER_PORT)).isEqualTo(5672L);
         assertThat(properties).containsKey("traceparent");
+    }
+
+    @Test
+    void withoutInjectionASendIsStillASpanAndWritesNothingIntoTheMessage() {
+        observer = OpenTelemetryMessaging.builder(sdk).injectContext(false).build();
+
+        Map<String, PropertyValue> properties = send("m-2");
+
+        assertThat(span("send orders").getKind()).isEqualTo(SpanKind.PRODUCER);
+        assertThat(properties).isEmpty();
     }
 
     @Test

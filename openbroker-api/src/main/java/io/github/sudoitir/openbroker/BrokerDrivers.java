@@ -10,6 +10,7 @@ import java.util.Objects;
 import java.util.ServiceLoader;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 /**
  * The entry point: the drivers available, and connections through them. One instance owns the
@@ -65,13 +66,20 @@ public final class BrokerDrivers implements AutoCloseable {
         return new SystemDescriptor(d.system(), d.schema());
     }
 
-    /** Reaches the cluster once and reports what it found; nothing stays open. */
+    /**
+     * Reaches the cluster once and reports what it found; nothing stays open. Refuses, before any
+     * call, a cluster whose options break the driver's {@link ConnectionSchema}.
+     */
     public ConnectionReport verify(ConnectRequest request) {
-        return driver(request.system()).verify(request.cluster(), request.credentials(), context(request.options()));
+        return checked(request).verify(request.cluster(), request.credentials(), context(request.options()));
     }
 
+    /**
+     * Connects to the cluster. Refuses, before any call, a cluster whose options break the driver's
+     * {@link ConnectionSchema}: {@code INVALID_ARGUMENT}, not sent, naming each option and never its value.
+     */
     public ClusterConnection connect(ConnectRequest request) {
-        return driver(request.system()).connect(request.cluster(), request.credentials(), context(request.options()));
+        return checked(request).connect(request.cluster(), request.credentials(), context(request.options()));
     }
 
     /**
@@ -94,6 +102,23 @@ public final class BrokerDrivers implements AutoCloseable {
             throw new IllegalArgumentException("No driver for system " + system + "; available: " + drivers.keySet());
         }
         return d;
+    }
+
+    private BrokerDriver checked(ConnectRequest request) {
+        BrokerDriver d = driver(request.system());
+        List<ConnectionSchema.Violation> violations =
+                d.schema().validate(request.cluster().options());
+        if (violations.isEmpty()) {
+            return d;
+        }
+        String keys = violations.stream().map(ConnectionSchema.Violation::key).collect(Collectors.joining(","));
+        String detail = violations.stream().map(v -> v.key() + " " + v.detail()).collect(Collectors.joining("; "));
+        throw new BrokerException(
+                Status.INVALID_ARGUMENT,
+                ErrorInfo.of(ErrorReasons.INVALID_ARGUMENT, Map.of(ErrorReasons.OPTIONS, keys)),
+                Dispatch.NOT_SENT,
+                null,
+                "Options for system " + request.system() + " break its connection schema: " + detail);
     }
 
     private DriverContext context(ConnectOptions options) {

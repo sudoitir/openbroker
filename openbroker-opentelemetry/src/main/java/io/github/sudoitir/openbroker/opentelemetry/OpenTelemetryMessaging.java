@@ -32,6 +32,7 @@ import io.opentelemetry.context.propagation.TextMapSetter;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import org.jspecify.annotations.Nullable;
@@ -73,8 +74,10 @@ public final class OpenTelemetryMessaging implements MessagingObserver, LinkList
     private final LongCounter sent;
     private final LongCounter consumed;
     private final LongCounter recoveries;
+    private final boolean injectContext;
 
-    private OpenTelemetryMessaging(OpenTelemetry openTelemetry) {
+    private OpenTelemetryMessaging(OpenTelemetry openTelemetry, boolean injectContext) {
+        this.injectContext = injectContext;
         this.tracer = openTelemetry.getTracer(SCOPE);
         this.propagator = openTelemetry.getPropagators().getTextMapPropagator();
         Meter meter = openTelemetry.getMeter(SCOPE);
@@ -102,8 +105,38 @@ public final class OpenTelemetryMessaging implements MessagingObserver, LinkList
                 .build();
     }
 
+    /** Spans and metrics through {@code openTelemetry}, writing the trace context into each sent message. */
     public static OpenTelemetryMessaging of(OpenTelemetry openTelemetry) {
-        return new OpenTelemetryMessaging(openTelemetry);
+        return builder(openTelemetry).build();
+    }
+
+    public static Builder builder(OpenTelemetry openTelemetry) {
+        return new Builder(openTelemetry);
+    }
+
+    /** Builds an observer with choices beyond {@link #of(OpenTelemetry)}. */
+    public static final class Builder {
+
+        private final OpenTelemetry openTelemetry;
+        private boolean injectContext = true;
+
+        private Builder(OpenTelemetry openTelemetry) {
+            this.openTelemetry = Objects.requireNonNull(openTelemetry, "openTelemetry");
+        }
+
+        /**
+         * Whether a send writes the trace context into the message (default {@code true}). Turn it off
+         * in a tool that moves, retries or relays messages producers wrote: the send is still a span,
+         * and the message keeps exactly the properties it had, including the producer's own context.
+         */
+        public Builder injectContext(boolean inject) {
+            this.injectContext = inject;
+            return this;
+        }
+
+        public OpenTelemetryMessaging build() {
+            return new OpenTelemetryMessaging(openTelemetry, injectContext);
+        }
     }
 
     @Override
@@ -112,7 +145,9 @@ public final class OpenTelemetryMessaging implements MessagingObserver, LinkList
         message.headers().id().ifPresent(id -> span.setAttribute(MESSAGE_ID, id));
         message.headers().correlationId().ifPresent(id -> span.setAttribute(CONVERSATION_ID, id));
         span.setAttribute(BODY_SIZE, message.body().size());
-        propagator.inject(Context.current().with(span), carrier, SETTER);
+        if (injectContext) {
+            propagator.inject(Context.current().with(span), carrier, SETTER);
+        }
         return new Operation(op, op.operation(), span, sent, operationDuration, op.messageCount());
     }
 
