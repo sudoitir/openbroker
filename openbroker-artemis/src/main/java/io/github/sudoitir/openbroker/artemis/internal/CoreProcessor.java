@@ -2,6 +2,7 @@ package io.github.sudoitir.openbroker.artemis.internal;
 
 import io.github.sudoitir.openbroker.messaging.LinkState;
 import io.github.sudoitir.openbroker.messaging.Processor;
+import io.github.sudoitir.openbroker.messaging.RetryPolicy;
 import java.time.Duration;
 
 /** A processor with the lanes' shared resources, released when it stops. */
@@ -25,6 +26,11 @@ final class CoreProcessor implements Processor {
     @Override
     public LinkState state() {
         return engine.state();
+    }
+
+    @Override
+    public RetryPolicy retry() {
+        return engine.retry();
     }
 
     @Override

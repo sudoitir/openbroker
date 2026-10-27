@@ -31,6 +31,9 @@
  * message. {@link io.github.sudoitir.openbroker.messaging.OrderingScope} keeps a group, a partition
  * or the whole subscription in order. The retry policy is the system's, or managed by the client:
  * in place when ordered, by delayed release when not, and dead-lettered after {@code maxAttempts}.
+ * The default follows what the system enforces on that kind of subscription: its own policy where it
+ * counts attempts, otherwise ten managed attempts retried in place. {@code Processor.retry()} says
+ * which the default became.
  *
  * <h2>Recovery</h2>
  * The driver reopens a lost link on its node and then on the serving member of its HA group, under

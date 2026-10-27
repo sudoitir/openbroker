@@ -59,7 +59,9 @@ class MessagingOptionsTest {
         ProcessorOptions processor = ProcessorOptions.defaults();
         assertThat(processor.concurrency()).isEqualTo(8);
         assertThat(processor.ordering()).isEqualTo(OrderingScope.NONE);
-        assertThat(processor.retry().mode()).isEqualTo(RetryMode.SYSTEM);
+        assertThat(processor.retry()).isEqualTo(RetryPolicy.defaults());
+        assertThat(processor.retry().mode()).isEqualTo(RetryMode.DEFAULT);
+        assertThat(processor.retry().maxAttempts()).isEqualTo(10);
         assertThat(processor.stopGrace()).isEqualTo(Duration.ofSeconds(30));
     }
 

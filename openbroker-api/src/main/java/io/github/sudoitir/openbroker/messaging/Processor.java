@@ -9,6 +9,9 @@ public interface Processor extends AutoCloseable {
 
     LinkState state();
 
+    /** The retry policy in force: the one asked for, with {@code DEFAULT} resolved to {@code SYSTEM} or {@code MANAGED}. */
+    RetryPolicy retry();
+
     /** Stops taking messages, waits up to {@code grace} for running handlers, and releases the rest uncounted. */
     void stop(Duration grace);
 

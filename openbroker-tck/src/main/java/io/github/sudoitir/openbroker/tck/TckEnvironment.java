@@ -7,6 +7,7 @@ import io.github.sudoitir.openbroker.model.KindId;
 import io.github.sudoitir.openbroker.model.ResourceId;
 import io.github.sudoitir.openbroker.spi.BrokerDriver;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * What a driver gives the TCK: itself, a request that reaches a real test cluster, and how to make
@@ -30,6 +31,32 @@ public interface TckEnvironment {
 
     /** The attributes that create a durable standalone subscription named {@code name}. */
     Attributes subscriptionAttributes(String name);
+
+    /**
+     * Every kind of subscription this environment can make, which the cases that run per kind cover.
+     * The default is {@link #subscriptionKind()} alone.
+     */
+    default Set<KindId> subscriptionKinds() {
+        return Set.of(subscriptionKind());
+    }
+
+    /** The id a new subscription of {@code kind} named {@code name} gets. */
+    default ResourceId subscriptionId(KindId kind, String name) {
+        requireOwnKind(kind);
+        return subscriptionId(name);
+    }
+
+    /** The attributes that create a durable standalone subscription of {@code kind} named {@code name}. */
+    default Attributes subscriptionAttributes(KindId kind, String name) {
+        requireOwnKind(kind);
+        return subscriptionAttributes(name);
+    }
+
+    private void requireOwnKind(KindId kind) {
+        if (!kind.equals(subscriptionKind())) {
+            throw new IllegalArgumentException("This environment makes only " + subscriptionKind() + ", not " + kind);
+        }
+    }
 
     /**
      * A valid filter in the driver's own dialect matching messages whose string property {@code

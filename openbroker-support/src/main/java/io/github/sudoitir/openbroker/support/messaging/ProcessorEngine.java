@@ -141,6 +141,7 @@ public final class ProcessorEngine implements Processor {
      * Opens the lanes and starts one virtual thread on each.
      *
      * @param id the processor's name
+     * @param options the options, whose retry policy is resolved (never {@code DEFAULT})
      * @param info the telemetry description of one handler call
      */
     public static ProcessorEngine start(
@@ -151,6 +152,9 @@ public final class ProcessorEngine implements Processor {
             Lanes lanes,
             MessageHandler handler) {
         RetryPolicy retry = options.retry();
+        if (retry.mode() == RetryMode.DEFAULT) {
+            throw new IllegalArgumentException("Resolve RetryMode.DEFAULT with Retries.resolve before starting");
+        }
         Sender deadLetter =
                 retry.mode() == RetryMode.MANAGED && retry.deadLetter().isPresent()
                         ? lanes.deadLetter(retry.deadLetter().get())
@@ -184,6 +188,11 @@ public final class ProcessorEngine implements Processor {
     @Override
     public LinkState state() {
         return closed ? LinkState.CLOSED : lanes.state();
+    }
+
+    @Override
+    public RetryPolicy retry() {
+        return options.retry();
     }
 
     /** Stops taking messages, waits up to {@code grace} for the handlers, then interrupts them; what is left is released uncounted. */

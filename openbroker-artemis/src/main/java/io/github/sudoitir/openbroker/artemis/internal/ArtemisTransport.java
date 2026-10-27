@@ -9,9 +9,9 @@ import io.github.sudoitir.openbroker.Outcome;
 import io.github.sudoitir.openbroker.Permit;
 import io.github.sudoitir.openbroker.Status;
 import io.github.sudoitir.openbroker.access.Remedy;
+import io.github.sudoitir.openbroker.artemis.ArtemisKinds;
 import io.github.sudoitir.openbroker.artemis.ArtemisRemedies;
 import io.github.sudoitir.openbroker.messaging.DeduplicationScope;
-import io.github.sudoitir.openbroker.messaging.Enforcement;
 import io.github.sudoitir.openbroker.messaging.Guarantee;
 import io.github.sudoitir.openbroker.messaging.LinkListener;
 import io.github.sudoitir.openbroker.messaging.MessageHandler;
@@ -25,18 +25,21 @@ import io.github.sudoitir.openbroker.messaging.Receiver;
 import io.github.sudoitir.openbroker.messaging.ReceiverOptions;
 import io.github.sudoitir.openbroker.messaging.RetryMode;
 import io.github.sudoitir.openbroker.messaging.RetryPolicy;
-import io.github.sudoitir.openbroker.messaging.RetrySupport;
 import io.github.sudoitir.openbroker.messaging.SendTarget;
 import io.github.sudoitir.openbroker.messaging.Sender;
 import io.github.sudoitir.openbroker.messaging.SenderOptions;
 import io.github.sudoitir.openbroker.messaging.SettlementScope;
+import io.github.sudoitir.openbroker.messaging.SubscriptionCapabilities;
+import io.github.sudoitir.openbroker.messaging.SystemRetry;
 import io.github.sudoitir.openbroker.messaging.Transport;
 import io.github.sudoitir.openbroker.messaging.TransportCapabilities;
 import io.github.sudoitir.openbroker.model.ResourceId;
 import io.github.sudoitir.openbroker.model.Scope;
 import io.github.sudoitir.openbroker.support.Deadlines;
 import io.github.sudoitir.openbroker.support.messaging.ProcessorEngine;
+import io.github.sudoitir.openbroker.support.messaging.Retries;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
@@ -54,7 +57,8 @@ import org.apache.activemq.artemis.api.core.ActiveMQException;
  *       a processor are a {@link CoreReceiver} each, on a Core session of their own. A link that is
  *       lost is reopened by the driver, on its node and then on the serving member of its HA group,
  *       and its state changes reach {@link #watch}.
- *   <li>Retries. With {@code RetryMode.SYSTEM} nothing is counted in the client: a failing handler
+ *   <li>Retries. The default resolves to {@code SYSTEM}, because the broker counts attempts. With
+ *       {@code RetryMode.SYSTEM} nothing is counted in the client: a failing handler
  *       releases its message counted, and the broker's address settings decide: {@code
  *       redelivery-delay} and its multiplier, {@code max-delivery-attempts} and {@code
  *       dead-letter-address}. With {@code MANAGED} the client counts, so delay, attempts and dead
@@ -71,9 +75,13 @@ public final class ArtemisTransport implements Transport, AutoCloseable {
             DeduplicationScope.WINDOW,
             Set.of(OrderingScope.NONE, OrderingScope.GROUP, OrderingScope.SUBSCRIPTION),
             Set.of(PrefetchBound.BYTES),
-            SettlementScope.RECEIVER,
-            true,
-            new RetrySupport(Enforcement.CLIENT, Enforcement.CLIENT, Enforcement.CLIENT),
+            Map.of(
+                    ArtemisKinds.QUEUE,
+                    new SubscriptionCapabilities(
+                            Set.of(OrderingScope.NONE, OrderingScope.GROUP, OrderingScope.SUBSCRIPTION),
+                            SettlementScope.RECEIVER,
+                            true,
+                            new SystemRetry(true, true, true))),
             true);
 
     private final Cluster cluster;
@@ -98,14 +106,18 @@ public final class ArtemisTransport implements Transport, AutoCloseable {
         return env.watch(listener);
     }
 
-    private static void requireDeclared(Guarantee guarantee, OrderingScope ordering, DeduplicationScope deduplication) {
+    private static void requireDeclared(
+            Guarantee guarantee,
+            OrderingScope ordering,
+            Set<OrderingScope> orderings,
+            DeduplicationScope deduplication) {
         if (!CAPABILITIES.deduplication().satisfies(deduplication)) {
             throw Unimplemented.of("deduplicate in the scope " + deduplication);
         }
         if (!CAPABILITIES.guarantees().contains(guarantee)) {
             throw Unimplemented.of("open a link with the guarantee " + guarantee);
         }
-        if (!CAPABILITIES.orderings().contains(ordering)) {
+        if (!orderings.contains(ordering)) {
             throw Unimplemented.of("keep " + ordering + " order: Artemis has no partitions");
         }
     }
@@ -121,7 +133,7 @@ public final class ArtemisTransport implements Transport, AutoCloseable {
     @Override
     public Receiver receiver(ResourceId subscription, Scope scope, ReceiverOptions options) {
         Targets.requireQueue(subscription);
-        requireDeclared(options.guarantee(), OrderingScope.NONE, DeduplicationScope.NONE);
+        requireDeclared(options.guarantee(), OrderingScope.NONE, Set.of(OrderingScope.NONE), DeduplicationScope.NONE);
         NodeHandle node = single(scope, "receiver");
         Deadline deadline = Deadlines.current(cluster.options());
         String selector = Selectors.bounded(Selectors.of(options.filter()), options.producedAtOrBefore());
@@ -143,7 +155,7 @@ public final class ArtemisTransport implements Transport, AutoCloseable {
 
     @Override
     public Sender sender(SendTarget target, Scope scope, SenderOptions options) {
-        requireDeclared(options.guarantee(), options.ordering(), options.deduplication());
+        requireDeclared(options.guarantee(), options.ordering(), CAPABILITIES.orderings(), options.deduplication());
         Deadline deadline = Deadlines.current(cluster.options());
         BrokerException last = null;
         for (NodeHandle node : cluster.nodes(scope)) {
@@ -171,9 +183,11 @@ public final class ArtemisTransport implements Transport, AutoCloseable {
     }
 
     @Override
-    public Processor process(ResourceId subscription, Scope scope, ProcessorOptions options, MessageHandler handler) {
+    public Processor process(ResourceId subscription, Scope scope, ProcessorOptions asked, MessageHandler handler) {
         Targets.requireQueue(subscription);
-        requireDeclared(options.receive().guarantee(), options.ordering(), DeduplicationScope.NONE);
+        SubscriptionCapabilities queue = CAPABILITIES.subscription(subscription.kind());
+        ProcessorOptions options = asked.withRetry(Retries.resolve(asked.retry(), queue.retry()));
+        requireDeclared(options.receive().guarantee(), options.ordering(), queue.orderings(), DeduplicationScope.NONE);
         NodeHandle node = single(scope, "processor");
         Deadline deadline = Deadlines.current(cluster.options());
         String selector = Selectors.bounded(

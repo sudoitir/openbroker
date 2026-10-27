@@ -1,5 +1,7 @@
 package io.github.sudoitir.openbroker.messaging;
 
+import io.github.sudoitir.openbroker.model.KindId;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
@@ -9,11 +11,9 @@ import java.util.Set;
  *
  * @param guarantees the guarantees a link can have
  * @param deduplication the strongest scope in which the system drops repeated messages
- * @param orderings the orderings a link can keep
+ * @param orderings the orderings a sender can keep
  * @param prefetchBounds the units in which the system bounds what it delivers ahead
- * @param pullSettlement what a release on a pull receiver covers
- * @param joinedTransactions whether a sender can join a receiver's transaction
- * @param retry who enforces each part of a retry policy
+ * @param subscriptions what the transport can do on each kind of subscription it offers
  * @param failover whether a link follows a failover to another node
  */
 public record TransportCapabilities(
@@ -21,17 +21,27 @@ public record TransportCapabilities(
         DeduplicationScope deduplication,
         Set<OrderingScope> orderings,
         Set<PrefetchBound> prefetchBounds,
-        SettlementScope pullSettlement,
-        boolean joinedTransactions,
-        RetrySupport retry,
+        Map<KindId, SubscriptionCapabilities> subscriptions,
         boolean failover) {
 
     public TransportCapabilities {
         guarantees = Set.copyOf(guarantees);
+        Objects.requireNonNull(deduplication, "deduplication");
         orderings = Set.copyOf(orderings);
         prefetchBounds = Set.copyOf(prefetchBounds);
-        Objects.requireNonNull(deduplication, "deduplication");
-        Objects.requireNonNull(pullSettlement, "pullSettlement");
-        Objects.requireNonNull(retry, "retry");
+        subscriptions = Map.copyOf(subscriptions);
+    }
+
+    /**
+     * What the transport can do on {@code kind}.
+     *
+     * @throws IllegalArgumentException when the transport offers no subscription of that kind
+     */
+    public SubscriptionCapabilities subscription(KindId kind) {
+        SubscriptionCapabilities capabilities = subscriptions.get(kind);
+        if (capabilities == null) {
+            throw new IllegalArgumentException("The transport offers no subscription of kind " + kind);
+        }
+        return capabilities;
     }
 }
