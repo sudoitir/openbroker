@@ -14,9 +14,9 @@ Rules:
 - [x] 2.2 Add the Enforcer rule that bans Spring outside the two modules (D11). Check: the build fails when the test profile adds Spring to `openbroker-api`
 
 ## 3. Binding
-- [ ] 3.1 Add `OpenBrokerProperties`, `RecordBinder`, `CredentialsProperties` and `ConnectionOptions` (D1). Check: `ApplicationContextRunner` tests bind a full and a partial YAML for each driver, reject an out-of-range value, and reject a dead-letter target
-- [ ] 3.2 Run schema validation at bind time, and add the `FailureAnalyzer`, with redacted messages. Check: misspelt-option, missing-driver and sensitive-value tests
-- [ ] 3.3 Add the configuration metadata, with descriptions. Check: a test that the metadata lists exactly the bindable keys
+- [x] 3.1 Add `OpenBrokerProperties`, `RecordBinder`, `CredentialsProperties` and `ConnectionOptions` (D1). Check: `ApplicationContextRunner` tests bind a full and a partial YAML for each driver, reject an out-of-range value, and reject a dead-letter target
+- [x] 3.2 Run schema validation at bind time, and add the `FailureAnalyzer`, with redacted messages. Check: misspelt-option, missing-driver and sensitive-value tests
+- [x] 3.3 Add the configuration metadata, with descriptions. Check: a test that the metadata lists exactly the bindable keys
 
 ## 4. Building blocks and beans
 - [ ] 4.1 Add the `BrokerDrivers` bean, `OpenBrokerConnectOptions`, `ConnectOptionsCustomizer` and `SslBundleTls` (D4, D8). Check: context-runner tests for interceptor, clock, customizers and the client defaults, plus a missing-bundle test and a bundle-reload test
