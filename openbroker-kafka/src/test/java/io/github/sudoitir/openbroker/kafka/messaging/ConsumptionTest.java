@@ -255,4 +255,77 @@ class ConsumptionTest {
         assertThat(delivered.getFirst().attempt()).isEqualTo(3);
         assertThat(new ArrayList<>(mock.paused())).doesNotContain(P0);
     }
+
+    @Test
+    void aMalformedDueOrAttemptHeaderIsIgnoredAndNoRecordAfterItIsLost() {
+        open(Guarantee.AT_LEAST_ONCE, 10, Duration.ZERO);
+        RecordHeaders bad = new RecordHeaders();
+        bad.add(RecordCodec.DUE, "tomorrow".getBytes(StandardCharsets.UTF_8));
+        bad.add(RecordCodec.ATTEMPT, "x".getBytes(StandardCharsets.UTF_8));
+        ConsumerRecord<byte[], byte[]> poisoned = new ConsumerRecord<>(
+                TOPIC,
+                0,
+                0,
+                0L,
+                TimestampType.CREATE_TIME,
+                0,
+                2,
+                null,
+                "vv".getBytes(StandardCharsets.UTF_8),
+                bad,
+                Optional.empty());
+        mock.schedulePollTask(() -> {
+            mock.rebalance(List.of(P0));
+            mock.addRecord(poisoned);
+            mock.addRecord(record(1));
+            mock.addRecord(record(2));
+        });
+        await("three deliveries", () -> delivered.size() == 3);
+        assertThat(delivered).extracting(Delivery::offset).containsExactly(0L, 1L, 2L);
+        assertThat(delivered.getFirst().attempt()).isEqualTo(1);
+
+        delivered.forEach(consumption::settle);
+        await("commit through all three", () -> committed() == 3);
+    }
+
+    @Test
+    void aRecordWhoseHeadersTheCodecCannotReadIsHandedOutWithoutThemNotLost() {
+        open(Guarantee.AT_LEAST_ONCE, 10, Duration.ZERO);
+        RecordHeaders bad = new RecordHeaders();
+        bad.add("n", "abc".getBytes(StandardCharsets.UTF_8));
+        bad.add("openbroker.type.n", "int".getBytes(StandardCharsets.UTF_8));
+        ConsumerRecord<byte[], byte[]> poisoned = new ConsumerRecord<>(
+                TOPIC,
+                0,
+                0,
+                0L,
+                TimestampType.CREATE_TIME,
+                0,
+                2,
+                null,
+                "vv".getBytes(StandardCharsets.UTF_8),
+                bad,
+                Optional.empty());
+        mock.schedulePollTask(() -> {
+            mock.rebalance(List.of(P0));
+            mock.addRecord(poisoned);
+            mock.addRecord(record(1));
+        });
+        await("two deliveries", () -> delivered.size() == 2);
+        assertThat(new String(delivered.getFirst().record().value(), StandardCharsets.UTF_8))
+                .isEqualTo("vv");
+    }
+
+    @Test
+    void settlingInATransactionForADroppedPartitionIsStaleNotANullPointer() {
+        open(Guarantee.AT_LEAST_ONCE, 10, Duration.ofSeconds(1));
+        assignAndAdd(1);
+        await("a delivery", () -> delivered.size() == 1);
+        mock.schedulePollTask(() -> consumption.rebalances().onPartitionsLost(List.of(P0)));
+        await("the partition is dropped", () -> !retracted.isEmpty());
+
+        assertThatThrownBy(() -> consumption.commitInTransaction(null, List.of(delivered.getFirst())))
+                .isInstanceOfSatisfying(
+                        BrokerException.class, e -> assertThat(e.reason()).isEqualTo(ErrorReasons.DELIVERY_STALE));
+    }
 }
