@@ -37,7 +37,7 @@ Order and parallelism:
 - [x] 3.2 Receiver and processor: settlement tracker with contiguous commits, lanes per partition and per key, credit by pause and resume, the whole-subscription check. Check: ordering and flow-control cases, and a unit test of the tracker
 - [x] 3.3 Rebalance handling: revoke drains within grace and commits; lost marks stale (`DELIVERY_STALE`); grace longer than the rebalance timeout is refused at open. Check: join, cut-off and grace ITs
 - [x] 3.4 Transacted guarantee and joined transactions through `sendOffsetsToTransaction`, with one stable transactional id per processor instance and group-metadata fencing (KIP-447). Check: the consume-transform-produce case, and a zombie-fencing IT
-- [ ] 3.5 SASL PLAIN, SCRAM and OAUTHBEARER callback handlers, and the TLS engine factory over `TlsProvider`. Check: rotation and permission-denied cases against a SASL-enabled container
+- [x] 3.5 SASL PLAIN, SCRAM and OAUTHBEARER callback handlers, and the TLS engine factory over `TlsProvider`. Check: rotation and permission-denied cases against a SASL-enabled container
 - [ ] 3.6 ADR 0019. Check: `KafkaMessagingTckIT extends MessagingTck` green for consumer groups
 
 ## 4. Retry, dead letters and share groups (files: openbroker-kafka/src/**/kafka/messaging/retry/**, …/share/**)

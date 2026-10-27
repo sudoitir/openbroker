@@ -5,6 +5,7 @@ import io.github.sudoitir.openbroker.CallInfo;
 import io.github.sudoitir.openbroker.ClusterSpec;
 import io.github.sudoitir.openbroker.ConnectOptions;
 import io.github.sudoitir.openbroker.CredentialSource;
+import io.github.sudoitir.openbroker.Credentials;
 import io.github.sudoitir.openbroker.Deadline;
 import io.github.sudoitir.openbroker.Dispatch;
 import io.github.sudoitir.openbroker.Endpoint;
@@ -16,6 +17,8 @@ import io.github.sudoitir.openbroker.Permit;
 import io.github.sudoitir.openbroker.Plane;
 import io.github.sudoitir.openbroker.Status;
 import io.github.sudoitir.openbroker.kafka.KafkaOptions;
+import io.github.sudoitir.openbroker.kafka.security.CredentialCallbackHandler;
+import io.github.sudoitir.openbroker.kafka.security.TlsEngineFactory;
 import io.github.sudoitir.openbroker.model.ResourceId;
 import io.github.sudoitir.openbroker.spi.DriverContext;
 import io.github.sudoitir.openbroker.support.Deadlines;
@@ -25,9 +28,11 @@ import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.common.config.SaslConfigs;
+import org.apache.kafka.common.config.SslConfigs;
 import org.apache.kafka.common.config.types.Password;
 import org.jspecify.annotations.Nullable;
 
@@ -115,18 +120,23 @@ public final class KafkaCluster implements AutoCloseable {
         String protocol = current.option(KafkaOptions.SECURITY_PROTOCOL, KafkaOptions.PLAINTEXT);
         config.put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, protocol);
         if (protocol.equals(KafkaOptions.SSL) || protocol.equals(KafkaOptions.SASL_SSL)) {
-            if (options().tls().current().isPresent()) {
-                throw KafkaErrors.unimplemented("use caller-supplied TLS material yet");
-            }
-            // Hostname verification stays on: the clients' default is to verify the broker's name.
+            // The engine factory asks the TLS provider for every new connection, and verifies the
+            // broker's host name against its certificate.
+            config.put(SslConfigs.SSL_ENGINE_FACTORY_CLASS_CONFIG, TlsEngineFactory.class);
+            config.put(TlsEngineFactory.TLS, options().tls());
         }
         if (protocol.startsWith("SASL_")) {
             String mechanism = current.option(KafkaOptions.SASL_MECHANISM, KafkaOptions.PLAIN);
             config.put(SaslConfigs.SASL_MECHANISM, mechanism);
-            // A Password prints as [hidden], so the login never shows in a logged or printed config.
-            config.put(
-                    SaslConfigs.SASL_JAAS_CONFIG,
-                    new Password(Sasl.jaasConfig(mechanism, credentials.forPlane(plane))));
+            config.put(SaslConfigs.SASL_JAAS_CONFIG, new Password(Sasl.loginModule(mechanism)));
+            Sasl.requireForm(mechanism, credentials.forPlane(plane));
+            // The handler asks the source for each authentication; the login holds no secret.
+            Supplier<Credentials> source = () -> credentials.forPlane(plane);
+            config.put(CredentialCallbackHandler.CREDENTIALS, source);
+            config.put(SaslConfigs.SASL_CLIENT_CALLBACK_HANDLER_CLASS, CredentialCallbackHandler.class);
+            if (mechanism.equals(KafkaOptions.OAUTHBEARER)) {
+                config.put(SaslConfigs.SASL_LOGIN_CALLBACK_HANDLER_CLASS, CredentialCallbackHandler.class);
+            }
         }
         return config;
     }

@@ -17,14 +17,23 @@ import io.github.sudoitir.openbroker.Status;
 import io.github.sudoitir.openbroker.TlsMaterial;
 import io.github.sudoitir.openbroker.TlsProvider;
 import io.github.sudoitir.openbroker.kafka.KafkaOptions;
+import io.github.sudoitir.openbroker.kafka.security.CredentialCallbackHandler;
+import io.github.sudoitir.openbroker.kafka.security.TlsEngineFactory;
 import io.github.sudoitir.openbroker.spi.DriverContext;
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 import javax.net.ssl.SSLContext;
-import org.apache.kafka.common.security.JaasContext;
+import javax.net.ssl.SSLEngine;
+import javax.security.auth.callback.Callback;
+import javax.security.auth.callback.NameCallback;
+import javax.security.auth.callback.PasswordCallback;
+import org.apache.kafka.common.security.oauthbearer.OAuthBearerTokenCallback;
 import org.junit.jupiter.api.Test;
 
 class KafkaClusterTest {
@@ -99,10 +108,20 @@ class KafkaClusterTest {
         }
     }
 
+    private static String nameFor(Map<String, Object> config, String mechanism) throws Exception {
+        CredentialCallbackHandler handler = new CredentialCallbackHandler();
+        handler.configure(config, mechanism, List.of());
+        NameCallback name = new NameCallback("user");
+        PasswordCallback password = new PasswordCallback("password", false);
+        handler.handle(new Callback[] {name, password});
+        return name.getName() + ":" + new String(password.getPassword());
+    }
+
     @Test
-    void saslLogsInWithThePlanesOwnCredentials() {
+    void saslAsksTheSourceForThePlanesOwnCredentialsAtEveryAuthentication() throws Exception {
+        AtomicReference<String> rotating = new AtomicReference<>("s3cret");
         CredentialSource credentials = plane -> plane == Plane.MANAGEMENT
-                ? Credentials.usernamePassword("admin", "s3cret")
+                ? Credentials.usernamePassword("admin", rotating.get())
                 : Credentials.usernamePassword("app", "other");
         try (KafkaCluster cluster = cluster(
                 spec(
@@ -115,21 +134,61 @@ class KafkaClusterTest {
             Map<String, Object> admin = cluster.clientConfig(Plane.MANAGEMENT);
             Map<String, Object> data = cluster.clientConfig(Plane.DATA);
 
-            assertThat(admin).containsEntry("sasl.mechanism", "SCRAM-SHA-512");
-            assertThat(login(admin)).containsEntry("username", "admin").containsEntry("password", "s3cret");
-            assertThat(login(data)).containsEntry("username", "app");
+            assertThat(admin)
+                    .containsEntry("sasl.mechanism", "SCRAM-SHA-512")
+                    .containsEntry("sasl.client.callback.handler.class", CredentialCallbackHandler.class);
+            assertThat(admin.get("sasl.jaas.config").toString())
+                    .doesNotContain("admin")
+                    .doesNotContain("s3cret");
+            assertThat(nameFor(admin, "SCRAM-SHA-512")).isEqualTo("admin:s3cret");
+            assertThat(nameFor(data, "SCRAM-SHA-512")).isEqualTo("app:other");
+
+            rotating.set("rotated");
+            assertThat(nameFor(admin, "SCRAM-SHA-512")).isEqualTo("admin:rotated");
         }
     }
 
     @Test
-    void aPasswordWithQuotesSurvivesTheLoginConfiguration() {
+    void aBearerTokenSourceLogsInThroughTheTokenHandler() throws Exception {
+        Instant expires = Instant.now().plusSeconds(60);
         try (KafkaCluster cluster = cluster(
-                spec(Map.of(KafkaOptions.SECURITY_PROTOCOL, KafkaOptions.SASL_PLAINTEXT), "one:9092"),
-                CredentialSource.of(Credentials.usernamePassword("us\"er", "pa\\ss\"word")),
+                spec(
+                        Map.of(
+                                KafkaOptions.SECURITY_PROTOCOL, KafkaOptions.SASL_SSL,
+                                KafkaOptions.SASL_MECHANISM, KafkaOptions.OAUTHBEARER),
+                        "one:9092"),
+                CredentialSource.of(Credentials.bearerToken("tok3n", expires)),
                 ConnectOptions.defaults())) {
-            assertThat(login(cluster.clientConfig(Plane.MANAGEMENT)))
-                    .containsEntry("username", "us\"er")
-                    .containsEntry("password", "pa\\ss\"word");
+            Map<String, Object> config = cluster.clientConfig(Plane.DATA);
+            assertThat(config)
+                    .containsEntry("sasl.login.callback.handler.class", CredentialCallbackHandler.class)
+                    .containsEntry("sasl.client.callback.handler.class", CredentialCallbackHandler.class);
+
+            CredentialCallbackHandler handler = new CredentialCallbackHandler();
+            handler.configure(config, KafkaOptions.OAUTHBEARER, List.of());
+            OAuthBearerTokenCallback callback = new OAuthBearerTokenCallback();
+            handler.handle(new Callback[] {callback});
+            assertThat(callback.token().value()).isEqualTo("tok3n");
+            assertThat(callback.token().lifetimeMs()).isEqualTo(expires.toEpochMilli());
+            assertThat(callback.token().toString()).doesNotContain("tok3n");
+        }
+    }
+
+    @Test
+    void aPasswordWhereATokenIsNeededIsRefusedNamingTheForm() {
+        try (KafkaCluster cluster = cluster(
+                spec(
+                        Map.of(
+                                KafkaOptions.SECURITY_PROTOCOL, KafkaOptions.SASL_SSL,
+                                KafkaOptions.SASL_MECHANISM, KafkaOptions.OAUTHBEARER),
+                        "one:9092"),
+                CredentialSource.of(Credentials.usernamePassword("u", "topsecret")),
+                ConnectOptions.defaults())) {
+            assertThatThrownBy(() -> cluster.clientConfig(Plane.MANAGEMENT))
+                    .isInstanceOfSatisfying(BrokerException.class, e -> {
+                        assertThat(e.status()).isEqualTo(Status.INVALID_ARGUMENT);
+                        assertThat(e.getMessage()).contains("bearer token").doesNotContain("topsecret");
+                    });
         }
     }
 
@@ -178,16 +237,34 @@ class KafkaClusterTest {
     }
 
     @Test
-    void callerSuppliedTlsMaterialIsRefusedNotIgnored() throws Exception {
-        ConnectOptions options =
-                ConnectOptions.defaults().withTls(TlsProvider.of(TlsMaterial.of("m", SSLContext.getDefault())));
+    void tlsMaterialIsAskedForAtEveryNewConnectionAndTheHostNameIsAlwaysVerified() throws Exception {
+        AtomicInteger asked = new AtomicInteger();
+        SSLContext context = SSLContext.getDefault();
+        TlsProvider provider = () -> {
+            asked.incrementAndGet();
+            return Optional.of(new TlsMaterial("m", context, false, List.of(), List.of()));
+        };
         try (KafkaCluster cluster = cluster(
                 spec(Map.of(KafkaOptions.SECURITY_PROTOCOL, KafkaOptions.SSL), "one:9092"),
                 CredentialSource.none(),
-                options)) {
-            assertThatThrownBy(() -> cluster.clientConfig(Plane.MANAGEMENT))
-                    .isInstanceOfSatisfying(
-                            BrokerException.class, e -> assertThat(e.status()).isEqualTo(Status.UNIMPLEMENTED));
+                ConnectOptions.defaults().withTls(provider))) {
+            Map<String, Object> config = cluster.clientConfig(Plane.MANAGEMENT);
+            assertThat(config).containsEntry("ssl.engine.factory.class", TlsEngineFactory.class);
+
+            TlsEngineFactory factory = new TlsEngineFactory();
+            factory.configure(config);
+            for (int connection = 1; connection <= 2; connection++) {
+                SSLEngine engine = factory.createClientSslEngine("broker-1", 9093, "https");
+                assertThat(engine.getUseClientMode()).isTrue();
+                assertThat(engine.getSSLParameters().getEndpointIdentificationAlgorithm())
+                        .as("verification stays on although the material says off")
+                        .isEqualToIgnoringCase("https");
+                assertThat(asked).hasValue(connection);
+            }
+            assertThat(factory.createClientSslEngine("broker-1", 9093, "")
+                            .getSSLParameters()
+                            .getEndpointIdentificationAlgorithm())
+                    .isEqualToIgnoringCase("https");
         }
     }
 
@@ -199,11 +276,5 @@ class KafkaClusterTest {
                     .containsEntry("request.timeout.ms", 10_000)
                     .containsEntry("socket.connection.setup.timeout.ms", 3_000);
         }
-    }
-
-    private static Map<String, String> login(Map<String, Object> config) {
-        var entries = JaasContext.loadClientContext(config).configurationEntries();
-        return entries.getFirst().getOptions().entrySet().stream()
-                .collect(Collectors.toMap(Map.Entry::getKey, e -> String.valueOf(e.getValue())));
     }
 }
