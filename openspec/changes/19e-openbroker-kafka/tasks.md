@@ -53,7 +53,7 @@ Order and parallelism:
 
 ## 6. Documentation and finish
 - [x] 6.1 README and CLAUDE.md layout table: the Kafka driver, its supported range, what it declares unavailable and why, and the share-group kind. Check: the README examples compile in a doc test or are copied from an IT
-- [ ] 6.2 Run the full `./mvnw verify` once, in a capped scope, before the PR. Check: green locally and in CI
+- [x] 6.2 Run the full `./mvnw verify` once, in a capped scope, before the PR. Check: green locally and in CI
 
 ## Workflow follow-up
 - PR, merge on green CI, `/opsx:archive`, then ask the maintainer to run the `Release` workflow for `0.3.0`.
