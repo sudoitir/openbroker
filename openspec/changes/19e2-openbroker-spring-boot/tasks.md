@@ -19,7 +19,7 @@ Rules:
 - [x] 3.3 Add the configuration metadata, with descriptions. Check: a test that the metadata lists exactly the bindable keys
 
 ## 4. Building blocks and beans
-- [ ] 4.1 Add the `BrokerDrivers` bean, `OpenBrokerConnectOptions`, `ConnectOptionsCustomizer` and `SslBundleTls` (D4, D8). Check: context-runner tests for interceptor, clock, customizers and the client defaults, plus a missing-bundle test and a bundle-reload test
+- [x] 4.1 Add the `BrokerDrivers` bean, `OpenBrokerConnectOptions`, `ConnectOptionsCustomizer` and `SslBundleTls` (D4, D8). Check: context-runner tests for interceptor, clock, customizers and the client defaults, plus a missing-bundle test and a bundle-reload test
 - [ ] 4.2 Add per-connection `ClusterConnection` and `Transport` beans by name, with the primary rule and back-off (D3). Check: context-runner tests for one connection, two connections and an overridden connection, and a `CredentialSource` bean that wins
 
 ## 5. Spring Boot connection details
