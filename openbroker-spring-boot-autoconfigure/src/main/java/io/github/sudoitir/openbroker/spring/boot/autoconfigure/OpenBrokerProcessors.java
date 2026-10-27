@@ -11,7 +11,9 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.springframework.beans.factory.BeanFactory;
+import org.springframework.context.ApplicationListener;
 import org.springframework.context.SmartLifecycle;
+import org.springframework.context.event.ContextClosedEvent;
 
 /**
  * Owns the processors an application registers, so that they follow the application's lifecycle.
@@ -22,7 +24,7 @@ import org.springframework.context.SmartLifecycle;
  *
  * <p>A transport the application opened itself can be registered too; the starter never closes it.
  */
-public final class OpenBrokerProcessors implements SmartLifecycle {
+public final class OpenBrokerProcessors implements SmartLifecycle, ApplicationListener<ContextClosedEvent> {
 
     /** After the web server starts and before it stops: a handler runs only while the application can serve. */
     static final int PHASE = SmartLifecycle.DEFAULT_PHASE - 2048;
@@ -36,10 +38,10 @@ public final class OpenBrokerProcessors implements SmartLifecycle {
 
     private final BeanFactory beans;
     private final OpenBrokerConnections connections;
-    private final List<Registration> pending = new ArrayList<>();
+    private final List<Registration> registrations = new ArrayList<>();
     private final List<Started> running = new ArrayList<>();
     private boolean started;
-    private boolean stopped;
+    private boolean closed;
 
     private record Started(Processor processor, ProcessorOptions options) {}
 
@@ -76,29 +78,35 @@ public final class OpenBrokerProcessors implements SmartLifecycle {
                 handler);
     }
 
-    /** Registers a processor on any transport, such as one of a connection the application opened itself. */
+    /**
+     * Registers a processor on any transport, such as one of a connection the application opened itself.
+     * It starts when the context is ready, or at once if it already is; a context that is stopped and
+     * started again starts it again.
+     *
+     * @throws IllegalStateException once the context is closing
+     */
     public synchronized void register(
             Transport transport,
             ResourceId subscription,
             Scope scope,
             ProcessorOptions options,
             MessageHandler handler) {
-        if (stopped) {
+        if (closed) {
             throw new IllegalStateException("The application is shutting down; no processor can be registered");
         }
         Registration registration = new Registration(transport, subscription, scope, options, handler);
+        registrations.add(registration);
         if (started) {
             run(registration);
-        } else {
-            pending.add(registration);
         }
     }
 
     @Override
     public synchronized void start() {
-        started = true;
-        pending.forEach(this::run);
-        pending.clear();
+        if (!started) {
+            started = true;
+            registrations.forEach(this::run);
+        }
     }
 
     private void run(Registration registration) {
@@ -113,21 +121,27 @@ public final class OpenBrokerProcessors implements SmartLifecycle {
     public void stop() {
         List<Started> stopping;
         synchronized (this) {
-            stopped = true;
+            started = false;
             stopping = new ArrayList<>(running);
             running.clear();
-            pending.clear();
         }
         try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            for (Started started : stopping.reversed()) {
-                executor.execute(() -> started.processor.stop(started.options.stopGrace()));
+            for (Started processor : stopping.reversed()) {
+                executor.execute(() -> processor.processor.stop(processor.options.stopGrace()));
             }
         }
     }
 
     @Override
+    public void onApplicationEvent(ContextClosedEvent event) {
+        synchronized (this) {
+            closed = true;
+        }
+    }
+
+    @Override
     public synchronized boolean isRunning() {
-        return started && !stopped;
+        return started;
     }
 
     @Override

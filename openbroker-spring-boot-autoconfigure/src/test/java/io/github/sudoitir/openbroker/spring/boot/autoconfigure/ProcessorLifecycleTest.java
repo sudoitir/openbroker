@@ -97,6 +97,21 @@ class ProcessorLifecycleTest {
     }
 
     @Test
+    void aStoppedAndStartedContextStartsTheProcessorsAgain() {
+        runner.withBean(EagerRegistrant.class).run(context -> {
+            context.stop();
+            context.start();
+
+            assertThat(driver.eventsCopy())
+                    .containsExactly(
+                            "process started",
+                            "processor stopped within "
+                                    + ProcessorOptions.defaults().stopGrace(),
+                            "process started");
+        });
+    }
+
+    @Test
     void nothingCanBeRegisteredOnceShutdownBegins() {
         OpenBrokerProcessors[] processors = new OpenBrokerProcessors[1];
         Transport[] transport = new Transport[1];
