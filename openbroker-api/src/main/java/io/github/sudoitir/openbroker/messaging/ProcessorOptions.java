@@ -37,10 +37,10 @@ public record ProcessorOptions(
         }
     }
 
-    /** Consuming, 8 lanes, unordered, the system's retry policy, a 30 s grace. */
+    /** Consuming, 8 lanes, unordered, the default retry policy, a 30 s grace. */
     public static ProcessorOptions defaults() {
         return new ProcessorOptions(
-                ReceiverOptions.consume(), 8, OrderingScope.NONE, RetryPolicy.system(), Duration.ofSeconds(30));
+                ReceiverOptions.consume(), 8, OrderingScope.NONE, RetryPolicy.defaults(), Duration.ofSeconds(30));
     }
 
     public ProcessorOptions withConcurrency(int concurrency) {

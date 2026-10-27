@@ -162,6 +162,7 @@ class PinningTest {
                         .withConcurrency(4)
                         .withOrdering(OrderingScope.GROUP)
                         .withRetry(RetryPolicy.system()),
+                true,
                 Fakes.info(OperationType.PROCESS),
                 context,
                 lanes,

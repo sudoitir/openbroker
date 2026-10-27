@@ -7,7 +7,7 @@
     <parent>
         <groupId>io.github.sudoitir</groupId>
         <artifactId>openbroker-parent</artifactId>
-        <version>0.2.0-SNAPSHOT</version>
+        <version>0.3.0-SNAPSHOT</version>
     </parent>
 
     <artifactId>openbroker-benchmarks</artifactId>
@@ -29,6 +29,17 @@
                 <artifactId>commons-logging</artifactId>
                 <version>1.3.6</version>
             </dependency>
+            <!-- artemis-server and Testcontainers ask for different versions of these two. -->
+            <dependency>
+                <groupId>commons-io</groupId>
+                <artifactId>commons-io</artifactId>
+                <version>2.22.0</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-lang3</artifactId>
+                <version>3.20.0</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
@@ -44,6 +55,15 @@
         <dependency>
             <groupId>org.apache.artemis</groupId>
             <artifactId>artemis-server</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.github.sudoitir</groupId>
+            <artifactId>openbroker-kafka</artifactId>
+        </dependency>
+        <!-- Kafka has no embedded broker: the Kafka benchmarks run against one in Docker. -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-kafka</artifactId>
         </dependency>
         <dependency>
             <groupId>org.openjdk.jmh</groupId>

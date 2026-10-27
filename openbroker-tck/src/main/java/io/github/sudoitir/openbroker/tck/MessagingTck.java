@@ -23,8 +23,8 @@ import io.github.sudoitir.openbroker.ErrorReasons;
 import io.github.sudoitir.openbroker.Status;
 import io.github.sudoitir.openbroker.messaging.Backoff;
 import io.github.sudoitir.openbroker.messaging.Count;
+import io.github.sudoitir.openbroker.messaging.DeduplicationScope;
 import io.github.sudoitir.openbroker.messaging.Disposition;
-import io.github.sudoitir.openbroker.messaging.Enforcement;
 import io.github.sudoitir.openbroker.messaging.FlowControl;
 import io.github.sudoitir.openbroker.messaging.Guarantee;
 import io.github.sudoitir.openbroker.messaging.LinkState;
@@ -42,12 +42,15 @@ import io.github.sudoitir.openbroker.messaging.ProcessorOptions;
 import io.github.sudoitir.openbroker.messaging.PropertyValue;
 import io.github.sudoitir.openbroker.messaging.Receiver;
 import io.github.sudoitir.openbroker.messaging.ReceiverOptions;
+import io.github.sudoitir.openbroker.messaging.RetryMode;
 import io.github.sudoitir.openbroker.messaging.RetryPolicy;
 import io.github.sudoitir.openbroker.messaging.SendTarget;
 import io.github.sudoitir.openbroker.messaging.Sender;
 import io.github.sudoitir.openbroker.messaging.SenderOptions;
+import io.github.sudoitir.openbroker.messaging.SubscriptionCapabilities;
 import io.github.sudoitir.openbroker.messaging.Transport;
 import io.github.sudoitir.openbroker.messaging.TransportCapabilities;
+import io.github.sudoitir.openbroker.model.KindId;
 import io.github.sudoitir.openbroker.model.ResourceId;
 import io.github.sudoitir.openbroker.model.Scope;
 import io.github.sudoitir.openbroker.operation.Operation;
@@ -208,7 +211,7 @@ public abstract class MessagingTck {
     @Test
     void joinedTransactionMovesExactlyOnce() {
         assumeGuarantee(Guarantee.TRANSACTED);
-        assumeTrue(caps.joinedTransactions(), "The transport declares no joined transactions");
+        assumeTrue(subscription().joinedTransactions(), "The transport declares no joined transactions");
         ResourceId from = newSubscription("join-from");
         ResourceId to = newSubscription("join-to");
         sendDirect(from, 5);
@@ -224,7 +227,9 @@ public abstract class MessagingTck {
                 }
                 if (attempt == 1) {
                     receiver.rollback();
-                    assertThat(exactCount(to)).as("a rollback delivers nothing").isZero();
+                    assertThat(drain(transport, to, QUIET))
+                            .as("a rollback delivers nothing")
+                            .isEmpty();
                     assertThat(exactCount(from))
                             .as("a rollback keeps the input")
                             .isEqualTo(5);
@@ -238,7 +243,7 @@ public abstract class MessagingTck {
     }
 
     /**
-     * A guarantee, ordering or idempotence the transport does not declare is refused when the link
+     * A guarantee, ordering or deduplication scope the transport does not declare is refused when the link
      * is opened, as unimplemented and not sent, never accepted and then not kept.
      */
     @Test
@@ -246,9 +251,11 @@ public abstract class MessagingTck {
         List<Guarantee> missingGuarantees = new ArrayList<>(List.of(Guarantee.values()));
         missingGuarantees.removeAll(caps.guarantees());
         List<OrderingScope> missingOrderings = new ArrayList<>(List.of(OrderingScope.values()));
-        missingOrderings.removeAll(caps.orderings());
+        missingOrderings.removeAll(subscription().orderings());
+        List<DeduplicationScope> missingScopes = new ArrayList<>(List.of(DeduplicationScope.values()));
+        missingScopes.removeIf(caps.deduplication()::satisfies);
         assumeTrue(
-                !missingGuarantees.isEmpty() || !missingOrderings.isEmpty() || !caps.deduplication(),
+                !missingGuarantees.isEmpty() || !missingOrderings.isEmpty() || !missingScopes.isEmpty(),
                 "The transport declares everything");
         ResourceId id = newSubscription("undeclared");
         for (Guarantee guarantee : missingGuarantees) {
@@ -273,12 +280,12 @@ public abstract class MessagingTck {
                             ctx -> Disposition.accept())
                     .close());
         }
-        if (!caps.deduplication()) {
+        for (DeduplicationScope scope : missingScopes) {
             assertUnimplemented(() -> transport
                     .sender(
                             SendTarget.subscription(id),
                             Scope.whole(),
-                            SenderOptions.defaults().withIdempotent(true))
+                            SenderOptions.defaults().withDeduplication(scope))
                     .close());
         }
     }
@@ -305,7 +312,7 @@ public abstract class MessagingTck {
         assertThat(stored.getFirst().headers().durable()).isNotEqualTo(Optional.of(false));
     }
 
-    // Idempotence.
+    // Deduplication.
 
     /**
      * A message sent again with the same deduplication id, by the same sender or another, is stored
@@ -313,7 +320,7 @@ public abstract class MessagingTck {
      */
     @Test
     void sameDeduplicationIdIsStoredOnce() {
-        assumeTrue(caps.deduplication(), "The transport declares no deduplication");
+        assumeWindowDeduplication();
         ResourceId id = newSubscription("dedup");
         MessageHeaders same = MessageHeaders.builder()
                 .deduplicationId("tck-" + UUID.randomUUID())
@@ -341,7 +348,7 @@ public abstract class MessagingTck {
     void deduplicationWindowIsReported() {
         ResourceId id = newSubscription("window");
         try (Sender sender = transport.sender(SendTarget.subscription(id), Scope.whole(), SenderOptions.defaults())) {
-            if (caps.deduplication()) {
+            if (caps.deduplication().satisfies(DeduplicationScope.WINDOW)) {
                 assertThat(sender.deduplication())
                         .hasValueSatisfying(window -> assertThat(window.ids().isPresent()
                                         || window.time().isPresent())
@@ -447,6 +454,22 @@ public abstract class MessagingTck {
             assertThat(held).hasSize(5);
             assertThat(limited.receive(20, QUIET)).as("credit is used up").isEmpty();
 
+            if (!env.competingReceivers()) {
+                // Another receiver would own other messages, not these: settling hands the credit back.
+                Set<Long> all = new HashSet<>(seqs(held));
+                held.forEach(m -> limited.settle(m, Disposition.accept()));
+                while (all.size() < 20) {
+                    List<Message> next = receiveN(limited, Math.min(5, 20 - all.size()), SECONDS_15);
+                    assertThat(next)
+                            .as("credit returns as messages settle")
+                            .isNotEmpty()
+                            .hasSizeLessThanOrEqualTo(5);
+                    next.forEach(m -> limited.settle(m, Disposition.accept()));
+                    all.addAll(seqs(next));
+                }
+                assertThat(all).as("no message is held twice").hasSize(20);
+                return;
+            }
             List<Message> rest;
             try (Receiver other = transport.receiver(id, Scope.whole(), ReceiverOptions.consume())) {
                 rest = receiveN(other, 15, SECONDS_15);
@@ -594,8 +617,10 @@ public abstract class MessagingTck {
     }
 
     /**
-     * The default options open a sender, a receiver and a processor, each bounded and at least
-     * once, and a message goes through them.
+     * The default options open a sender, a receiver and a processor on every kind of subscription the
+     * environment can make, each bounded and at least once, and a message goes through them. The
+     * default retry policy becomes the system's own where it counts attempts, and a managed one where
+     * it does not.
      */
     @Test
     void defaultOptionsOpenBoundedAtLeastOnce() {
@@ -603,20 +628,50 @@ public abstract class MessagingTck {
         assertThat(SenderOptions.defaults().guarantee()).isEqualTo(Guarantee.AT_LEAST_ONCE);
         assertThat(ReceiverOptions.consume().guarantee()).isEqualTo(Guarantee.AT_LEAST_ONCE);
         assertThat(ProcessorOptions.defaults().receive().guarantee()).isEqualTo(Guarantee.AT_LEAST_ONCE);
-        ResourceId id = newSubscription("defaults");
-        AtomicInteger handled = new AtomicInteger();
-        try (Sender sender = transport.sender(SendTarget.subscription(id), Scope.whole(), SenderOptions.defaults())) {
-            Processor processor = own(transport.process(id, Scope.whole(), ProcessorOptions.defaults(), ctx -> {
-                handled.incrementAndGet();
-                return Disposition.accept();
-            }));
-            assertThat(sender.state()).isEqualTo(LinkState.OPEN);
-            assertThat(processor.state()).isEqualTo(LinkState.OPEN);
-            sender.send(message(1));
-            await("the message handled", SECONDS_15, () -> handled.get() == 1);
+        assertThat(env.subscriptionKinds()).isNotEmpty();
+        for (KindId kind : env.subscriptionKinds()) {
+            SubscriptionCapabilities declared = caps.subscription(kind);
+            ResourceId id = newSubscription(kind, "defaults");
+            AtomicInteger handled = new AtomicInteger();
+            try (Sender sender =
+                    transport.sender(SendTarget.subscription(id), Scope.whole(), SenderOptions.defaults())) {
+                Processor processor = own(transport.process(id, Scope.whole(), ProcessorOptions.defaults(), ctx -> {
+                    handled.incrementAndGet();
+                    return Disposition.accept();
+                }));
+                assertThat(sender.state()).isEqualTo(LinkState.OPEN);
+                assertThat(processor.state()).isEqualTo(LinkState.OPEN);
+                assertThat(processor.retry().mode())
+                        .as("the default retry of %s", kind)
+                        .isEqualTo(declared.retry().countsAttempts() ? RetryMode.SYSTEM : RetryMode.MANAGED);
+                sender.send(message(1));
+                await("the message handled on " + kind, SECONDS_15, () -> handled.get() == 1);
+            }
+            try (Receiver receiver = transport.receiver(id, Scope.whole(), ReceiverOptions.consume())) {
+                assertThat(receiver.state()).isEqualTo(LinkState.OPEN);
+            }
         }
-        try (Receiver receiver = transport.receiver(id, Scope.whole(), ReceiverOptions.consume())) {
-            assertThat(receiver.state()).isEqualTo(LinkState.OPEN);
+    }
+
+    /**
+     * Asking for the system's own retry where the system counts no attempts is refused when the
+     * processor is opened, as unimplemented and not sent, never accepted and then never given up.
+     */
+    @Test
+    void systemRetryWhereNothingIsCountedIsUnimplemented() {
+        List<KindId> uncounted = env.subscriptionKinds().stream()
+                .filter(kind -> !caps.subscription(kind).retry().countsAttempts())
+                .toList();
+        assumeTrue(!uncounted.isEmpty(), "The system counts attempts on every subscription kind");
+        for (KindId kind : uncounted) {
+            ResourceId id = newSubscription(kind, "system-uncounted");
+            assertUnimplemented(() -> transport
+                    .process(
+                            id,
+                            Scope.whole(),
+                            ProcessorOptions.defaults().withRetry(RetryPolicy.system()),
+                            ctx -> Disposition.accept())
+                    .close());
         }
     }
 
@@ -628,7 +683,6 @@ public abstract class MessagingTck {
      */
     @Test
     void rejectDeadLettersAtOnce() {
-        assumeClientDeadLetter();
         ResourceId id = newSubscription("reject");
         ResourceId dead = newSubscription("reject-dead");
         sendDirect(id, 1);
@@ -681,7 +735,6 @@ public abstract class MessagingTck {
      */
     @Test
     void managedRetryBacksOffThenDeadLetters() {
-        assumeClientDeadLetter();
         ResourceId id = newSubscription("managed");
         ResourceId dead = newSubscription("managed-dead");
         sendDirect(id, 1);
@@ -751,6 +804,7 @@ public abstract class MessagingTck {
      */
     @Test
     void systemRetryReleasesCounted() {
+        assumeTrue(subscription().retry().countsAttempts(), "The system counts no attempts");
         ResourceId id = newSubscription("system-retry");
         sendDirect(id, 1);
         List<Integer> attempts = Collections.synchronizedList(new ArrayList<>());
@@ -934,17 +988,28 @@ public abstract class MessagingTck {
         assumeTrue(caps.guarantees().contains(guarantee), "The transport declares no " + guarantee);
     }
 
-    /** Ordered at-least-once sending needs an idempotent sender, hence deduplication. */
+    /** Ordered at-least-once sending needs deduplication of at least {@code SESSION} scope. */
     private void assumeOrdered(OrderingScope ordering) {
         assumeGuarantee(Guarantee.AT_LEAST_ONCE);
-        assumeTrue(caps.orderings().contains(ordering), "The transport declares no " + ordering + " ordering");
-        assumeTrue(caps.deduplication(), "The transport declares no deduplication");
+        assumeTrue(
+                caps.orderings().contains(ordering)
+                        && subscription().orderings().contains(ordering),
+                "The transport declares no " + ordering + " ordering");
+        assumeTrue(
+                caps.deduplication().satisfies(DeduplicationScope.SESSION),
+                "The transport declares no deduplication of at least SESSION scope");
     }
 
-    private void assumeClientDeadLetter() {
+    /** Caller-set deduplication ids are honoured only by a system that keeps a window of them. */
+    private void assumeWindowDeduplication() {
         assumeTrue(
-                caps.retry().deadLetter() == Enforcement.CLIENT,
-                "The system enforces dead-lettering, so no destination can be named");
+                caps.deduplication().satisfies(DeduplicationScope.WINDOW),
+                "The transport declares no WINDOW deduplication");
+    }
+
+    /** What the transport declares on the environment's own subscription kind. */
+    private SubscriptionCapabilities subscription() {
+        return caps.subscription(env.subscriptionKind());
     }
 
     private <T extends AutoCloseable> T own(T closeable) {
@@ -953,11 +1018,15 @@ public abstract class MessagingTck {
     }
 
     private ResourceId newSubscription(String tag) {
-        ResourceId id = env.subscriptionId(
-                "tck." + tag + "." + UUID.randomUUID().toString().substring(0, 8));
+        return newSubscription(env.subscriptionKind(), tag);
+    }
+
+    private ResourceId newSubscription(KindId kind, String tag) {
+        String name = "tck." + tag + "." + UUID.randomUUID().toString().substring(0, 8);
+        ResourceId id = env.subscriptionId(kind, name);
         connection
                 .operations()
-                .execute(id, new Operation.Create(env.subscriptionAttributes(id.name())), Scope.whole())
+                .execute(id, new Operation.Create(env.subscriptionAttributes(kind, name)), Scope.whole())
                 .orThrow();
         created.add(id);
         return id;
@@ -970,12 +1039,14 @@ public abstract class MessagingTck {
         }
     }
 
-    /** Sends in order through one idempotent sender of the given ordering, and waits for every receipt. */
+    /** Sends in order through one deduplicating sender of the given ordering, and waits for every receipt. */
     private void sendOrdered(ResourceId id, OrderingScope ordering, List<OutboundMessage> messages) {
         try (Sender sender = transport.sender(
                 SendTarget.subscription(id),
                 Scope.whole(),
-                SenderOptions.defaults().withIdempotent(true).withOrdering(ordering))) {
+                SenderOptions.defaults()
+                        .withDeduplication(DeduplicationScope.SESSION)
+                        .withOrdering(ordering))) {
             confirm(offerAll(sender, messages, SECONDS_60), SECONDS_60);
         }
     }

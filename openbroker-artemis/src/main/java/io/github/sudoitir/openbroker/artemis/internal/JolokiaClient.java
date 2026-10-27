@@ -4,6 +4,7 @@ import io.github.sudoitir.openbroker.BrokerException;
 import io.github.sudoitir.openbroker.CallInfo;
 import io.github.sudoitir.openbroker.CallInterceptor;
 import io.github.sudoitir.openbroker.Credentials;
+import io.github.sudoitir.openbroker.Credentials.UsernamePassword;
 import io.github.sudoitir.openbroker.Deadline;
 import io.github.sudoitir.openbroker.Dispatch;
 import io.github.sudoitir.openbroker.NodeId;
@@ -247,9 +248,10 @@ public final class JolokiaClient {
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofByteArray(body));
-        Credentials account = credentials.get();
-        if (!account.isNone()) {
-            String pair = account.username() + ":" + account.password().reveal();
+        Optional<UsernamePassword> account = Accounts.account(credentials.get());
+        if (account.isPresent()) {
+            String pair =
+                    account.get().username() + ":" + account.get().password().reveal();
             request.header(
                     "Authorization",
                     "Basic " + Base64.getEncoder().encodeToString(pair.getBytes(StandardCharsets.UTF_8)));

@@ -1,7 +1,7 @@
 package io.github.sudoitir.openbroker.artemis.internal;
 
 import io.github.sudoitir.openbroker.BrokerException;
-import io.github.sudoitir.openbroker.Credentials;
+import io.github.sudoitir.openbroker.Credentials.UsernamePassword;
 import io.github.sudoitir.openbroker.Dispatch;
 import io.github.sudoitir.openbroker.ErrorInfo;
 import io.github.sudoitir.openbroker.ErrorReasons;
@@ -167,12 +167,14 @@ public final class ArtemisNotifications implements Notifications {
                     node.core().orElseThrow(),
                     cluster.options().tls().current(),
                     CoreLinks.LinkSettings.operator(true));
-            Credentials account = cluster.credentials().forPlane(Plane.DATA);
+            Optional<UsernamePassword> account =
+                    Accounts.account(cluster.credentials().forPlane(Plane.DATA));
             try (factory) {
-                Connection opened = account.isNone()
+                Connection opened = account.isEmpty()
                         ? factory.createConnection()
                         : factory.createConnection(
-                                account.username(), account.password().reveal());
+                                account.get().username(),
+                                account.get().password().reveal());
                 connection = opened;
                 try (opened) {
                     opened.start();

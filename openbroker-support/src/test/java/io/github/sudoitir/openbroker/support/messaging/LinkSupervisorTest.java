@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Random;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -74,6 +75,7 @@ class LinkSupervisorTest {
         final AtomicInteger attempts = new AtomicInteger();
         final AtomicBoolean suspended = new AtomicBoolean();
         final AtomicBoolean failed = new AtomicBoolean();
+        final CountDownLatch gaveUp = new CountDownLatch(1);
         final int failures;
 
         FlakyLink(int failures) {
@@ -96,6 +98,7 @@ class LinkSupervisorTest {
         @Override
         public void failed(BrokerException cause) {
             failed.set(true);
+            gaveUp.countDown();
         }
     }
 
@@ -181,7 +184,8 @@ class LinkSupervisorTest {
         assertThat(failed.cause()).isPresent();
         assertThat(failed.cause().get().status()).isEqualTo(Status.UNAVAILABLE);
         assertThat(supervisor.state()).isEqualTo(LinkState.FAILED);
-        assertThat(link.failed).isTrue();
+        // The link is told after the listeners are, on the same thread.
+        assertThat(link.gaveUp.await(5, TimeUnit.SECONDS)).isTrue();
         // attempt 1 at 0 ms, waits 400 ms, attempt 2 at 400 ms, waits the 600 ms left, then gives up
         assertThat(sleeper.sleeps).containsExactly(Duration.ofMillis(400), Duration.ofMillis(600));
         assertThat(link.attempts).hasValue(2);

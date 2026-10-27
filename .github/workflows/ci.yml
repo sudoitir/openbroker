@@ -14,14 +14,20 @@ permissions:
   contents: read
 
 jobs:
-  # Build, unit tests, and the TCK against the oldest and newest supported Artemis.
+  # Build, unit tests, and the TCK against the oldest and newest supported Artemis and Kafka. A driver's
+  # entries build its module and what it needs; the Kafka driver's integration tests run only on the
+  # Kafka entries and the Artemis driver's only on the Artemis ones.
   verify:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        artemis: ["apache/activemq-artemis:2.33.0", "apache/artemis:2.57.0"]
-    name: verify (${{ matrix.artemis }})
+        include:
+          - { driver: artemis, image: "apache/activemq-artemis:2.33.0" }
+          - { driver: artemis, image: "apache/artemis:2.57.0" }
+          - { driver: kafka, image: "apache/kafka:4.0.2" }
+          - { driver: kafka, image: "apache/kafka:4.4.0" }
+    name: verify (${{ matrix.image }})
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -31,9 +37,12 @@ jobs:
           distribution: temurin
           java-version: "25"
           cache: maven
-      - run: ./mvnw -B verify -Dartemis.image=${{ matrix.artemis }}
+      - if: matrix.driver == 'artemis'
+        run: ./mvnw -B verify -pl '!openbroker-kafka,!openbroker-benchmarks' -Dartemis.image=${{ matrix.image }}
+      - if: matrix.driver == 'kafka'
+        run: ./mvnw -B verify -pl openbroker-kafka -am -Dkafka.image=${{ matrix.image }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: matrix.artemis == 'apache/artemis:2.57.0'
+        if: matrix.image == 'apache/artemis:2.57.0'
         with:
           name: coverage
           path: openbroker-artemis/target/site/jacoco-aggregate
@@ -72,8 +81,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        artemis: ["apache/activemq-artemis:2.33.0", "apache/artemis:2.57.0"]
-    name: chaos (${{ matrix.artemis }})
+        include:
+          - { driver: artemis, image: "apache/activemq-artemis:2.33.0" }
+          - { driver: artemis, image: "apache/artemis:2.57.0" }
+          - { driver: kafka, image: "apache/kafka:4.0.2" }
+          - { driver: kafka, image: "apache/kafka:4.4.0" }
+    name: chaos (${{ matrix.image }})
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -83,7 +96,10 @@ jobs:
           distribution: temurin
           java-version: "25"
           cache: maven
-      - run: ./mvnw -B -pl openbroker-artemis -am verify -Pchaos -Dit.test=ArtemisChaosIT -Dartemis.image=${{ matrix.artemis }}
+      - if: matrix.driver == 'artemis'
+        run: ./mvnw -B -pl openbroker-artemis -am verify -Pchaos -Dit.test=ArtemisChaosIT -Dartemis.image=${{ matrix.image }}
+      - if: matrix.driver == 'kafka'
+        run: ./mvnw -B -pl openbroker-kafka -am verify -Pchaos -Dit.test=KafkaChaosIT -Dkafka.image=${{ matrix.image }}
 
   # The messaging client against its performance budgets (allocation per message is a hard gate;
   # throughput and p99 have wide margins). The recorded budgets file is the candidate for new baselines.

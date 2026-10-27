@@ -5,8 +5,10 @@ import io.github.sudoitir.openbroker.messaging.MessageFilter;
 import io.github.sudoitir.openbroker.model.Attributes;
 import io.github.sudoitir.openbroker.model.KindId;
 import io.github.sudoitir.openbroker.model.ResourceId;
+import io.github.sudoitir.openbroker.model.Shard;
 import io.github.sudoitir.openbroker.spi.BrokerDriver;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * What a driver gives the TCK: itself, a request that reaches a real test cluster, and how to make
@@ -32,9 +34,53 @@ public interface TckEnvironment {
     Attributes subscriptionAttributes(String name);
 
     /**
+     * Every kind of subscription this environment can make, which the cases that run per kind cover.
+     * The default is {@link #subscriptionKind()} alone.
+     */
+    default Set<KindId> subscriptionKinds() {
+        return Set.of(subscriptionKind());
+    }
+
+    /** The id a new subscription of {@code kind} named {@code name} gets. */
+    default ResourceId subscriptionId(KindId kind, String name) {
+        requireOwnKind(kind);
+        return subscriptionId(name);
+    }
+
+    /** The attributes that create a durable standalone subscription of {@code kind} named {@code name}. */
+    default Attributes subscriptionAttributes(KindId kind, String name) {
+        requireOwnKind(kind);
+        return subscriptionAttributes(name);
+    }
+
+    /**
+     * Whether receivers of one subscription compete for its messages, as consumers of a queue do. False
+     * where each receiver owns a share of the messages (a partition), so a message one receiver holds
+     * stays with it. The default is true.
+     */
+    default boolean competingReceivers() {
+        return true;
+    }
+
+    private void requireOwnKind(KindId kind) {
+        if (!kind.equals(subscriptionKind())) {
+            throw new IllegalArgumentException("This environment makes only " + subscriptionKind() + ", not " + kind);
+        }
+    }
+
+    /**
      * A valid filter in the driver's own dialect matching messages whose string property {@code
      * name} equals {@code value}.
      */
+    /**
+     * The shard that holds the messages sent to {@code subscription}, which a browse is scoped to and
+     * names offsets of. A system whose copies are on nodes names the first node of the request; one whose
+     * log is in partitions names the partition.
+     */
+    default Shard browseShard(ResourceId subscription) {
+        return Shard.node(request().cluster().nodes().getFirst().id());
+    }
+
     MessageFilter nativeEquals(String name, String value);
 
     /** The driver's own dialect, to test that an escape from a composed filter is refused. */

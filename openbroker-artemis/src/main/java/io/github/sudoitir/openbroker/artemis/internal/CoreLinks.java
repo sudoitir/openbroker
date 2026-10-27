@@ -3,7 +3,7 @@ package io.github.sudoitir.openbroker.artemis.internal;
 import io.github.sudoitir.openbroker.BrokerException;
 import io.github.sudoitir.openbroker.CallInfo;
 import io.github.sudoitir.openbroker.ConnectOptions;
-import io.github.sudoitir.openbroker.Credentials;
+import io.github.sudoitir.openbroker.Credentials.UsernamePassword;
 import io.github.sudoitir.openbroker.Deadline;
 import io.github.sudoitir.openbroker.Dispatch;
 import io.github.sudoitir.openbroker.ErrorInfo;
@@ -333,12 +333,13 @@ final class CoreLinks implements AutoCloseable {
                     "The node's Core endpoint did not answer a moment ago; it is tried again from " + until + ".");
         }
         Link link = link(node, endpoint, cluster.options().tls().current(), settings);
-        Credentials account = cluster.credentials().forPlane(Plane.DATA);
+        Optional<UsernamePassword> account =
+                Accounts.account(cluster.credentials().forPlane(Plane.DATA));
         ClientSession session;
         try {
             session = link.factory.createSession(
-                    account.isNone() ? null : account.username(),
-                    account.isNone() ? null : account.password().reveal(),
+                    account.map(UsernamePassword::username).orElse(null),
+                    account.map(a -> a.password().reveal()).orElse(null),
                     false,
                     !transacted,
                     !transacted,

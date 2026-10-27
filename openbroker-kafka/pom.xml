@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>io.github.sudoitir</groupId>
+        <artifactId>openbroker-parent</artifactId>
+        <version>0.3.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>openbroker-kafka</artifactId>
+    <name>OpenBroker driver for Apache Kafka</name>
+    <description>Manages and moves messages on Apache Kafka through the Kafka clients.</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>io.github.sudoitir</groupId>
+            <artifactId>openbroker-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.github.sudoitir</groupId>
+            <artifactId>openbroker-support</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.kafka</groupId>
+            <artifactId>kafka-clients</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>io.github.sudoitir</groupId>
+            <artifactId>openbroker-tck</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-kafka</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-toxiproxy</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- The TCK and the broker integration tests (*IT) run against Testcontainers clusters. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <configuration>
+                    <systemPropertyVariables>
+                        <kafka.image>${kafka.image}</kafka.image>
+                        <toxiproxy.image>${toxiproxy.image}</toxiproxy.image>
+                    </systemPropertyVariables>
+                    <!-- The chaos TCK kills brokers and takes minutes per image: the chaos profile runs it. -->
+                    <excludes>
+                        <exclude>**/*ChaosIT.java</exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <!-- The Kafka clients are not JPMS-clean, so the driver is an automatic module. -->
+                            <Automatic-Module-Name>io.github.sudoitir.openbroker.kafka</Automatic-Module-Name>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <properties>
+        <kafka.image>apache/kafka:4.4.0</kafka.image>
+        <toxiproxy.image>ghcr.io/shopify/toxiproxy:2.12.0</toxiproxy.image>
+    </properties>
+
+    <profiles>
+        <!-- The chaos TCK alone: ./mvnw -pl openbroker-kafka verify -Pchaos [-Dkafka.image=...] -->
+        <profile>
+            <id>chaos</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <configuration>
+                            <excludes combine.self="override"/>
+                            <includes>
+                                <include>**/*ChaosIT.java</include>
+                            </includes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+</project>

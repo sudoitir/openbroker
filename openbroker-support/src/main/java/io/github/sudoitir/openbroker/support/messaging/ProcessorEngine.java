@@ -45,8 +45,8 @@ import org.jspecify.annotations.Nullable;
  *
  * <p>A handler that throws, or returns a release that counts as a failed delivery, is retried by the
  * {@link RetryPolicy}: {@code SYSTEM} releases it counted and leaves the rest to the system; {@code
- * MANAGED} waits out the backoff and calls the handler again in place when ordering is on, or
- * releases it with that delay when it is not, and after {@code maxAttempts} dead-letters it.
+ * MANAGED} waits out the backoff and calls the handler again in place when ordering is on or the
+ * driver asks for it, or releases it with that delay when it is not, and after {@code maxAttempts} dead-letters it.
  */
 public final class ProcessorEngine implements Processor {
 
@@ -96,6 +96,7 @@ public final class ProcessorEngine implements Processor {
 
     private final String id;
     private final ProcessorOptions options;
+    private final boolean retryInPlace;
     private final OperationInfo info;
     private final EngineContext context;
     private final MessageHandler handler;
@@ -111,6 +112,7 @@ public final class ProcessorEngine implements Processor {
     private ProcessorEngine(
             String id,
             ProcessorOptions options,
+            boolean retryInPlace,
             OperationInfo info,
             EngineContext context,
             MessageHandler handler,
@@ -118,6 +120,7 @@ public final class ProcessorEngine implements Processor {
             @Nullable Sender deadLetter) {
         this.id = id;
         this.options = options;
+        this.retryInPlace = retryInPlace;
         this.info = info;
         this.context = context;
         this.handler = handler;
@@ -141,21 +144,29 @@ public final class ProcessorEngine implements Processor {
      * Opens the lanes and starts one virtual thread on each.
      *
      * @param id the processor's name
+     * @param options the options, whose retry policy is resolved (never {@code DEFAULT})
+     * @param retryInPlace whether a managed retry holds its lane through the backoff, as {@link
+     *     Retries.Resolved#inPlace()} says
      * @param info the telemetry description of one handler call
      */
     public static ProcessorEngine start(
             String id,
             ProcessorOptions options,
+            boolean retryInPlace,
             OperationInfo info,
             EngineContext context,
             Lanes lanes,
             MessageHandler handler) {
         RetryPolicy retry = options.retry();
+        if (retry.mode() == RetryMode.DEFAULT) {
+            throw new IllegalArgumentException("Resolve RetryMode.DEFAULT with Retries.resolve before starting");
+        }
         Sender deadLetter =
                 retry.mode() == RetryMode.MANAGED && retry.deadLetter().isPresent()
                         ? lanes.deadLetter(retry.deadLetter().get())
                         : null;
-        ProcessorEngine engine = new ProcessorEngine(id, options, info, context, handler, lanes, deadLetter);
+        ProcessorEngine engine =
+                new ProcessorEngine(id, options, retryInPlace, info, context, handler, lanes, deadLetter);
         List<Lane> opened = new ArrayList<>();
         try {
             for (int i = 0; i < options.concurrency(); i++) {
@@ -184,6 +195,11 @@ public final class ProcessorEngine implements Processor {
     @Override
     public LinkState state() {
         return closed ? LinkState.CLOSED : lanes.state();
+    }
+
+    @Override
+    public RetryPolicy retry() {
+        return options.retry();
     }
 
     /** Stops taking messages, waits up to {@code grace} for the handlers, then interrupts them; what is left is released uncounted. */
@@ -319,7 +335,7 @@ public final class ProcessorEngine implements Processor {
     /** Calls the handler, retrying per policy, until there is a disposition to settle with. */
     private Disposition decide(Lane lane, Message message) {
         RetryPolicy retry = options.retry();
-        boolean inPlace = options.ordering() != OrderingScope.NONE;
+        boolean inPlace = retryInPlace;
         int attempt = message.headers().deliveryCount().orElse(1);
         while (true) {
             Throwable error = null;

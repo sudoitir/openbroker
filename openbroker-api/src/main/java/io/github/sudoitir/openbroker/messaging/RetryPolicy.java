@@ -7,8 +7,8 @@ import java.util.Optional;
  * What happens to a message whose handler fails.
  *
  * @param mode who counts attempts
- * @param maxAttempts the attempts before the message is dead-lettered; used by {@code MANAGED}
- * @param backoff the wait between attempts; used by {@code MANAGED}
+ * @param maxAttempts the attempts before the message is dead-lettered; used by {@code MANAGED} and by {@code DEFAULT} where it becomes managed
+ * @param backoff the wait between attempts; used by {@code MANAGED} and by {@code DEFAULT} where it becomes managed
  * @param deadLetter where a message goes after its last attempt; empty uses the system's dead-letter destination
  */
 public record RetryPolicy(RetryMode mode, int maxAttempts, Backoff backoff, Optional<SendTarget> deadLetter) {
@@ -22,7 +22,15 @@ public record RetryPolicy(RetryMode mode, int maxAttempts, Backoff backoff, Opti
         }
     }
 
-    /** The system's own policy. */
+    /**
+     * What the system enforces where it counts attempts, otherwise 10 managed attempts with the default
+     * backoff, retried in place. Ten matches the delivery limit common brokers dead-letter at.
+     */
+    public static RetryPolicy defaults() {
+        return new RetryPolicy(RetryMode.DEFAULT, 10, Backoff.defaults(), Optional.empty());
+    }
+
+    /** The system's own policy, refused where the system counts no attempts. */
     public static RetryPolicy system() {
         return new RetryPolicy(RetryMode.SYSTEM, 1, Backoff.defaults(), Optional.empty());
     }

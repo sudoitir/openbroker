@@ -14,6 +14,7 @@ Apache-2.0, public.
 | `openbroker-support` | Shared implementation for drivers and consumers | api |
 | `openbroker-tck` | Abstract JUnit contract tests a driver extends | api, JUnit, AssertJ |
 | `openbroker-artemis` | The Apache ActiveMQ Artemis driver (Jolokia + Core) | api, support, Artemis client, Jackson 3 |
+| `openbroker-kafka` | The Apache Kafka driver (Admin, producer, consumer, share consumer) | api, support, Kafka clients |
 
 ## Non-negotiables
 

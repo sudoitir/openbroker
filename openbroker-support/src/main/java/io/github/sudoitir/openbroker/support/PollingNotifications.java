@@ -2,6 +2,7 @@ package io.github.sudoitir.openbroker.support;
 
 import io.github.sudoitir.openbroker.BrokerException;
 import io.github.sudoitir.openbroker.NodeId;
+import io.github.sudoitir.openbroker.NodeOutcome;
 import io.github.sudoitir.openbroker.Partial;
 import io.github.sudoitir.openbroker.model.Attributes;
 import io.github.sudoitir.openbroker.model.Placement;
@@ -96,6 +97,13 @@ public final class PollingNotifications implements Notifications {
                 while (true) {
                     Partial<ResourcePage> page = resources.read(query);
                     failed.putAll(page.failures());
+                    // A node that answered and has nothing is still watched: the stream starts, and what
+                    // appears on it later is news.
+                    page.outcomes().forEach((node, outcome) -> {
+                        if (outcome == NodeOutcome.APPLIED) {
+                            seen.computeIfAbsent(node, n -> new HashSet<>());
+                        }
+                    });
                     for (Resource r : page.value().items()) {
                         for (Placement p : r.placements()) {
                             seen.computeIfAbsent(p.node(), n -> new HashSet<>()).add(r.id());
@@ -109,10 +117,11 @@ public final class PollingNotifications implements Notifications {
                 }
             }
             failed.forEach((node, error) -> {
+                // The state is published first, so a listener told of the gap finds the node backing off.
+                states.put(node, new StreamState(StreamState.Phase.BACKING_OFF, Optional.of(now), Optional.of(error)));
                 if (known.remove(node) != null) {
                     dispatcher.gap(new Gap(node, now, Gap.Cause.RECONNECTED));
                 }
-                states.put(node, new StreamState(StreamState.Phase.BACKING_OFF, Optional.of(now), Optional.of(error)));
             });
             seen.forEach((node, ids) -> {
                 if (failed.containsKey(node)) {

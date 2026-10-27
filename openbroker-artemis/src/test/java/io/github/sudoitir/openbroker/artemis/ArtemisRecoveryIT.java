@@ -10,6 +10,7 @@ import io.github.sudoitir.openbroker.Dispatch;
 import io.github.sudoitir.openbroker.ErrorReasons;
 import io.github.sudoitir.openbroker.NodeId;
 import io.github.sudoitir.openbroker.Status;
+import io.github.sudoitir.openbroker.messaging.DeduplicationScope;
 import io.github.sudoitir.openbroker.messaging.Disposition;
 import io.github.sudoitir.openbroker.messaging.LinkEvent;
 import io.github.sudoitir.openbroker.messaging.LinkState;
@@ -102,7 +103,7 @@ class ArtemisRecoveryIT {
                 Sender sender = transport.sender(
                         SendTarget.subscription(queue),
                         Scope.whole(),
-                        SenderOptions.defaults().withIdempotent(true))) {
+                        SenderOptions.defaults().withDeduplication(DeduplicationScope.WINDOW))) {
             List<CompletionStage<SendReceipt>> receipts = new ArrayList<>();
             for (int i = 0; i < count; i++) {
                 if (i == 100 || i == 200) {

@@ -7,7 +7,7 @@
     <groupId>io.github.sudoitir</groupId>
     <artifactId>openbroker-parent</artifactId>
     <!-- Stays a SNAPSHOT in git; the release workflow sets the tag's version in its working tree. -->
-    <version>0.2.0-SNAPSHOT</version>
+    <version>0.3.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>OpenBroker</name>
@@ -40,6 +40,7 @@
         <module>openbroker-support</module>
         <module>openbroker-tck</module>
         <module>openbroker-artemis</module>
+        <module>openbroker-kafka</module>
         <module>openbroker-opentelemetry</module>
         <module>openbroker-benchmarks</module>
     </modules>
@@ -57,6 +58,7 @@
              version is above the previous release's, so that bump declares the break. -->
         <openbroker.api.strictZero>true</openbroker.api.strictZero>
 
+        <kafka.version>4.4.0</kafka.version>
         <jspecify.version>1.0.0</jspecify.version>
         <artemis.version>2.57.0</artemis.version>
         <!-- The Artemis client's own tree asks for two slf4j versions; this one is Artemis's. -->
@@ -117,6 +119,11 @@
             </dependency>
             <dependency>
                 <groupId>io.github.sudoitir</groupId>
+                <artifactId>openbroker-kafka</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.sudoitir</groupId>
                 <artifactId>openbroker-opentelemetry</artifactId>
                 <version>${project.version}</version>
             </dependency>
@@ -134,6 +141,11 @@
                 <groupId>org.apache.artemis</groupId>
                 <artifactId>artemis-server</artifactId>
                 <version>${artemis.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.kafka</groupId>
+                <artifactId>kafka-clients</artifactId>
+                <version>${kafka.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.opentelemetry</groupId>

@@ -2,8 +2,8 @@
 
 One Java SDK, and one vocabulary, for every message broker and queue service.
 
-OpenBroker lets a backend inspect, operate and move messages on Apache ActiveMQ Artemis today,
-and on Kafka, RabbitMQ, ActiveMQ Classic and others as their drivers arrive, through one small,
+OpenBroker lets a backend inspect, operate and move messages on Apache ActiveMQ Artemis and
+Apache Kafka today, and on RabbitMQ, ActiveMQ Classic and others as their drivers arrive, through one small,
 framework-free API. Drivers plug in like JDBC drivers, and a conformance kit (the TCK) proves each
 one against a real broker.
 
@@ -17,6 +17,7 @@ Status: pre-release (`0.x`). The API may change between minor versions until 1.0
 | `openbroker-support` | Shared helpers for drivers and consumers: the portable filter dialect, polling notifications, counter rates. |
 | `openbroker-tck` | Abstract JUnit contract tests a driver extends. |
 | `openbroker-artemis` | The Apache ActiveMQ Artemis driver: management over Jolokia, messages and notifications over Core. |
+| `openbroker-kafka` | The Apache Kafka driver (4.0 and later): management over Admin, messages over the producer, consumer and share consumer. |
 | `openbroker-opentelemetry` | Optional: maps the messaging observer to OpenTelemetry spans, metrics and W3C trace context. |
 | `openbroker-bom` | Aligns the versions above. |
 
@@ -58,7 +59,7 @@ try (BrokerDrivers drivers = BrokerDrivers.load();
                         List.of(
                                 Endpoint.of(Plane.MANAGEMENT, "jolokia", "http://broker:8161/console/jolokia"),
                                 Endpoint.of(Plane.DATA, "core", "tcp://broker:61616"))))),
-                CredentialSource.of(Credentials.of("admin", System.getenv("BROKER_PASSWORD"))),
+                CredentialSource.of(Credentials.usernamePassword("admin", System.getenv("BROKER_PASSWORD"))),
                 ConnectOptions.defaults()))) {
 
     // Every subscription (an Artemis queue) with its backlog, on every node.
@@ -96,8 +97,8 @@ Transport transport = cluster.transport().orElseThrow();
 ResourceId orders = ResourceId.of("artemis.address", "orders");
 ResourceId deadLetters = ResourceId.of("artemis.address", "orders.dead");
 
-// At-least-once and idempotent: resends after a failure are deduplicated, in order.
-SenderOptions sending = SenderOptions.defaults().withIdempotent(true).withOrdering(OrderingScope.GROUP);
+// At-least-once with deduplication: resends after a failure are deduplicated, in order.
+SenderOptions sending = SenderOptions.defaults().withDeduplication(DeduplicationScope.SESSION).withOrdering(OrderingScope.GROUP);
 try (Sender sender = transport.sender(SendTarget.destination(orders), Scope.whole(), sending)) {
     OutboundMessage message = OutboundMessage.of(MessageBody.of(payload))
             .withHeaders(MessageHeaders.builder().groupId("customer-7").build());
@@ -137,12 +138,42 @@ ConnectOptions options = ConnectOptions.defaults().withObserver(OpenTelemetryMes
 | `AT_MOST_ONCE` send | unconfirmed may be lost, never resent (`UNAVAILABLE`, `IN_DOUBT`) | non-durable lost | unconfirmed may be lost | buffered lost | n/a |
 | `AT_MOST_ONCE` receive | prefetched and handed-out lost | same | same | same | n/a |
 | `AT_LEAST_ONCE` send | resent in order: no loss, duplicates possible (`resent=true`) | confirmed survive; unconfirmed resent | same | unconfirmed in the buffer lost | resent: duplicate possible |
-| `AT_LEAST_ONCE` send, idempotent | resent and deduplicated: no loss, no duplicate, order kept | same, within the dedupe window | same | as above | resent and deduplicated |
+| `AT_LEAST_ONCE` send, deduplicating | resent and deduplicated: no loss, no duplicate, order kept | same, within the dedupe window | same | as above | resent and deduplicated |
 | `AT_LEAST_ONCE` receive, process | unsettled redelivered; a stale settle fails `DELIVERY_STALE` | redelivered | redelivered | redelivered | redelivered: duplicate |
 | `TRANSACTED`, joined included | rolled back; commit fails `ABORTED`; redo | rolled back | rolled back | rolled back | `IN_DOUBT`; redo with the same dedupe ids |
 
 After `giveUpAfter` a link is `FAILED`: pending receipts fail `UNAVAILABLE`, `IN_DOUBT`, and nothing is
 resent. The dedupe window is reported by `Sender.deduplication()`.
+
+## Kafka
+
+`openbroker-kafka` supports Apache Kafka 4.0 and later in KRaft mode, and refuses an older cluster when
+it connects. It uses `kafka-clients` alone and the consumer group protocol (KIP-848).
+
+- **Resources.** Brokers are nodes; topics, partitions, consumer groups, share groups, ACLs and
+  transactional ids are kinds. Classic and streams groups are listed read-only, because their offsets
+  belong to the applications that run them. Changes are watched by polling, every `watch.interval`
+  (ten seconds by default), including consumers joining and leaving a subscription.
+- **Lag and counts are estimates.** Offset arithmetic overcounts on compacted and transactional
+  topics, so every total says so.
+- **Destructive operations are honest.** Purge and seek reset a group's committed offsets and fail
+  `FAILED_PRECONDITION` while the group has members, without removing them. Truncate deletes records
+  before an offset, with a preview, and is refused on a compacted topic. Moving, copying or deleting
+  one message is unavailable, because a log cannot remove one record.
+- **Browsing** reads committed records without joining a group.
+- **Messaging.** Senders deduplicate within the producer session (`DeduplicationScope.SESSION`).
+  Processors on a consumer group settle by committing offsets, keep per-key order in lanes, and join
+  transactions (KIP-447). A retry that is ordered, transacted or the default happens in place; an
+  explicitly managed, unordered policy uses one retry topic per backoff step (`<topic>.retry-<n>`).
+  Exhausted records go to `<topic>.dlt`. The processor refuses to open when a retry or dead-letter
+  topic is missing and the account cannot create it.
+- **Share groups** (Kafka 4.2 and later) are their own subscription kind: settlement per message, no
+  ordering, at least once only, and the processor renews a record's lock while a slow handler runs.
+  The broker counts attempts, so the default policy is the system's. From Kafka 4.4 with `share.version`
+  2, the broker dead-letters to the group's configured topic; at `share.version` 1 a record past the
+  delivery limit is archived with no copy, so choose a managed policy when you need the dead letter.
+- **Security.** SASL (PLAIN, SCRAM, OAUTHBEARER with a refreshed bearer token), TLS and mutual TLS
+  (`Credentials.None`). Hostname verification stays on.
 
 ## Writing a driver
 
@@ -171,6 +202,14 @@ The design is recorded in [`docs/adr/`](docs/adr/).
 - [0015](docs/adr/0015-telemetry-goes-through-a-hook-with-opentelemetry-in-an-optional-module.md) Telemetry goes through a hook, with OpenTelemetry in an optional module
 - [0016](docs/adr/0016-performance-budgets-are-enforced-in-ci.md) Performance budgets are enforced in CI
 - [0017](docs/adr/0017-chaos-is-part-of-the-tck.md) Chaos is part of the TCK
+- [0019](docs/adr/0019-kafka-settles-by-offset-and-runs-keys-in-lanes.md) Kafka settles by offset and runs keys in lanes
+- [0018](docs/adr/0018-the-kafka-mapping-and-its-honest-destructive-operations.md) The Kafka mapping and its honest destructive operations
+- [0020](docs/adr/0020-deduplication-is-declared-as-a-scope.md) Deduplication is declared as a scope
+- [0021](docs/adr/0021-the-retry-default-follows-what-the-system-enforces.md) The retry default follows what the system enforces, per subscription kind
+- [0022](docs/adr/0022-share-groups-are-a-subscription-kind.md) Share groups are a subscription kind
+- [0023](docs/adr/0023-credentials-are-a-sealed-set-of-forms.md) Credentials are a sealed set of forms
+- [0024](docs/adr/0024-kinds-carry-a-label.md) Kinds carry a label
+- [0025](docs/adr/0025-the-chaos-fixture-names-the-serving-node-and-its-successor.md) The chaos fixture names the serving node and its successor
 
 ## Trademarks
 

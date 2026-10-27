@@ -160,12 +160,12 @@ class ArtemisChaosIT extends ChaosTck {
             }
 
             @Override
-            public NodeId primary() {
+            public NodeId serving(ResourceId subscription) {
                 return PRIMARY;
             }
 
             @Override
-            public NodeId backup() {
+            public NodeId successor(ResourceId subscription) {
                 return BACKUP;
             }
 
@@ -264,7 +264,7 @@ class ArtemisChaosIT extends ChaosTck {
         return new ConnectRequest(
                 "artemis",
                 ClusterSpec.ofNodes(nodes),
-                CredentialSource.of(Credentials.of("artemis", "artemis")),
+                CredentialSource.of(Credentials.usernamePassword("artemis", "artemis")),
                 ConnectOptions.defaults().withTimeouts(Timeouts.fixed(Duration.ofSeconds(1), Duration.ofSeconds(2))));
     }
 

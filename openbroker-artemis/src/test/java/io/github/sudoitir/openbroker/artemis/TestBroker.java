@@ -74,7 +74,7 @@ final class TestBroker {
         return new ConnectRequest(
                 "artemis",
                 ClusterSpec.ofNodes(List.of(node(broker, CORE))),
-                CredentialSource.of(Credentials.of(user, password)),
+                CredentialSource.of(Credentials.usernamePassword(user, password)),
                 ConnectOptions.defaults());
     }
 
@@ -90,7 +90,7 @@ final class TestBroker {
     /** {@link #mutualTls(GenericContainer)} with TLS material from {@code tls}, which may change. */
     static ConnectRequest mutualTls(GenericContainer<?> broker, TlsProvider tls) {
         CredentialSource credentials =
-                plane -> plane == Plane.DATA ? Credentials.none() : Credentials.of(USER, PASSWORD);
+                plane -> plane == Plane.DATA ? new Credentials.None() : Credentials.usernamePassword(USER, PASSWORD);
         return new ConnectRequest(
                 "artemis",
                 ClusterSpec.ofNodes(List.of(node(broker, MUTUAL_TLS))),

@@ -50,7 +50,7 @@ class MessagingOptionsTest {
         assertThat(FlowControl.none()).isEqualTo(new FlowControl(1, 0, 0));
         SenderOptions sender = SenderOptions.defaults();
         assertThat(sender.guarantee()).isEqualTo(Guarantee.AT_LEAST_ONCE);
-        assertThat(sender.idempotent()).isFalse();
+        assertThat(sender.deduplication()).isEqualTo(DeduplicationScope.NONE);
         assertThat(sender.ordering()).isEqualTo(OrderingScope.NONE);
         ReceiverOptions receiver = ReceiverOptions.consume();
         assertThat(receiver.mode()).isEqualTo(ReceiveMode.CONSUME);
@@ -59,7 +59,9 @@ class MessagingOptionsTest {
         ProcessorOptions processor = ProcessorOptions.defaults();
         assertThat(processor.concurrency()).isEqualTo(8);
         assertThat(processor.ordering()).isEqualTo(OrderingScope.NONE);
-        assertThat(processor.retry().mode()).isEqualTo(RetryMode.SYSTEM);
+        assertThat(processor.retry()).isEqualTo(RetryPolicy.defaults());
+        assertThat(processor.retry().mode()).isEqualTo(RetryMode.DEFAULT);
+        assertThat(processor.retry().maxAttempts()).isEqualTo(10);
         assertThat(processor.stopGrace()).isEqualTo(Duration.ofSeconds(30));
     }
 
@@ -67,10 +69,10 @@ class MessagingOptionsTest {
     void withMethodsChangeOnlyTheirField() {
         SenderOptions sender = SenderOptions.defaults()
                 .withGuarantee(Guarantee.TRANSACTED)
-                .withIdempotent(true)
+                .withDeduplication(DeduplicationScope.WINDOW)
                 .withOrdering(OrderingScope.GROUP);
         assertThat(sender.guarantee()).isEqualTo(Guarantee.TRANSACTED);
-        assertThat(sender.idempotent()).isTrue();
+        assertThat(sender.deduplication()).isEqualTo(DeduplicationScope.WINDOW);
         assertThat(sender.ordering()).isEqualTo(OrderingScope.GROUP);
         assertThat(sender.buffer()).isEqualTo(SendBuffer.defaults());
 

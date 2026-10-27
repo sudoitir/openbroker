@@ -124,7 +124,7 @@ class WireShapesTest {
                         NodeId.of("n1"),
                         List.of(Endpoint.of(
                                 Plane.MANAGEMENT, "jolokia", server.endpoint().toString()))))),
-                CredentialSource.of(Credentials.of("artemis", "artemis")),
+                CredentialSource.of(Credentials.usernamePassword("artemis", "artemis")),
                 ConnectOptions.defaults()));
     }
 }
