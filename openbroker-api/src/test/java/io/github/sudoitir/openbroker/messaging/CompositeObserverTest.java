@@ -49,7 +49,7 @@ class CompositeObserverTest {
 
         Observation observation = MessagingObserver.composite(a, b)
                 .onSend(SEND, OutboundMessage.of(MessageBody.of(new byte[0])), carrier::put);
-        try (AutoCloseable _ = observation.scope()) {
+        try (var _ = observation.scope()) {
             events.add("work");
         } catch (Exception e) {
             throw new AssertionError(e);

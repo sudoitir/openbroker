@@ -109,7 +109,7 @@ class ProcessorLifecycleTest {
     void noHandlerStartsBeforeTheApplicationRunnersHaveRun() {
         RunnerApplication.driver = driver;
         RunnerApplication.ORDER.clear();
-        try (ConfigurableApplicationContext _ = new SpringApplicationBuilder(RunnerApplication.class)
+        try (var _ = new SpringApplicationBuilder(RunnerApplication.class)
                 .web(WebApplicationType.NONE)
                 .properties("openbroker.connections.orders.system=fake")
                 .run()) {
@@ -178,8 +178,9 @@ class ProcessorLifecycleTest {
         driver.messaging = false;
         runner.run(context -> {
             OpenBrokerProcessors processors = context.getBean(OpenBrokerProcessors.class);
+            Scope whole = Scope.whole();
 
-            assertThatThrownBy(() -> processors.register("orders", SUBSCRIPTION, Scope.whole(), HANDLER))
+            assertThatThrownBy(() -> processors.register("orders", SUBSCRIPTION, whole, HANDLER))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessage("Connection 'orders' has no messaging transport");
         });
@@ -195,8 +196,11 @@ class ProcessorLifecycleTest {
         });
 
         ProcessorOptions options = ProcessorOptions.defaults();
+        OpenBrokerProcessors stopping = processors[0];
+        Transport messaging = transport[0];
+        Scope whole = Scope.whole();
 
-        assertThatThrownBy(() -> processors[0].register(transport[0], SUBSCRIPTION, Scope.whole(), options, HANDLER))
+        assertThatThrownBy(() -> stopping.register(messaging, SUBSCRIPTION, whole, options, HANDLER))
                 .isInstanceOf(IllegalStateException.class);
     }
 }
