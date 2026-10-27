@@ -81,6 +81,7 @@ final class ShareConsumption implements Consuming {
     private final Semaphore wake = new Semaphore(0);
     private List<ConsumerRecord<byte[], byte[]>> lastPoll = List.of();
     private volatile @Nullable BrokerException failure;
+    private final CoordinatorWatch coordinator = new CoordinatorWatch();
     private volatile boolean closing;
     private volatile boolean ended;
     private long lastRenewal = System.nanoTime();
@@ -114,7 +115,10 @@ final class ShareConsumption implements Consuming {
 
     @Override
     public LinkState state() {
-        return closing || ended ? LinkState.CLOSED : LinkState.OPEN;
+        if (closing || ended) {
+            return LinkState.CLOSED;
+        }
+        return coordinator.silent() ? LinkState.RECOVERING : LinkState.OPEN;
     }
 
     @Override
@@ -168,6 +172,7 @@ final class ShareConsumption implements Consuming {
                     acknowledgePrevious();
                     ConsumerRecords<byte[], byte[]> records = consumer.poll(holding.isEmpty() ? IDLE_POLL : POLL);
                     failure = null;
+                    coordinator.look(consumer.metrics());
                     take(records);
                     dispatch();
                     pause();

@@ -104,7 +104,7 @@ public final class KafkaTransport implements Transport, AutoCloseable {
                 orderings,
                 Set.of(PrefetchBound.MESSAGES, PrefetchBound.BYTES),
                 subscriptions,
-                false);
+                true);
     }
 
     /**
