@@ -41,6 +41,8 @@ import org.springframework.boot.health.contributor.HealthIndicator;
  */
 final class ConnectionHealthIndicator implements HealthIndicator {
 
+    private static final String REASON = "reason";
+
     private final ClusterConnection connection;
     private final Duration timeout;
     private final AtomicReference<@Nullable CompletableFuture<Health>> running = new AtomicReference<>();
@@ -69,11 +71,11 @@ final class ConnectionHealthIndicator implements HealthIndicator {
         Thread.ofVirtual().name("openbroker-health").start(() -> finish(check));
         try {
             return check.get(timeout.toNanos(), TimeUnit.NANOSECONDS);
-        } catch (TimeoutException e) {
+        } catch (TimeoutException _) {
             return timedOut(check);
-        } catch (InterruptedException e) {
+        } catch (InterruptedException _) {
             Thread.currentThread().interrupt();
-            return Health.down().withDetail("reason", "INTERRUPTED").build();
+            return Health.down().withDetail(REASON, "INTERRUPTED").build();
         } catch (ExecutionException e) {
             return down(e.getCause());
         }
@@ -101,7 +103,7 @@ final class ConnectionHealthIndicator implements HealthIndicator {
                 return firstCheckRunning();
             }
             Health down = Health.down()
-                    .withDetail("reason", "TIMEOUT")
+                    .withDetail(REASON, "TIMEOUT")
                     .withDetail("timeout", timeout.toString())
                     .build();
             if (running.get() == check) {
@@ -112,12 +114,10 @@ final class ConnectionHealthIndicator implements HealthIndicator {
     }
 
     private static Health firstCheckRunning() {
-        return Health.unknown()
-                .withDetail("reason", "first check still running")
-                .build();
+        return Health.unknown().withDetail(REASON, "first check still running").build();
     }
 
-    /** Remembers the result before it lets the next check start, so a late result replaces a stale one. */
+    /** Remembers the result and lets the next check start before it answers the caller, so a late result replaces a stale one. */
     private void finish(CompletableFuture<Health> check) {
         Health result;
         try {
@@ -126,8 +126,8 @@ final class ConnectionHealthIndicator implements HealthIndicator {
             result = down(e);
         }
         remember(result);
-        check.complete(result);
         running.set(null);
+        check.complete(result);
     }
 
     private Health probe() {
@@ -146,15 +146,20 @@ final class ConnectionHealthIndicator implements HealthIndicator {
         described
                 .failures()
                 .forEach((node, error) -> failed.putIfAbsent(node.value(), failure(NodeOutcome.FAILED, error)));
-        Health.Builder health = answered > 0 ? Health.up() : unmanaged(described) ? Health.unknown() : Health.down();
+        Health.Builder health = Health.down();
+        if (answered > 0) {
+            health = Health.up();
+        } else if (unmanaged(described)) {
+            health = Health.unknown();
+        }
         health.withDetail("nodes", answered + failed.size()).withDetail("answered", answered);
         if (!failed.isEmpty()) {
             health.withDetail("failed", failed);
         }
         if (answered == 0 && failed.isEmpty()) {
-            health.withDetail("reason", "NO_NODES");
+            health.withDetail(REASON, "NO_NODES");
         } else if (answered == 0 && unmanaged(described)) {
-            health.withDetail("reason", ErrorReasons.ENDPOINT_NOT_FOUND);
+            health.withDetail(REASON, ErrorReasons.ENDPOINT_NOT_FOUND);
         }
         return health.build();
     }
@@ -174,7 +179,7 @@ final class ConnectionHealthIndicator implements HealthIndicator {
         detail.put("outcome", outcome.name());
         if (error != null) {
             detail.put("status", error.status().name());
-            detail.put("reason", error.reason());
+            detail.put(REASON, error.reason());
         }
         return detail;
     }
@@ -182,9 +187,9 @@ final class ConnectionHealthIndicator implements HealthIndicator {
     private static Health down(@Nullable Throwable error) {
         Health.Builder health = Health.down();
         if (error instanceof BrokerException broker) {
-            health.withDetail("status", broker.status().name()).withDetail("reason", broker.reason());
+            health.withDetail("status", broker.status().name()).withDetail(REASON, broker.reason());
         } else {
-            health.withDetail("reason", "ERROR");
+            health.withDetail(REASON, "ERROR");
             if (error != null) {
                 health.withDetail("error", error.getClass().getSimpleName());
             }

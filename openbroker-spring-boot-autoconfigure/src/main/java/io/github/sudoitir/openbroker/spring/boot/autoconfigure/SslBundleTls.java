@@ -15,6 +15,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import org.jspecify.annotations.Nullable;
 import org.springframework.boot.ssl.NoSuchSslBundleException;
@@ -111,7 +112,7 @@ public final class SslBundleTls {
         private final List<Runnable> listeners = new CopyOnWriteArrayList<>();
         private final @Nullable String watchedName;
         private final AtomicBoolean watching = new AtomicBoolean();
-        private volatile @Nullable Material cached;
+        private final AtomicReference<@Nullable Material> cached = new AtomicReference<>();
 
         ReloadingProvider(
                 String label,
@@ -134,10 +135,11 @@ public final class SslBundleTls {
             if (name != null && watching.compareAndSet(false, true)) {
                 bundles.addBundleUpdateHandler(name, updated -> listeners.forEach(Runnable::run));
             }
-            Material last = cached;
+            Material last = cached.get();
             if (last == null || last.bundle != bundle) {
-                last = new Material(bundle, material(label + "@" + serial.incrementAndGet(), bundle, verifyHostname));
-                cached = last;
+                Material fresh =
+                        new Material(bundle, material(label + "@" + serial.incrementAndGet(), bundle, verifyHostname));
+                last = cached.compareAndSet(last, fresh) ? fresh : cached.get();
             }
             return Optional.of(last.material);
         }

@@ -83,9 +83,9 @@ public final class MicrometerMessagingObserver implements MessagingObserver, Lin
     public Observation onSettle(OperationInfo op, Message message, Disposition disposition) {
         String name =
                 switch (disposition) {
-                    case Disposition.Accept a -> "accept";
-                    case Disposition.Release r -> "release";
-                    case Disposition.Reject r -> "reject";
+                    case Disposition.Accept _ -> "accept";
+                    case Disposition.Release _ -> "release";
+                    case Disposition.Reject _ -> "reject";
                 };
         return new Operation(op, name, null, OPERATION_DURATION, 0);
     }
@@ -125,7 +125,7 @@ public final class MicrometerMessagingObserver implements MessagingObserver, Lin
     /** One observed operation. */
     private class Operation implements Observation {
         private final OperationInfo op;
-        private final String operation;
+        private final String operationName;
         private final @Nullable String counter;
         private final String duration;
         private final long counted;
@@ -133,7 +133,7 @@ public final class MicrometerMessagingObserver implements MessagingObserver, Lin
 
         Operation(OperationInfo op, String operation, @Nullable String counter, String duration, long counted) {
             this.op = op;
-            this.operation = operation;
+            this.operationName = operation;
             this.counter = counter;
             this.duration = duration;
             this.counted = counted;
@@ -141,7 +141,7 @@ public final class MicrometerMessagingObserver implements MessagingObserver, Lin
 
         @Override
         public void end(@Nullable Throwable error) {
-            Tags tags = tags(op, operation, error);
+            Tags tags = tags(op, operationName, error);
             Timer.builder(duration)
                     .description("Duration of a messaging client operation.")
                     .tags(tags)

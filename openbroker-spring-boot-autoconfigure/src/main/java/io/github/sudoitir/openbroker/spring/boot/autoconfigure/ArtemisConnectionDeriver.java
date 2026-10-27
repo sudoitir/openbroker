@@ -53,14 +53,12 @@ final class ArtemisConnectionDeriver implements ConnectionDeriver {
         }
         NodeSpec node =
                 new NodeSpec(NodeId.of(NODE), List.of(new Endpoint(Plane.DATA, CORE, available.getBrokerUrl())));
-        CredentialsProperties data = available.getUser() == null
-                ? CredentialsProperties.unset()
-                : new CredentialsProperties(
-                        CredentialsProperties.Form.USERNAME_PASSWORD,
-                        available.getUser(),
-                        Secret.of(available.getPassword() == null ? "" : available.getPassword()),
-                        null,
-                        null);
+        CredentialsProperties data = CredentialsProperties.unset();
+        if (available.getUser() != null) {
+            String password = available.getPassword() == null ? "" : available.getPassword();
+            data = new CredentialsProperties(
+                    CredentialsProperties.Form.USERNAME_PASSWORD, available.getUser(), Secret.of(password), null, null);
+        }
         Connection connection = new Connection(
                 NAME,
                 new ClusterSpec(List.of(node), List.of(), Map.of()),

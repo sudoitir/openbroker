@@ -88,7 +88,7 @@ final class OpenBrokerConnectionRegistrar implements BeanDefinitionRegistryPostP
             ConfigurableListableBeanFactory beanFactory, String detailsType, @Nullable ClassLoader loader) {
         try {
             return beanFactory.getBeanNamesForType(ClassUtils.forName(detailsType, loader), true, false).length > 0;
-        } catch (ClassNotFoundException e) {
+        } catch (ClassNotFoundException _) {
             return false;
         }
     }

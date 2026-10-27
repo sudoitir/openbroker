@@ -17,7 +17,6 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 import org.jspecify.annotations.Nullable;
-import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.BeanFactoryUtils;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.ListableBeanFactory;
@@ -147,7 +146,7 @@ public final class OpenBrokerConnections implements DisposableBean {
     private CredentialSource credentials(
             String name, Connection connection, ConnectionDeriver.@Nullable Derived derived) {
         for (String beanName : BeanFactoryUtils.beanNamesForTypeIncludingAncestors(beans, CredentialSource.class)) {
-            if (BeanFactoryAnnotationUtils.isQualifierMatch(name::equals, beanName, (BeanFactory) beans)) {
+            if (BeanFactoryAnnotationUtils.isQualifierMatch(name::equals, beanName, beans)) {
                 return beans.getBean(beanName, CredentialSource.class);
             }
         }
@@ -176,7 +175,7 @@ public final class OpenBrokerConnections implements DisposableBean {
             for (AutoCloseable watch : watches) {
                 try {
                     watch.close();
-                } catch (Exception e) {
+                } catch (Exception _) {
                     // The transport is closing with its connection; a watch that will not close is gone with it.
                 }
             }

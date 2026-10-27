@@ -117,7 +117,7 @@ final class RecordBinder {
                 return merged;
             }
             return bound;
-        } catch (BindException e) {
+        } catch (BindException _) {
             // Neither the exception nor its message is kept: a conversion failure quotes the value.
             throw new ConnectionConfigurationException(connection, key(name), "is not " + describe(raw));
         }

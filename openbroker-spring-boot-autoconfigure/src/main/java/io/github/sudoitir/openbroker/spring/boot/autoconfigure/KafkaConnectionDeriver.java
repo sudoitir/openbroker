@@ -3,6 +3,7 @@ package io.github.sudoitir.openbroker.spring.boot.autoconfigure;
 import io.github.sudoitir.openbroker.BrokerDrivers;
 import io.github.sudoitir.openbroker.ClusterSpec;
 import io.github.sudoitir.openbroker.Endpoint;
+import io.github.sudoitir.openbroker.OptionSpec;
 import io.github.sudoitir.openbroker.Plane;
 import io.github.sudoitir.openbroker.Secret;
 import io.github.sudoitir.openbroker.TlsProvider;
@@ -110,7 +111,7 @@ final class KafkaConnectionDeriver implements ConnectionDeriver {
         return drivers.descriptor(KAFKA)
                 .schema()
                 .option(SASL_MECHANISM)
-                .map(spec -> spec.allowedValues())
+                .map(OptionSpec::allowedValues)
                 .orElse(List.of());
     }
 
@@ -147,7 +148,7 @@ final class KafkaConnectionDeriver implements ConnectionDeriver {
                             null);
                 }
             }
-        } catch (RuntimeException e) {
+        } catch (RuntimeException _) {
             // A configuration Kafka cannot parse is not derived; its text is not repeated here.
         }
         return CredentialsProperties.unset();

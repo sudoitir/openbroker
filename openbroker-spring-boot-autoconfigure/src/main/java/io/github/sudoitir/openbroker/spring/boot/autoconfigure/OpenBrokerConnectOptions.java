@@ -103,7 +103,10 @@ public final class OpenBrokerConnectOptions {
     }
 
     private static <T> T first(@Nullable T own, @Nullable T client, T fallback) {
-        return own != null ? own : client != null ? client : fallback;
+        if (own != null) {
+            return own;
+        }
+        return client != null ? client : fallback;
     }
 
     /** What the SDK takes to carry the caller's context onto its threads. */
