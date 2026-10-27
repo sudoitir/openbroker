@@ -4,10 +4,10 @@ Rules:
 - Spring Boot, Actuator, SSL bundle and Micrometer facts are checked with ctx7 or the Boot 4.1.2 sources before use.
 
 ## 1. Build and SDK gaps
-- [ ] 1.1 Raise the version to `0.4.0-SNAPSHOT` and `openbroker.previous.version` to `0.3.0`. Check: `./mvnw -B -q -DskipTests verify -pl openbroker-api`
-- [ ] 1.2 Add `ConnectionSchema.validate` and wire it into `BrokerDrivers.connect` and `verify` (D2). Check: `openbroker-api` tests for an unknown key, a missing required key, a wrong type, a value that is not allowed, and a redacted sensitive value
-- [ ] 1.3 Add `MessagingObserver.composite` (D6). Check: unit tests for fan-out and error isolation
-- [ ] 1.4 Add `OpenTelemetryMessaging.builder(...).injectContext(boolean)` (D7). Check: a send is a span, and the message keeps the producer's `traceparent`
+- [x] 1.1 Raise the version to `0.4.0-SNAPSHOT` and `openbroker.previous.version` to `0.3.0`. Check: `./mvnw -B -q -DskipTests verify -pl openbroker-api`
+- [x] 1.2 Add `ConnectionSchema.validate` and wire it into `BrokerDrivers.connect` and `verify` (D2). Check: `openbroker-api` tests for an unknown key, a missing required key, a wrong type, a value that is not allowed, and a redacted sensitive value
+- [x] 1.3 Add `MessagingObserver.composite` (D6). Check: unit tests for fan-out and error isolation
+- [x] 1.4 Add `OpenTelemetryMessaging.builder(...).injectContext(boolean)` (D7). Check: a send is a span, and the message keeps the producer's `traceparent`
 
 ## 2. Modules and the framework-free guard
 - [x] 2.1 Add `openbroker-spring-boot-autoconfigure` and `openbroker-spring-boot-starter` to the reactor and the BOM, with Spring Boot 4.1.2 dependency management only in the autoconfigure module (D12). Check: `./mvnw -B -DskipTests verify`

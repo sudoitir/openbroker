@@ -118,10 +118,11 @@ Every connection's `ConnectOptions` then passes through the ordered `ConnectOpti
 | Status | When |
 |---|---|
 | UP | The cluster answers. A `Partial` counts as an answer; the details list each failed node with its status and reason. A cluster that serves must not flap readiness. |
-| DOWN | No node answers, or the deadline passes. The reason comes with it. |
+| DOWN | No node answers, or a deadline passes after an earlier check finished. The reason comes with it. |
+| UNKNOWN | The first check ever passes its deadline ("first check still running"): a cold client can take seconds, and readiness must not fail at startup. Also, no node has a management endpoint to ask (a connection derived from Spring's Artemis details), with the reason `ENDPOINT_NOT_FOUND`. |
 | OUT_OF_SERVICE | The connection is closing. |
 
-At most one check runs per connection. While a check is in flight, the indicator returns the last result, marked stale. Details carry counts, node ids and reasons, never endpoints, options or credentials.
+At most one check runs per connection. While a check is in flight, the indicator returns the last result, marked stale. A finishing check remembers its result before the next may start, so a late `UP` replaces a stale `DOWN`. Details carry counts, node ids and reasons, never endpoints, options or credentials.
 
 The composite is behind `@ConditionalOnEnabledHealthIndicator("openbroker")`.
 
@@ -133,7 +134,7 @@ The composite is behind `@ConditionalOnEnabledHealthIndicator("openbroker")`.
 - `messaging.process.duration`;
 - `openbroker.messaging.link.recoveries`.
 
-Its tags are `openbroker.connection`, `openbroker.system`, the operation and the destination. It watches the transport for link recoveries.
+Its tags are `openbroker.connection`, `openbroker.system` and the operation. The destination is not a tag, because reply, temporary and per-tenant destinations make it unbounded; spans keep it. It watches the transport for link recoveries.
 
 **Which observer runs:**
 - **A `MeterRegistry` is present:** the Micrometer observer records the metrics. Then:
@@ -198,7 +199,7 @@ Rejected:
 
 ### D10. Lifecycle
 A `SmartLifecycle` at a late phase owns the processors that the application registers through the `OpenBrokerProcessors` bean:
-- it starts them after the context is ready, because `transport.process` starts a processor immediately;
+- it starts them on `ApplicationReadyEvent`, after every `ApplicationRunner` and `CommandLineRunner` has run, because `transport.process` starts a processor immediately and a handler must not run before the runners finish; the lifecycle's own `start` only restarts processors after a `stop`;
 - on stop it calls `stop(grace)` with each processor's `stopGrace`;
 - configured connections close in a later destroy phase, and `BrokerDrivers` closes after them.
 

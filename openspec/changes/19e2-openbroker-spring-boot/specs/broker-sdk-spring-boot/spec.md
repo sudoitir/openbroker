@@ -107,7 +107,7 @@ An application that opens connections at runtime from its own store SHALL get `B
 - **THEN** the application's health is unchanged
 
 ### Requirement: Health reflects each connection
-With Actuator present, every configured or derived connection SHALL contribute a health indicator under `openbroker`: up when the cluster answers within a timeout, even partially; down with the reason otherwise; out of service while closing. A check SHALL never block past its timeout, at most one SHALL run per connection, and its details SHALL never carry credentials, endpoints or option values.
+With Actuator present, every configured or derived connection SHALL contribute a health indicator under `openbroker`: up when the cluster answers within a timeout, even partially; down with the reason otherwise; out of service while closing. The first check ever passing its timeout SHALL be unknown, not down, so that a cold client does not fail readiness at startup. A check SHALL never block past its timeout, at most one SHALL run per connection, and its details SHALL never carry credentials, endpoints or option values.
 
 #### Scenario: A cluster stops answering
 - **WHEN** a connection's brokers stop answering
@@ -117,12 +117,16 @@ With Actuator present, every configured or derived connection SHALL contribute a
 - **WHEN** one node of a three-node cluster does not answer
 - **THEN** the connection is up, and the details name that node with its status and reason
 
+#### Scenario: The first check is slow
+- **WHEN** the first health check of a connection is still running at its timeout
+- **THEN** its health is unknown with the reason "first check still running", and it turns up when the check finishes
+
 #### Scenario: A check hangs
 - **WHEN** a health check is still running and health is asked again
 - **THEN** no second check starts, and the last result is returned marked stale
 
 ### Requirement: Telemetry follows the application's
-Client metrics SHALL go to Micrometer when it is present, tagged with the connection's name and system, and to OpenTelemetry only otherwise; spans SHALL go to OpenTelemetry when it is present. Writing trace context into messages SHALL be able to be turned off. Without either, nothing SHALL be allocated per message.
+Client metrics SHALL go to Micrometer when it is present, tagged with the connection's name, system and operation (never the destination), and to OpenTelemetry only otherwise; spans SHALL go to OpenTelemetry when it is present. Writing trace context into messages SHALL be able to be turned off. Without either, nothing SHALL be allocated per message.
 
 #### Scenario: A traced application
 - **WHEN** an application with an `OpenTelemetry` bean sends and processes a message through a connection
@@ -137,12 +141,12 @@ Client metrics SHALL go to Micrometer when it is present, tagged with the connec
 - **THEN** the send is a span, and the message carries no trace context written by the SDK
 
 ### Requirement: Processors follow the application's lifecycle
-Processors registered by the application through the starter SHALL start only after the context is ready, and on shutdown SHALL stop within their grace time before their connections close. A connection SHALL close after every processor and sender that uses it, and the drivers SHALL close last.
+Processors registered by the application through the starter SHALL start only when the application is ready, after its runners have run, and on shutdown SHALL stop within their grace time before their connections close. A connection SHALL close after every processor and sender that uses it, and the drivers SHALL close last.
 
 #### Scenario: Graceful shutdown
 - **WHEN** the application shuts down while handlers are running
 - **THEN** in-flight handlers finish within the grace time, the rest are handed back uncounted, and only then do the connections close
 
-#### Scenario: No message before the context is ready
+#### Scenario: No message before the application is ready
 - **WHEN** a processor is registered while the context is starting and messages are waiting
-- **THEN** no handler runs before the context is ready
+- **THEN** no handler runs before the application's runners have finished

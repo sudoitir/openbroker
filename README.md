@@ -254,11 +254,13 @@ openbroker:
   `SslBundleTls.forBundle(...)`. Health and the processor lifecycle are not applied to them.
 - **Health, metrics, tracing.** With Actuator, `openbroker` health has one indicator per connection:
   up while the cluster describes its nodes (a partial answer counts), down with the reason otherwise, with a
-  deadline (`openbroker.health.timeout`) and at most one check at a time. Metrics go to Micrometer when a
+  deadline (`openbroker.health.timeout`) and at most one check at a time; the first check ever is `UNKNOWN`,
+  not down, if it passes the deadline. Metrics go to Micrometer when a
   `MeterRegistry` is present and spans to OpenTelemetry when an `OpenTelemetry` bean is; with both, nothing is
-  counted twice. `openbroker.tracing.inject-context=false` stops sends writing trace context into the message,
+  counted twice. Metrics are tagged with the connection, system and operation, not the destination (too many
+  distinct values); spans carry it. `openbroker.tracing.inject-context=false` stops sends writing trace context into the message,
   for tools that relay messages other producers wrote.
-- **Lifecycle.** Register processors with `OpenBrokerProcessors`: they start when the context is ready and
+- **Lifecycle.** Register processors with `OpenBrokerProcessors`: they start when the application is ready (after its runners) and
   stop within their `stopGrace` before any connection closes; the drivers close last.
 
 ## Writing a driver
