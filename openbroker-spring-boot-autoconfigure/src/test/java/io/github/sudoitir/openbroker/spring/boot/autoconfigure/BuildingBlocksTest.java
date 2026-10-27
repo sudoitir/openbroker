@@ -166,11 +166,11 @@ class BuildingBlocksTest {
     }
 
     @Test
-    void aMissingSslBundleIsUnavailableAndNamesTheBundle() {
+    void aMissingSslBundleFailsOnlyTheConnectThatAsksForIt() {
         runner.run(context -> {
-            SslBundleTls tls = context.getBean(SslBundleTls.class);
+            TlsProvider provider = context.getBean(SslBundleTls.class).forBundle("nope", true);
 
-            assertThatThrownBy(() -> tls.forBundle("nope", true)).isInstanceOfSatisfying(BrokerException.class, e -> {
+            assertThatThrownBy(provider::current).isInstanceOfSatisfying(BrokerException.class, e -> {
                 assertThat(e.status()).isEqualTo(Status.UNAVAILABLE);
                 assertThat(e.reason()).isEqualTo(ErrorReasons.TLS_HANDSHAKE_FAILED);
                 assertThat(e.dispatch()).isEqualTo(Dispatch.NOT_SENT);

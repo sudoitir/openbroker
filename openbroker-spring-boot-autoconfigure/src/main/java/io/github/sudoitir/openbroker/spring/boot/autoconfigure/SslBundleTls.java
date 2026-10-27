@@ -13,6 +13,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import org.jspecify.annotations.Nullable;
@@ -36,19 +37,18 @@ public final class SslBundleTls {
     }
 
     /**
-     * TLS from the bundle called {@code bundleName}, current on every connect.
+     * TLS from the bundle called {@code bundleName}, current on every connect. The bundle is looked up
+     * when a connection asks for TLS, so a bundle that does not exist fails that connect alone, with
+     * {@code UNAVAILABLE}, the reason {@code TLS_HANDSHAKE_FAILED} and not sent, and a bundle added later
+     * is found on the next connect.
      *
      * @param bundleName the name under {@code spring.ssl.bundle}
      * @param verifyHostname whether the server's host name is checked against its certificate
-     * @throws BrokerException {@code UNAVAILABLE} with the reason {@code TLS_HANDSHAKE_FAILED}, not sent,
-     *     when no such bundle exists
      */
     public TlsProvider forBundle(String bundleName, boolean verifyHostname) {
-        return named.computeIfAbsent(bundleName + '\0' + verifyHostname, key -> {
-            ReloadingProvider provider = new ReloadingProvider(bundleName, () -> lookup(bundleName), verifyHostname);
-            provider.watch(bundleName);
-            return provider;
-        });
+        return named.computeIfAbsent(
+                bundleName + '\0' + verifyHostname,
+                key -> new ReloadingProvider(bundleName, () -> lookup(bundleName), verifyHostname, bundleName));
     }
 
     /** TLS from {@code bundle} as it is now; a bundle object does not reload. */
@@ -95,7 +95,7 @@ public final class SslBundleTls {
      * one and whose reload cannot be heard: the material changes with the bundle object.
      */
     TlsProvider following(Supplier<@Nullable SslBundle> source, boolean verifyHostname) {
-        return new ReloadingProvider("ssl-bundle", source, verifyHostname);
+        return new ReloadingProvider("ssl-bundle", source, verifyHostname, null);
     }
 
     /**
@@ -109,20 +109,19 @@ public final class SslBundleTls {
         private final boolean verifyHostname;
         private final AtomicLong serial = new AtomicLong();
         private final List<Runnable> listeners = new CopyOnWriteArrayList<>();
+        private final @Nullable String watchedName;
+        private final AtomicBoolean watching = new AtomicBoolean();
         private volatile @Nullable Material cached;
 
-        ReloadingProvider(String label, Supplier<@Nullable SslBundle> source, boolean verifyHostname) {
+        ReloadingProvider(
+                String label,
+                Supplier<@Nullable SslBundle> source,
+                boolean verifyHostname,
+                @Nullable String watchedName) {
             this.label = label;
             this.source = source;
             this.verifyHostname = verifyHostname;
-        }
-
-        void watch(String bundleName) {
-            try {
-                bundles.addBundleUpdateHandler(bundleName, updated -> listeners.forEach(Runnable::run));
-            } catch (NoSuchSslBundleException e) {
-                throw missing(bundleName, e);
-            }
+            this.watchedName = watchedName;
         }
 
         @Override
@@ -130,6 +129,10 @@ public final class SslBundleTls {
             SslBundle bundle = source.get();
             if (bundle == null) {
                 return Optional.empty();
+            }
+            String name = watchedName;
+            if (name != null && watching.compareAndSet(false, true)) {
+                bundles.addBundleUpdateHandler(name, updated -> listeners.forEach(Runnable::run));
             }
             Material last = cached;
             if (last == null || last.bundle != bundle) {

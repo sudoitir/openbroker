@@ -158,7 +158,7 @@ Applications that open connections at runtime from their own store get the beans
 - **`OpenBrokerConnectOptions.linkListener(name, system)`** returns the link listener matching those observers (the Micrometer recoveries counter and/or the OpenTelemetry observer), or a no-op one; a runtime connection passes it to `transport.watch`, and configured connections do so themselves.
 - **`SslBundleTls.forBundle(bundle, verifyHostname)`** and **`forBundle(SslBundle, verifyHostname)`.**
   - Each returns a `TlsProvider` whose material is current on every connect and whose `onChange` fires on a reload.
-  - A missing bundle is a `BrokerException`: `UNAVAILABLE`, reason `TLS_HANDSHAKE_FAILED`, `NOT_SENT`. Its message names the bundle and says to add it under `spring.ssl.bundle`.
+  - A missing bundle fails the connect that asks for it, not the call that builds the provider: a `BrokerException` with `UNAVAILABLE`, reason `TLS_HANDSHAKE_FAILED`, `NOT_SENT`. Its message names the bundle and says to add it under `spring.ssl.bundle`.
 
 Health and the processor lifecycle are not applied to runtime connections. A target the application manages must not decide the application's own health or shutdown order, so registering one is the application's call.
 
