@@ -21,7 +21,8 @@ import org.jspecify.annotations.Nullable;
 
 /**
  * Measures messaging with Micrometer. It records the instruments the OpenTelemetry observer records, under
- * the same names, tagged with the connection's name and system, the operation and the destination.
+ * the same names, tagged with the connection's name and system and the operation. The destination is not
+ * a tag: reply, temporary and per-tenant destinations make it unbounded, and spans carry it instead.
  * Pass it to {@code ConnectOptions.withObserver}, and to {@code Transport.watch} to count link
  * recoveries.
  *
@@ -105,11 +106,14 @@ public final class MicrometerMessagingObserver implements MessagingObserver, Lin
 
     private Tags tags(OperationInfo op, String operation, @Nullable Throwable error) {
         return connection.and(
-                "messaging.system", op.messagingSystem(),
-                "messaging.operation.type", op.type().name().toLowerCase(Locale.ROOT),
-                "messaging.operation.name", operation,
-                "messaging.destination.name", op.destination().path().name(),
-                "error.type", error == null ? NONE : errorType(error));
+                "messaging.system",
+                op.messagingSystem(),
+                "messaging.operation.type",
+                op.type().name().toLowerCase(Locale.ROOT),
+                "messaging.operation.name",
+                operation,
+                "error.type",
+                error == null ? NONE : errorType(error));
     }
 
     private static String errorType(Throwable error) {

@@ -141,7 +141,6 @@ class ObservabilityTest {
                             .tag("openbroker.connection", "c1")
                             .tag("openbroker.system", "artemis")
                             .tag("messaging.operation.name", "send")
-                            .tag("messaging.destination.name", "orders")
                             .timer()
                             .count())
                     .isEqualTo(1);
