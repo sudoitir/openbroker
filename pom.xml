@@ -42,6 +42,8 @@
         <module>openbroker-artemis</module>
         <module>openbroker-kafka</module>
         <module>openbroker-opentelemetry</module>
+        <module>openbroker-spring-boot-autoconfigure</module>
+        <module>openbroker-spring-boot-starter</module>
         <module>openbroker-benchmarks</module>
     </modules>
 
@@ -125,6 +127,16 @@
             <dependency>
                 <groupId>io.github.sudoitir</groupId>
                 <artifactId>openbroker-opentelemetry</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.sudoitir</groupId>
+                <artifactId>openbroker-spring-boot-autoconfigure</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.sudoitir</groupId>
+                <artifactId>openbroker-spring-boot-starter</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -276,6 +288,15 @@
                                 <requireJavaVersion><version>[25,)</version></requireJavaVersion>
                                 <requireMavenVersion><version>[3.9,)</version></requireMavenVersion>
                                 <dependencyConvergence/>
+                                <!-- Framework-free (ADR-0027): Spring lives only in the two Spring modules, which lift this. -->
+                                <bannedDependencies>
+                                    <excludes>
+                                        <exclude>org.springframework:*</exclude>
+                                        <exclude>org.springframework.boot:*</exclude>
+                                    </excludes>
+                                    <searchTransitive>true</searchTransitive>
+                                    <message>Spring is allowed only in openbroker-spring-boot-autoconfigure and openbroker-spring-boot-starter.</message>
+                                </bannedDependencies>
                             </rules>
                         </configuration>
                     </execution>

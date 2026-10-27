@@ -32,4 +32,18 @@
         </dependency>
     </dependencies>
 
+    <profiles>
+        <!-- The proof that the Enforcer's Spring ban holds: this profile adds Spring to the API, and
+             `./mvnw -pl openbroker-api -Pspring-ban-proof validate` must fail on the ban. CI runs it. -->
+        <profile>
+            <id>spring-ban-proof</id>
+            <dependencies>
+                <dependency>
+                    <groupId>org.springframework</groupId>
+                    <artifactId>spring-core</artifactId>
+                    <version>7.0.10</version>
+                </dependency>
+            </dependencies>
+        </profile>
+    </profiles>
 </project>

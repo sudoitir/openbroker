@@ -10,8 +10,8 @@ Rules:
 - [ ] 1.4 Add `OpenTelemetryMessaging.builder(...).injectContext(boolean)` (D7). Check: a send is a span, and the message keeps the producer's `traceparent`
 
 ## 2. Modules and the framework-free guard
-- [ ] 2.1 Add `openbroker-spring-boot-autoconfigure` and `openbroker-spring-boot-starter` to the reactor and the BOM, with Spring Boot 4.1.2 dependency management only in the autoconfigure module (D12). Check: `./mvnw -B -DskipTests verify`
-- [ ] 2.2 Add the Enforcer rule that bans Spring outside the two modules (D11). Check: the build fails when the test profile adds Spring to `openbroker-api`
+- [x] 2.1 Add `openbroker-spring-boot-autoconfigure` and `openbroker-spring-boot-starter` to the reactor and the BOM, with Spring Boot 4.1.2 dependency management only in the autoconfigure module (D12). Check: `./mvnw -B -DskipTests verify`
+- [x] 2.2 Add the Enforcer rule that bans Spring outside the two modules (D11). Check: the build fails when the test profile adds Spring to `openbroker-api`
 
 ## 3. Binding
 - [ ] 3.1 Add `OpenBrokerProperties`, `RecordBinder`, `CredentialsProperties` and `ConnectionOptions` (D1). Check: `ApplicationContextRunner` tests bind a full and a partial YAML for each driver, reject an out-of-range value, and reject a dead-letter target

@@ -38,7 +38,7 @@ jobs:
           java-version: "25"
           cache: maven
       - if: matrix.driver == 'artemis'
-        run: ./mvnw -B verify -pl '!openbroker-kafka,!openbroker-benchmarks' -Dartemis.image=${{ matrix.image }}
+        run: ./mvnw -B verify -pl '!openbroker-kafka,!openbroker-benchmarks,!openbroker-spring-boot-autoconfigure,!openbroker-spring-boot-starter' -Dartemis.image=${{ matrix.image }}
       - if: matrix.driver == 'kafka'
         run: ./mvnw -B verify -pl openbroker-kafka -am -Dkafka.image=${{ matrix.image }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -46,6 +46,26 @@ jobs:
         with:
           name: coverage
           path: openbroker-artemis/target/site/jacoco-aggregate
+
+  # Spring lives only in the two Spring modules (ADR-0027): the Enforcer bans it everywhere else, and
+  # this proves the ban holds by adding Spring to the API, which must fail the build on the ban.
+  framework-free:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+      - name: Spring in the API must fail the build
+        run: |
+          if ./mvnw -B -pl openbroker-api -Pspring-ban-proof validate > ban.log 2>&1; then
+            echo "Spring in openbroker-api was accepted: the Enforcer ban is not working."; exit 1
+          fi
+          grep -q "org.springframework:spring-core.*banned" ban.log || { cat ban.log; echo "The build failed, but not on the ban."; exit 1; }
 
   # The API may not break without the right version bump (SemVer; minor while 0.x), compared with
   # openbroker.previous.version, the last release on Central.
@@ -161,9 +181,9 @@ jobs:
   ci-ok:
     runs-on: ubuntu-latest
     if: always()
-    needs: [verify, api-check, chaos, bench]
+    needs: [verify, framework-free, api-check, chaos, bench]
     steps:
       - run: |
-          for r in "${{ needs.verify.result }}" "${{ needs.api-check.result }}" "${{ needs.chaos.result }}" "${{ needs.bench.result }}"; do
+          for r in "${{ needs.verify.result }}" "${{ needs.framework-free.result }}" "${{ needs.api-check.result }}" "${{ needs.chaos.result }}" "${{ needs.bench.result }}"; do
             case "$r" in success|skipped) ;; *) echo "A required job ended as $r"; exit 1;; esac
           done
