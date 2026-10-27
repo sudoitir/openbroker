@@ -23,7 +23,7 @@ Rules:
 - [x] 4.2 Add per-connection `ClusterConnection` and `Transport` beans by name, with the primary rule and back-off (D3). Check: context-runner tests for one connection, two connections and an overridden connection, and a `CredentialSource` bean that wins
 
 ## 5. Spring Boot connection details
-- [ ] 5.1 Derive the `kafka` and `artemis` connections from Boot's details, with the overlay and the opt-out (D9). Check: context-runner tests for plaintext, SSL bundle, SCRAM, failing OAUTHBEARER, embedded Artemis skipped, overlay and opt-out
+- [x] 5.1 Derive the `kafka` and `artemis` connections from Boot's details, with the overlay and the opt-out (D9). Check: context-runner tests for plaintext, SSL bundle, SCRAM, failing OAUTHBEARER, embedded Artemis skipped, overlay and opt-out
 
 ## 6. Observability and lifecycle
 - [ ] 6.1 Add the health composite with deadlines and redacted details (D5). Check: tests for up, partial, down, timeout, stale and closing

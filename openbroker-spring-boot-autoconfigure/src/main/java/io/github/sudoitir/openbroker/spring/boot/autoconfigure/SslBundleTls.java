@@ -14,6 +14,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Supplier;
 import org.jspecify.annotations.Nullable;
 import org.springframework.boot.ssl.NoSuchSslBundleException;
 import org.springframework.boot.ssl.SslBundle;
@@ -44,8 +45,8 @@ public final class SslBundleTls {
      */
     public TlsProvider forBundle(String bundleName, boolean verifyHostname) {
         return named.computeIfAbsent(bundleName + '\0' + verifyHostname, key -> {
-            ReloadingProvider provider = new ReloadingProvider(bundleName, verifyHostname);
-            provider.watch();
+            ReloadingProvider provider = new ReloadingProvider(bundleName, () -> lookup(bundleName), verifyHostname);
+            provider.watch(bundleName);
             return provider;
         });
     }
@@ -55,6 +56,14 @@ public final class SslBundleTls {
         Optional<TlsMaterial> material =
                 Optional.of(material("ssl-bundle-" + UUID.randomUUID(), bundle, verifyHostname));
         return () -> material;
+    }
+
+    private SslBundle lookup(String bundleName) {
+        try {
+            return bundles.getBundle(bundleName);
+        } catch (NoSuchSslBundleException e) {
+            throw missing(bundleName, e);
+        }
     }
 
     private static TlsMaterial material(String id, SslBundle bundle, boolean verifyHostname) {
@@ -82,23 +91,33 @@ public final class SslBundleTls {
     }
 
     /**
-     * A bundle looked up by name on every connect, whose reload is passed on. Each bundle object it meets
-     * gets a new material id, which is how the SDK tells a rotation.
+     * TLS from whatever bundle {@code source} returns on each connect, for a bundle that is not a named
+     * one and whose reload cannot be heard: the material changes with the bundle object.
+     */
+    TlsProvider following(Supplier<@Nullable SslBundle> source, boolean verifyHostname) {
+        return new ReloadingProvider("ssl-bundle", source, verifyHostname);
+    }
+
+    /**
+     * A bundle looked up on every connect, whose reload is passed on. Each bundle object it meets gets
+     * a new material id, which is how the SDK tells a rotation.
      */
     private final class ReloadingProvider implements TlsProvider {
 
-        private final String bundleName;
+        private final String label;
+        private final Supplier<@Nullable SslBundle> source;
         private final boolean verifyHostname;
         private final AtomicLong serial = new AtomicLong();
         private final List<Runnable> listeners = new CopyOnWriteArrayList<>();
         private volatile @Nullable Material cached;
 
-        ReloadingProvider(String bundleName, boolean verifyHostname) {
-            this.bundleName = bundleName;
+        ReloadingProvider(String label, Supplier<@Nullable SslBundle> source, boolean verifyHostname) {
+            this.label = label;
+            this.source = source;
             this.verifyHostname = verifyHostname;
         }
 
-        void watch() {
+        void watch(String bundleName) {
             try {
                 bundles.addBundleUpdateHandler(bundleName, updated -> listeners.forEach(Runnable::run));
             } catch (NoSuchSslBundleException e) {
@@ -108,16 +127,13 @@ public final class SslBundleTls {
 
         @Override
         public Optional<TlsMaterial> current() {
-            SslBundle bundle;
-            try {
-                bundle = bundles.getBundle(bundleName);
-            } catch (NoSuchSslBundleException e) {
-                throw missing(bundleName, e);
+            SslBundle bundle = source.get();
+            if (bundle == null) {
+                return Optional.empty();
             }
             Material last = cached;
             if (last == null || last.bundle != bundle) {
-                last = new Material(
-                        bundle, material(bundleName + "@" + serial.incrementAndGet(), bundle, verifyHostname));
+                last = new Material(bundle, material(label + "@" + serial.incrementAndGet(), bundle, verifyHostname));
                 cached = last;
             }
             return Optional.of(last.material);

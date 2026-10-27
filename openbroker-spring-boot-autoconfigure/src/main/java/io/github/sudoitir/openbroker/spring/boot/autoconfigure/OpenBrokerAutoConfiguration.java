@@ -6,12 +6,15 @@ import io.micrometer.context.ContextSnapshotFactory;
 import java.time.Clock;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.artemis.autoconfigure.ArtemisConnectionDetails;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.ssl.SslAutoConfiguration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.kafka.autoconfigure.KafkaConnectionDetails;
 import org.springframework.boot.ssl.SslBundles;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -22,7 +25,12 @@ import org.springframework.core.env.Environment;
  * (connect options, TLS from SSL bundles), one connection per configured or derived system, and their
  * health, metrics, tracing and lifecycle. Every bean backs off to an application bean of its type.
  */
-@AutoConfiguration(after = SslAutoConfiguration.class)
+@AutoConfiguration(
+        after = SslAutoConfiguration.class,
+        afterName = {
+            "org.springframework.boot.kafka.autoconfigure.KafkaAutoConfiguration",
+            "org.springframework.boot.artemis.autoconfigure.ArtemisAutoConfiguration"
+        })
 @EnableConfigurationProperties(OpenBrokerProperties.class)
 public class OpenBrokerAutoConfiguration {
 
@@ -88,6 +96,44 @@ public class OpenBrokerAutoConfiguration {
                     () -> ContextSnapshotFactory.builder().build());
             return new OpenBrokerConnectOptions.ContextPropagation(
                     runnable -> snapshots.captureAll().wrap(runnable));
+        }
+    }
+
+    /** The {@code kafka} connection from Spring Boot's Kafka connection details, with the Kafka driver. */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(
+            name = {
+                "org.springframework.boot.kafka.autoconfigure.KafkaConnectionDetails",
+                "io.github.sudoitir.openbroker.kafka.KafkaDriver"
+            })
+    @ConditionalOnProperty(prefix = "openbroker.spring-connections", name = "enabled", matchIfMissing = true)
+    static class KafkaDerivation {
+
+        @Bean
+        @ConditionalOnMissingBean(KafkaConnectionDeriver.class)
+        KafkaConnectionDeriver kafkaConnectionDeriver(
+                ObjectProvider<KafkaConnectionDetails> details,
+                Environment environment,
+                ObjectProvider<SslBundleTls> ssl) {
+            return new KafkaConnectionDeriver(details, environment, ssl);
+        }
+    }
+
+    /** The {@code artemis} connection from Spring Boot's Artemis connection details, with the Artemis driver. */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(
+            name = {
+                "org.springframework.boot.artemis.autoconfigure.ArtemisConnectionDetails",
+                "io.github.sudoitir.openbroker.artemis.ArtemisDriver"
+            })
+    @ConditionalOnProperty(prefix = "openbroker.spring-connections", name = "enabled", matchIfMissing = true)
+    static class ArtemisDerivation {
+
+        @Bean
+        @ConditionalOnMissingBean(ArtemisConnectionDeriver.class)
+        ArtemisConnectionDeriver artemisConnectionDeriver(
+                ObjectProvider<ArtemisConnectionDetails> details, Environment environment) {
+            return new ArtemisConnectionDeriver(details, environment);
         }
     }
 }

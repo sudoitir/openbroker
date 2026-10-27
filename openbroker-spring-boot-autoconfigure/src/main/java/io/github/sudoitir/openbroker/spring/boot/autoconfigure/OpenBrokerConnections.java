@@ -45,6 +45,7 @@ public final class OpenBrokerConnections implements DisposableBean {
     private final ObjectProvider<ObserverSource> observers;
     private final ListableBeanFactory beans;
     private final Map<String, Connection> bound = new ConcurrentHashMap<>();
+    private final Map<String, Optional<ConnectionDeriver.Derived>> derivedByName = new ConcurrentHashMap<>();
     private final List<AutoCloseable> watches = new ArrayList<>();
 
     OpenBrokerConnections(
@@ -78,7 +79,7 @@ public final class OpenBrokerConnections implements DisposableBean {
     public Set<String> names() {
         Set<String> names = configuredNames(environment);
         derivers.orderedStream().forEach(deriver -> {
-            if (deriver.derive() != null) {
+            if (derived(deriver.name()) != null) {
                 names.add(deriver.name());
             }
         });
@@ -88,21 +89,35 @@ public final class OpenBrokerConnections implements DisposableBean {
     /** The connection called {@code name}, bound, checked against its driver and with defaults filled in. */
     public Connection connection(String name) {
         return bound.computeIfAbsent(name, key -> {
-            Connection derived = derivers.orderedStream()
-                    .filter(deriver -> deriver.name().equals(key))
-                    .findFirst()
-                    .map(ConnectionDeriver::derive)
-                    .orElse(null);
-            return new ConnectionBinder(environment, drivers).bind(key, derived);
+            ConnectionDeriver.Derived derived = derived(key);
+            return new ConnectionBinder(environment, drivers).bind(key, derived == null ? null : derived.connection());
         });
     }
 
-    /** Opens the connection called {@code name}; the bean of that name calls this once. */
-    ClusterConnection open(String name) {
+    private ConnectionDeriver.@Nullable Derived derived(String name) {
+        return derivedByName
+                .computeIfAbsent(
+                        name,
+                        key -> derivers.orderedStream()
+                                .filter(deriver -> deriver.name().equals(key))
+                                .findFirst()
+                                .map(ConnectionDeriver::derive))
+                .orElse(null);
+    }
+
+    /**
+     * Opens the connection called {@code name}; the bean of that name calls this once. A connection that
+     * was to be derived but is not (an embedded broker) gives no bean.
+     */
+    @Nullable ClusterConnection open(String name) {
+        if (derived(name) == null && !configuredNames(environment).contains(name)) {
+            return null;
+        }
         Connection connection = connection(name);
         String system = connection.system();
         String bundle = connection.options().sslBundle();
-        TlsProvider tls = TlsProvider.none();
+        ConnectionDeriver.Derived derived = derived(name);
+        TlsProvider tls = derived != null && derived.tls() != null ? derived.tls() : TlsProvider.none();
         if (bundle != null) {
             SslBundleTls bundleTls = ssl.getIfAvailable();
             if (bundleTls == null) {
@@ -115,12 +130,12 @@ public final class OpenBrokerConnections implements DisposableBean {
         }
         ConnectOptions options = connectOptions.forConnection(name, system, tls, connection.options());
         return drivers.connect(
-                new ConnectRequest(system, connection.cluster(), credentials(name, connection), options));
+                new ConnectRequest(system, connection.cluster(), credentials(name, connection, derived), options));
     }
 
     /** The messaging transport of an open connection, or {@code null} when its driver offers none. */
-    @Nullable Transport transport(String name, ClusterConnection opened) {
-        Optional<Transport> transport = opened.transport();
+    @Nullable Transport transport(String name, @Nullable ClusterConnection opened) {
+        Optional<Transport> transport = opened == null ? Optional.empty() : opened.transport();
         if (transport.isEmpty()) {
             return null;
         }
@@ -137,13 +152,23 @@ public final class OpenBrokerConnections implements DisposableBean {
     }
 
     /** A {@code CredentialSource} bean qualified with the connection's name wins over its properties. */
-    private CredentialSource credentials(String name, Connection connection) {
+    private CredentialSource credentials(
+            String name, Connection connection, ConnectionDeriver.@Nullable Derived derived) {
         for (String beanName : BeanFactoryUtils.beanNamesForTypeIncludingAncestors(beans, CredentialSource.class)) {
             if (BeanFactoryAnnotationUtils.isQualifierMatch(name::equals, beanName, (BeanFactory) beans)) {
                 return beans.getBean(beanName, CredentialSource.class);
             }
         }
         String prefix = ConnectionBinder.PREFIX + name;
+        if (derived != null
+                && derived.credentialsNeeded() != null
+                && !connection.credentials().isSet()) {
+            throw new ConnectionConfigurationException(
+                    name,
+                    prefix + ".credentials",
+                    derived.credentialsNeeded() + "; set the connection's credentials under " + prefix
+                            + ".credentials or define a CredentialSource bean qualified '" + name + "'");
+        }
         Credentials data = connection.credentials().isSet()
                 ? connection.credentials().toCredentials(name, prefix + ".credentials")
                 : new Credentials.None();

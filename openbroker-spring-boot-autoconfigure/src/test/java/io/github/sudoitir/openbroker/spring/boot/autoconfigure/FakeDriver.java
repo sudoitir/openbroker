@@ -54,15 +54,27 @@ class FakeDriver implements BrokerDriver {
     final List<LinkListener> watchers = new CopyOnWriteArrayList<>();
     BooleanSupplier driversOpen = () -> true;
     boolean messaging = true;
+    private final BrokerSystem system;
+    private final ConnectionSchema schema;
+
+    FakeDriver() {
+        this(new BrokerSystem(SYSTEM, "Fake", "[1,)", 1, Set.of(), List.of()), SCHEMA);
+    }
+
+    /** A driver that answers for another system, with that system's description and schema. */
+    FakeDriver(BrokerSystem system, ConnectionSchema schema) {
+        this.system = system;
+        this.schema = schema;
+    }
 
     @Override
     public BrokerSystem system() {
-        return new BrokerSystem(SYSTEM, "Fake", "[1,)", 1, Set.of(), List.of());
+        return system;
     }
 
     @Override
     public ConnectionSchema schema() {
-        return SCHEMA;
+        return schema;
     }
 
     @Override
