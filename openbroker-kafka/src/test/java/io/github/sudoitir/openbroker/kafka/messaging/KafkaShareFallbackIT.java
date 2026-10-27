@@ -57,6 +57,7 @@ class KafkaShareFallbackIT {
 
     @BeforeAll
     static void downgrade() {
+        SharedKafka.assumeDeadLetteringShareGroups();
         setShareVersion(1, FeatureUpdate.UpgradeType.SAFE_DOWNGRADE);
         drivers = BrokerDrivers.load();
         connection = drivers.connect(SharedKafka.request(ConnectOptions.defaults()));
@@ -64,6 +65,9 @@ class KafkaShareFallbackIT {
 
     @AfterAll
     static void restore() {
+        if (connection == null) {
+            return;
+        }
         try {
             connection.close();
             drivers.close();

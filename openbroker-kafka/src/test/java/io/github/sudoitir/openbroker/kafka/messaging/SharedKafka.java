@@ -24,6 +24,7 @@ import org.apache.kafka.clients.admin.AlterConfigOp;
 import org.apache.kafka.clients.admin.ConfigEntry;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.common.config.ConfigResource;
+import org.junit.jupiter.api.Assumptions;
 
 /**
  * One three-broker cluster for every messaging test of the JVM, started on first use: starting
@@ -114,6 +115,20 @@ final class SharedKafka {
         } catch (InterruptedException | ExecutionException e) {
             throw new IllegalStateException("Could not create " + name, e);
         }
+    }
+
+    /** Skips the class unless the cluster has share groups whose {@code share.version} is 2, where the broker dead-letters. */
+    static void assumeDeadLetteringShareGroups() {
+        int level = 0;
+        try (Admin admin = Admin.create(Map.of("bootstrap.servers", cluster().bootstrapServers()))) {
+            var finalized = admin.describeFeatures().featureMetadata().get().finalizedFeatures();
+            if (finalized.containsKey("share.version")) {
+                level = finalized.get("share.version").maxVersionLevel();
+            }
+        } catch (InterruptedException | ExecutionException e) {
+            throw new IllegalStateException("Could not read the cluster's features", e);
+        }
+        Assumptions.assumeTrue(level >= 2, "The cluster's share.version is " + level + ", not 2");
     }
 
     /** A share group on {@code topic} with {@code configs} set on the group. */
