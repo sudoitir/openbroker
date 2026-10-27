@@ -55,7 +55,7 @@ import org.jspecify.annotations.Nullable;
  *       taken: the partition is sought back to it and paused until it is due.
  * </ul>
  */
-final class Consumption implements AutoCloseable {
+final class Consumption implements Consuming {
 
     private static final System.Logger LOG = System.getLogger(Consumption.class.getName());
     private static final Duration POLL = Duration.ofMillis(20);
@@ -66,16 +66,6 @@ final class Consumption implements AutoCloseable {
 
     /** How long a member may go without polling before the group drops it: the group's rebalance timeout. */
     static final Duration REBALANCE_TIMEOUT = Duration.ofSeconds(60);
-
-    /** Who runs the handlers. Both calls are made on the poll thread and must not block. */
-    interface Sink {
-
-        /** A record ready to be handled. */
-        void deliver(Delivery delivery);
-
-        /** Partitions are going: drop the deliveries queued for them that no handler has taken. */
-        void retract(Collection<TopicPartition> partitions);
-    }
 
     /** Who commits the offsets of settled records. */
     enum Commits {
@@ -113,7 +103,7 @@ final class Consumption implements AutoCloseable {
     private record Requeue(Delivery delivery, long dueNanos, boolean failed) {}
 
     private final Settings settings;
-    private final Sink sink;
+    private final Consuming.Sink sink;
     private final Consumer<byte[], byte[]> consumer;
     private final Thread thread;
     private final Map<TopicPartition, Tracking> tracking = new ConcurrentHashMap<>();
@@ -130,7 +120,7 @@ final class Consumption implements AutoCloseable {
     private int cursor;
 
     /** A member of the group over {@code consumer}, which only the poll thread touches once {@link #start}ed. */
-    Consumption(String id, Settings settings, Sink sink, Consumer<byte[], byte[]> consumer) {
+    Consumption(String id, Settings settings, Consuming.Sink sink, Consumer<byte[], byte[]> consumer) {
         this.settings = settings;
         this.sink = sink;
         this.consumer = consumer;
@@ -139,7 +129,7 @@ final class Consumption implements AutoCloseable {
     }
 
     /** A member of the group, over a Kafka consumer built from the connection's settings. */
-    static Consumption create(MessagingEnv env, String id, Settings settings, Sink sink) {
+    static Consumption create(MessagingEnv env, String id, Settings settings, Consuming.Sink sink) {
         return new Consumption(id, settings, sink, new KafkaConsumer<>(config(env, id, settings)));
     }
 
@@ -169,11 +159,13 @@ final class Consumption implements AutoCloseable {
         return new Rebalances();
     }
 
-    void start() {
+    @Override
+    public void start() {
         thread.start();
     }
 
-    LinkState state() {
+    @Override
+    public LinkState state() {
         if (closing || ended) {
             return LinkState.CLOSED;
         }
@@ -181,7 +173,8 @@ final class Consumption implements AutoCloseable {
     }
 
     /** The failure the last poll ended with (a denied topic, a rejected login), or null while polling works. */
-    @Nullable BrokerException failure() {
+    @Override
+    public @Nullable BrokerException failure() {
         return failure;
     }
 
@@ -191,18 +184,21 @@ final class Consumption implements AutoCloseable {
 
     // ---- settling, from any thread -----------------------------------------------------------
 
-    /** Settles a delivery: it will not be delivered again. */
-    void settle(Delivery delivery) {
+    @Override
+    public void settle(Delivery delivery) {
         Tracking t = requireCurrent(delivery);
         delivery.finish();
         t.tracker.settled(delivery.offset());
     }
 
-    /**
-     * Hands a delivery back: it is delivered again after {@code delay}, with its attempt raised when
-     * {@code failed}.
-     */
-    void requeue(Delivery delivery, Duration delay, boolean failed) {
+    /** A rejected record is settled: its dead letter, if any, was sent first. */
+    @Override
+    public void reject(Delivery delivery) {
+        settle(delivery);
+    }
+
+    @Override
+    public void requeue(Delivery delivery, Duration delay, boolean failed) {
         requireCurrent(delivery);
         delivery.finish();
         inbox.add(new Requeue(delivery, System.nanoTime() + delay.toNanos(), failed));
@@ -486,7 +482,6 @@ final class Consumption implements AutoCloseable {
         }
     }
 
-    /** Stops polling, commits what was settled and leaves the group. */
     @Override
     public void close() {
         closing = true;

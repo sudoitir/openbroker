@@ -37,7 +37,7 @@ import org.jspecify.annotations.Nullable;
  *       {@link #rollback} aborts it and hands every record received since the last commit out again.
  * </ul>
  */
-final class KafkaReceiver implements Receiver, Consumption.Sink {
+final class KafkaReceiver implements Receiver, Consuming.Sink {
 
     private final MessagingEnv env;
     private final Subscriptions.GroupTopic subscription;

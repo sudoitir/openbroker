@@ -27,7 +27,7 @@ import org.junit.jupiter.api.Test;
  */
 class KafkaFencingIT {
 
-    private static final Consumption.Sink IGNORE = new Consumption.Sink() {
+    private static final Consuming.Sink IGNORE = new Consuming.Sink() {
         @Override
         public void deliver(Delivery delivery) {}
 

@@ -12,12 +12,19 @@ final class KafkaProcessor implements Processor {
     private final Processor engine;
     private final AutoCloseable lanes;
     private final AutoCloseable deadLetters;
+    private final AutoCloseable retryTopics;
 
-    KafkaProcessor(MessagingEnv env, Processor engine, AutoCloseable lanes, AutoCloseable deadLetters) {
+    KafkaProcessor(
+            MessagingEnv env,
+            Processor engine,
+            AutoCloseable lanes,
+            AutoCloseable deadLetters,
+            AutoCloseable retryTopics) {
         this.env = env;
         this.engine = engine;
         this.lanes = lanes;
         this.deadLetters = deadLetters;
+        this.retryTopics = retryTopics;
     }
 
     @Override
@@ -57,6 +64,7 @@ final class KafkaProcessor implements Processor {
         try {
             lanes.close();
             deadLetters.close();
+            retryTopics.close();
         } catch (Exception e) {
             // closing is best effort once the handlers have stopped
         } finally {

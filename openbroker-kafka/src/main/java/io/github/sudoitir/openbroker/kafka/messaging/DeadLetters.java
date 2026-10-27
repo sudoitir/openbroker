@@ -58,8 +58,8 @@ final class DeadLetters implements AutoCloseable {
      * @param joined opens a sender joined to the caller's transaction, or null to send on its own
      */
     void reject(Delivery delivery, int attempts, String reason, @Nullable Function<SendTarget, Sender> joined) {
-        ensure(List.of(delivery.partition().topic()));
-        String dead = topicFor(delivery.partition().topic());
+        ensure(List.of(delivery.originTopic()));
+        String dead = topicFor(delivery.originTopic());
         OutboundMessage copy = OutboundMessage.copyOf(delivery.message())
                 .withHeaders(delivery.message().headers().toBuilder()
                         .deliveryCount(null)

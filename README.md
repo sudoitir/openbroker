@@ -174,6 +174,7 @@ The design is recorded in [`docs/adr/`](docs/adr/).
 - [0019](docs/adr/0019-kafka-settles-by-offset-and-runs-keys-in-lanes.md) Kafka settles by offset and runs keys in lanes
 - [0020](docs/adr/0020-deduplication-is-declared-as-a-scope.md) Deduplication is declared as a scope
 - [0021](docs/adr/0021-the-retry-default-follows-what-the-system-enforces.md) The retry default follows what the system enforces, per subscription kind
+- [0022](docs/adr/0022-share-groups-are-a-subscription-kind.md) Share groups are a subscription kind
 - [0023](docs/adr/0023-credentials-are-a-sealed-set-of-forms.md) Credentials are a sealed set of forms
 - [0024](docs/adr/0024-kinds-carry-a-label.md) Kinds carry a label
 - [0025](docs/adr/0025-the-chaos-fixture-names-the-serving-node-and-its-successor.md) The chaos fixture names the serving node and its successor

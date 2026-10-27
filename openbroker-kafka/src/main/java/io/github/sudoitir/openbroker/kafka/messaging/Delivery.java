@@ -68,6 +68,13 @@ final class Delivery {
         return new TopicPartition(record.topic(), record.partition());
     }
 
+    /** The topic the record was first read from: its own, or the one it went to a retry topic from. */
+    String originTopic() {
+        var kafka = message.extension(Records.EXTENSION);
+        return String.valueOf(
+                kafka.raw("origin_topic").or(() -> kafka.raw("topic")).orElse(record.topic()));
+    }
+
     long offset() {
         return record.offset();
     }

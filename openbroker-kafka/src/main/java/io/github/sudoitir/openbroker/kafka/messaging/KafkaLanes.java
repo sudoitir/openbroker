@@ -1,6 +1,7 @@
 package io.github.sudoitir.openbroker.kafka.messaging;
 
 import io.github.sudoitir.openbroker.BrokerException;
+import io.github.sudoitir.openbroker.ErrorReasons;
 import io.github.sudoitir.openbroker.messaging.Disposition;
 import io.github.sudoitir.openbroker.messaging.Guarantee;
 import io.github.sudoitir.openbroker.messaging.LinkState;
@@ -18,16 +19,16 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 import org.apache.kafka.common.TopicPartition;
 import org.jspecify.annotations.Nullable;
 
 /**
- * The lanes of one processor on a consumer group: one {@link Consumption} polls for all of them, and
+ * The lanes of one processor on a consumer group or share group: one {@link Consuming} polls for all of them, and
  * a record goes to the queue of one lane. The routing is the ordering:
  *
  * <ul>
@@ -46,52 +47,53 @@ import org.jspecify.annotations.Nullable;
  * fenced by the group's generation; releasing it aborts the transaction and hands the record out
  * again.
  */
-final class KafkaLanes implements ProcessorEngine.Lanes, Consumption.Sink, AutoCloseable {
+final class KafkaLanes implements ProcessorEngine.Lanes, Consuming.Sink, AutoCloseable {
+
+    private static final System.Logger LOG = System.getLogger(KafkaLanes.class.getName());
 
     private final MessagingEnv env;
     private final String processorId;
     private final Subscriptions.GroupTopic subscription;
     private final ProcessorOptions options;
     private final DeadLetters deadLetters;
+    private final @Nullable RetryTopics retryTopics;
+    private final boolean brokerDeadLetters;
     private final boolean transacted;
     private final List<LinkedBlockingQueue<Delivery>> queues = new CopyOnWriteArrayList<>();
     private final AtomicInteger next = new AtomicInteger();
     private final List<Lane> lanes = new CopyOnWriteArrayList<>();
-    private final Consumption consumption;
+    private final Consuming consuming;
 
+    /**
+     * @param retryTopics where an unordered managed retry waits, or null to hold it here
+     * @param brokerDeadLetters whether the broker dead-letters what is rejected, so the lane does not
+     * @param consuming makes the group member that feeds the lanes, given where to hand records
+     */
     KafkaLanes(
             MessagingEnv env,
             String processorId,
             Subscriptions.GroupTopic subscription,
-            Set<String> topics,
             ProcessorOptions options,
-            DeadLetters deadLetters) {
+            DeadLetters deadLetters,
+            @Nullable RetryTopics retryTopics,
+            boolean brokerDeadLetters,
+            Function<Consuming.Sink, Consuming> consuming) {
         this.env = env;
         this.processorId = processorId;
         this.subscription = subscription;
         this.options = options;
         this.deadLetters = deadLetters;
+        this.retryTopics = retryTopics;
+        this.brokerDeadLetters = brokerDeadLetters;
         this.transacted = options.receive().guarantee() == Guarantee.TRANSACTED;
         for (int i = 0; i < options.concurrency(); i++) {
             queues.add(new LinkedBlockingQueue<>());
         }
-        this.consumption = Consumption.create(
-                env,
-                processorId,
-                new Consumption.Settings(
-                        subscription.group(),
-                        topics,
-                        subscription.id(),
-                        options.receive().guarantee(),
-                        options.receive().flow().maxUnsettled(),
-                        options.receive().flow().prefetchBytes(),
-                        options.stopGrace(),
-                        transacted ? Consumption.Commits.EXTERNAL : Consumption.Commits.CONTIGUOUS),
-                this);
+        this.consuming = consuming.apply(this);
     }
 
     void start() {
-        consumption.start();
+        consuming.start();
     }
 
     @Override
@@ -108,7 +110,7 @@ final class KafkaLanes implements ProcessorEngine.Lanes, Consumption.Sink, AutoC
 
     @Override
     public LinkState state() {
-        return consumption.state();
+        return consuming.state();
     }
 
     @Override
@@ -187,7 +189,7 @@ final class KafkaLanes implements ProcessorEngine.Lanes, Consumption.Sink, AutoC
         public Optional<Message> next(Duration timeout) throws InterruptedException {
             Delivery delivery = queues.get(index).poll(timeout.toNanos(), TimeUnit.NANOSECONDS);
             if (delivery == null) {
-                BrokerException failure = consumption.failure();
+                BrokerException failure = consuming.failure();
                 if (failure != null) {
                     throw failure;
                 }
@@ -212,14 +214,36 @@ final class KafkaLanes implements ProcessorEngine.Lanes, Consumption.Sink, AutoC
                 return;
             }
             switch (disposition) {
-                case Disposition.Accept a -> consumption.settle(delivery);
-                case Disposition.Release r ->
-                    consumption.requeue(delivery, r.delay().orElse(Duration.ZERO), r.deliveryFailed());
+                case Disposition.Accept a -> consuming.settle(delivery);
+                case Disposition.Release r -> release(delivery, r);
                 case Disposition.Reject r -> {
-                    deadLetters.reject(delivery, delivery.attempt(), r.reason().orElse("rejected"), null);
-                    consumption.settle(delivery);
+                    if (!brokerDeadLetters) {
+                        deadLetters.reject(
+                                delivery, delivery.attempt(), r.reason().orElse("rejected"), null);
+                    }
+                    consuming.reject(delivery);
                 }
             }
+        }
+
+        /**
+         * A failed record with a delay goes to its retry topic, so its partition keeps moving; any
+         * other release, and a retry topic that does not take it, hand it back to this consumer.
+         */
+        private void release(Delivery delivery, Disposition.Release release) {
+            if (retryTopics != null && release.delay().isPresent() && release.deliveryFailed()) {
+                try {
+                    retryTopics.release(delivery);
+                    consuming.settle(delivery);
+                    return;
+                } catch (BrokerException e) {
+                    if (ErrorReasons.DELIVERY_STALE.equals(e.reason())) {
+                        throw e;
+                    }
+                    LOG.log(System.Logger.Level.WARNING, "A retry topic did not take a record; retrying it here", e);
+                }
+            }
+            consuming.requeue(delivery, release.delay().orElse(Duration.ZERO), release.deliveryFailed());
         }
 
         private void settleInTransaction(Delivery delivery, Disposition disposition, Transaction txn) {
@@ -237,7 +261,7 @@ final class KafkaLanes implements ProcessorEngine.Lanes, Consumption.Sink, AutoC
                 }
                 case Disposition.Release r -> {
                     abort(txn);
-                    consumption.requeue(delivery, r.delay().orElse(Duration.ZERO), r.deliveryFailed());
+                    consuming.requeue(delivery, r.delay().orElse(Duration.ZERO), r.deliveryFailed());
                 }
             }
         }
@@ -248,7 +272,7 @@ final class KafkaLanes implements ProcessorEngine.Lanes, Consumption.Sink, AutoC
                         .forEach(sender ->
                                 sender.flush(env.cluster().options().timeouts().call()));
                 env.admitted("processor.commit", subscription.id(), () -> {
-                    consumption.commitInTransaction(txn, List.of(delivery));
+                    ((Consumption) consuming).commitInTransaction(txn, List.of(delivery));
                     return null;
                 });
             } catch (RuntimeException e) {
@@ -261,7 +285,7 @@ final class KafkaLanes implements ProcessorEngine.Lanes, Consumption.Sink, AutoC
         private void handBack(Delivery delivery, Transaction txn, boolean failed) {
             abort(txn);
             try {
-                consumption.requeue(delivery, Duration.ZERO, failed);
+                consuming.requeue(delivery, Duration.ZERO, failed);
             } catch (BrokerException stale) {
                 // the partition moved on; the new owner has the record
             }
@@ -301,7 +325,7 @@ final class KafkaLanes implements ProcessorEngine.Lanes, Consumption.Sink, AutoC
     /** Stops polling, commits what was settled and leaves the group. */
     @Override
     public void close() {
-        consumption.close();
+        consuming.close();
         List<ProcessorEngine.Lane> open = new ArrayList<>(lanes);
         open.forEach(ProcessorEngine.Lane::close);
     }

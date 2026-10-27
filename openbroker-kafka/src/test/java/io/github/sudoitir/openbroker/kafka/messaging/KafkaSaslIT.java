@@ -196,4 +196,28 @@ class KafkaSaslIT {
             }
         }
     }
+
+    @Test
+    void aDefaultProcessorWhoseDeadLetterTopicCannotBeMadeIsRefusedBeforeTheGroupIsJoined() throws Exception {
+        String topic = topic("locked");
+        createTopic(topic);
+        kafka.grantOnly(SaslKafka.LOCKED, topic);
+        ResourceId subscription = group(topic);
+        try (ClusterConnection connection = connect(
+                KafkaOptions.PLAIN,
+                CredentialSource.of(Credentials.usernamePassword(SaslKafka.LOCKED, SaslKafka.LOCKED_PASSWORD)))) {
+            Transport transport = connection.transport().orElseThrow();
+            assertThatThrownBy(() -> transport.process(
+                            subscription, Scope.whole(), ProcessorOptions.defaults(), ctx -> Disposition.accept()))
+                    .isInstanceOfSatisfying(BrokerException.class, e -> {
+                        assertThat(e.status()).isEqualTo(Status.FAILED_PRECONDITION);
+                        assertThat(e.getMessage()).contains(topic + ".dlt").contains("create it");
+                    });
+        }
+        try (Admin admin = kafka.admin()) {
+            assertThat(admin.listConsumerGroups().all().get())
+                    .extracting(listing -> listing.groupId())
+                    .doesNotContain(subscription.path().segments().getFirst());
+        }
+    }
 }

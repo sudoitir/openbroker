@@ -42,6 +42,8 @@ final class SaslKafka implements AutoCloseable {
     static final String APP_PASSWORD = "app-secret";
     static final String LIMITED = "limited";
     static final String LIMITED_PASSWORD = "limited-secret";
+    static final String LOCKED = "locked";
+    static final String LOCKED_PASSWORD = "locked-secret";
 
     /** How often a connected client must authenticate again. */
     static final int REAUTH_MS = 2_000;
@@ -53,7 +55,7 @@ final class SaslKafka implements AutoCloseable {
         this.port = freePort();
         String jaas = "org.apache.kafka.common.security.plain.PlainLoginModule required user_" + ADMIN + "=\""
                 + ADMIN_PASSWORD + "\" user_" + APP + "=\"" + APP_PASSWORD + "\" user_" + LIMITED + "=\""
-                + LIMITED_PASSWORD + "\";";
+                + LIMITED_PASSWORD + "\" user_" + LOCKED + "=\"" + LOCKED_PASSWORD + "\";";
         this.container = new GenericContainer<>(
                         System.getProperty(KafkaTestCluster.IMAGE_PROPERTY, KafkaTestCluster.DEFAULT_IMAGE))
                 .withEnv(Map.ofEntries(
@@ -161,6 +163,19 @@ final class SaslKafka implements AutoCloseable {
         try (Admin admin = admin()) {
             admin.createAcls(List.of(
                             allow(user, ResourceType.TOPIC, "t.", PatternType.PREFIXED),
+                            allow(user, ResourceType.GROUP, "g.", PatternType.PREFIXED)))
+                    .all()
+                    .get();
+        } catch (InterruptedException | ExecutionException e) {
+            throw new IllegalStateException("Could not grant " + user, e);
+        }
+    }
+
+    /** Lets {@code user} use exactly the topic {@code topic}, and groups {@code g.*}. */
+    void grantOnly(String user, String topic) {
+        try (Admin admin = admin()) {
+            admin.createAcls(List.of(
+                            allow(user, ResourceType.TOPIC, topic, PatternType.LITERAL),
                             allow(user, ResourceType.GROUP, "g.", PatternType.PREFIXED)))
                     .all()
                     .get();

@@ -51,7 +51,7 @@ class ConsumptionTest {
     private final List<Collection<TopicPartition>> retracted = new CopyOnWriteArrayList<>();
     private Consumption consumption;
 
-    private final Consumption.Sink sink = new Consumption.Sink() {
+    private final Consuming.Sink sink = new Consuming.Sink() {
         @Override
         public void deliver(Delivery delivery) {
             delivered.add(delivery);

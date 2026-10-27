@@ -78,8 +78,18 @@ final class Topics {
      *     missing and cannot be created
      */
     void ensure(String topic, int partitions, String purpose, ResourceId target) {
-        if (partitions(topic, target).isPresent()) {
-            return;
+        try {
+            if (partitions(topic, target).isPresent()) {
+                return;
+            }
+        } catch (BrokerException e) {
+            if (!ErrorReasons.NOT_AUTHORIZED.equals(e.reason())) {
+                throw e;
+            }
+            throw KafkaFailures.precondition("The " + purpose + " topic " + topic
+                    + " cannot be looked up: the account may not describe it. Grant the account Describe on it"
+                    + " (and Create, if it does not exist), create it with " + partitions + " partitions, or name"
+                    + " an existing topic as the target.");
         }
         try {
             cluster.call("topic.create", Optional.of(target), Deadlines.current(cluster.options()), (admin, await) -> {

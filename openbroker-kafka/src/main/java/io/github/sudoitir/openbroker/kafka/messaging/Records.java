@@ -122,7 +122,9 @@ final class Records {
         }
         Attributes kafka = message.extensions().getOrDefault(EXTENSION, Attributes.empty());
         for (String name : new String[] {"topic", "partition", "offset"}) {
-            kafka.raw(name).ifPresent(v -> facts.put("openbroker.origin." + name, String.valueOf(v)));
+            kafka.raw("origin_" + name)
+                    .or(() -> kafka.raw(name))
+                    .ifPresent(v -> facts.put("openbroker.origin." + name, String.valueOf(v)));
         }
         return facts;
     }
@@ -179,15 +181,19 @@ final class Records {
                 case DEDUPLICATION_ID -> h.deduplicationId(utf8(raw));
                 case ORIGIN -> h.origin(utf8(raw));
                 case ORIGIN_ID -> h.originId(utf8(raw));
+                case ORIGIN_TOPIC, ORIGIN_PARTITION, ORIGIN_OFFSET, ORIGIN_ATTEMPTS, ORIGIN_REASON, ATTEMPT, DUE -> {}
                 default -> properties.put(name, new PropertyValue.OfBytes(Blob.of(raw)));
             }
         }
         MessageBody body = record.value() == null ? MessageBody.tombstone() : MessageBody.of(record.value());
-        Attributes kafka = Attributes.builder()
+        Attributes.Builder kafka = Attributes.builder()
                 .putRaw("topic", record.topic())
                 .putRaw("partition", record.partition())
-                .putRaw("offset", record.offset())
-                .build();
+                .putRaw("offset", record.offset());
+        // A record that went through a retry topic, or was dead-lettered, says where it was first read.
+        for (String name : new String[] {"topic", "partition", "offset", "attempts", "reason"}) {
+            header(record, "openbroker.origin." + name).ifPresent(value -> kafka.putRaw("origin_" + name, value));
+        }
         return new Message(
                 new MessageRef(
                         source,
@@ -197,7 +203,7 @@ final class Records {
                 properties,
                 body,
                 Set.of(),
-                Map.of(EXTENSION, kafka));
+                Map.of(EXTENSION, kafka.build()));
     }
 
     /** The value of a record header, as text; empty when there is none. */
