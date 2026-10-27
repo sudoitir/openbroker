@@ -77,7 +77,7 @@ class JolokiaClientTest {
                 http,
                 endpoint,
                 NODE,
-                () -> Credentials.of("admin", "s3cret"),
+                () -> Credentials.usernamePassword("admin", "s3cret"),
                 JsonMapper.builder().build(),
                 names,
                 recording,

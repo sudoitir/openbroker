@@ -52,7 +52,7 @@ final class EmbeddedBroker implements AutoCloseable {
                 "artemis",
                 ClusterSpec.ofNodes(List.of(new NodeSpec(
                         NodeId.of("primary"), List.of(Endpoint.of(Plane.DATA, "core", "tcp://127.0.0.1:" + port))))),
-                CredentialSource.of(Credentials.of("bench", "bench")),
+                CredentialSource.of(Credentials.usernamePassword("bench", "bench")),
                 ConnectOptions.defaults().withObserver(observer)));
     }
 

@@ -537,7 +537,7 @@ public abstract class ChaosTck {
         await("the first batch handled", SECONDS_60, () -> seen.size() == 20);
 
         int askedBefore = asked.get();
-        current.set(new Credentials(initial.username(), initial.password()));
+        current.set(initial);
         assertThat(processor.state()).as("a rotation closes no link").isEqualTo(LinkState.OPEN);
         confirm(offerAll(sender, range(20, 40), SECONDS_60), SECONDS_60);
         await("the second batch handled", SECONDS_60, () -> seen.size() == 40);

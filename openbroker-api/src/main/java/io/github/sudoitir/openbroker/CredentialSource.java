@@ -15,6 +15,6 @@ public interface CredentialSource {
     }
 
     static CredentialSource none() {
-        return plane -> Credentials.none();
+        return plane -> new Credentials.None();
     }
 }

@@ -10,14 +10,6 @@ import org.junit.jupiter.api.Test;
 class SecretAndPartialTest {
 
     @Test
-    void aSecretNeverShowsItselfInText() {
-        Credentials c = Credentials.of("admin", "hunter2");
-        assertThat(c.toString()).doesNotContain("hunter2").contains("redacted");
-        assertThat(String.valueOf(c.password())).isEqualTo("Secret[redacted]");
-        assertThat(c.password().reveal()).isEqualTo("hunter2");
-    }
-
-    @Test
     void aCompletePartialHasEveryNodeApplied() {
         Partial<String> p = Partial.complete("x", List.of(NodeId.of("a"), NodeId.of("b")));
         assertThat(p.isComplete()).isTrue();

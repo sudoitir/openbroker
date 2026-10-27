@@ -58,7 +58,7 @@ try (BrokerDrivers drivers = BrokerDrivers.load();
                         List.of(
                                 Endpoint.of(Plane.MANAGEMENT, "jolokia", "http://broker:8161/console/jolokia"),
                                 Endpoint.of(Plane.DATA, "core", "tcp://broker:61616"))))),
-                CredentialSource.of(Credentials.of("admin", System.getenv("BROKER_PASSWORD"))),
+                CredentialSource.of(Credentials.usernamePassword("admin", System.getenv("BROKER_PASSWORD"))),
                 ConnectOptions.defaults()))) {
 
     // Every subscription (an Artemis queue) with its backlog, on every node.

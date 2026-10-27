@@ -264,7 +264,7 @@ class ArtemisChaosIT extends ChaosTck {
         return new ConnectRequest(
                 "artemis",
                 ClusterSpec.ofNodes(nodes),
-                CredentialSource.of(Credentials.of("artemis", "artemis")),
+                CredentialSource.of(Credentials.usernamePassword("artemis", "artemis")),
                 ConnectOptions.defaults().withTimeouts(Timeouts.fixed(Duration.ofSeconds(1), Duration.ofSeconds(2))));
     }
 

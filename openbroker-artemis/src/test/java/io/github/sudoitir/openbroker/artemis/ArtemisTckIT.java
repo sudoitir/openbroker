@@ -129,7 +129,7 @@ class ArtemisTckIT extends OpenBrokerTck {
                 ClusterConnection connection = drivers.connect(new ConnectRequest(
                         "artemis",
                         ClusterSpec.ofNodes(List.of(node)),
-                        CredentialSource.of(Credentials.of(USER, PASSWORD)),
+                        CredentialSource.of(Credentials.usernamePassword(USER, PASSWORD)),
                         ConnectOptions.defaults()))) {
             ResourceId queue = new ResourceId(
                     ArtemisKinds.QUEUE,
@@ -290,7 +290,7 @@ class ArtemisTckIT extends OpenBrokerTck {
         return new ConnectRequest(
                 "artemis",
                 ClusterSpec.ofNodes(List.of(node)),
-                CredentialSource.of(Credentials.of(USER, password)),
+                CredentialSource.of(Credentials.usernamePassword(USER, password)),
                 ConnectOptions.defaults());
     }
 }

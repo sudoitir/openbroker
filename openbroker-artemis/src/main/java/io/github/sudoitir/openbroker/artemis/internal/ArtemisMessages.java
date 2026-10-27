@@ -1,7 +1,7 @@
 package io.github.sudoitir.openbroker.artemis.internal;
 
 import io.github.sudoitir.openbroker.BrokerException;
-import io.github.sudoitir.openbroker.Credentials;
+import io.github.sudoitir.openbroker.Credentials.UsernamePassword;
 import io.github.sudoitir.openbroker.Deadline;
 import io.github.sudoitir.openbroker.Dispatch;
 import io.github.sudoitir.openbroker.ErrorInfo;
@@ -499,7 +499,7 @@ public final class ArtemisMessages implements Messages {
                 asText ? TEXT : BYTES,
                 asText ? text : Base64.getEncoder().encodeToString(body),
                 message.headers().durable().orElse(true),
-                cluster.credentials().forPlane(Plane.MANAGEMENT),
+                Accounts.account(cluster.credentials().forPlane(Plane.MANAGEMENT)),
                 deadline);
     }
 
@@ -510,7 +510,7 @@ public final class ArtemisMessages implements Messages {
             int type,
             String payload,
             boolean durable,
-            Credentials account,
+            Optional<UsernamePassword> account,
             Deadline deadline) {
         JolokiaClient client = cluster.jolokia(node);
         ResourceId resource;
@@ -535,8 +535,8 @@ public final class ArtemisMessages implements Messages {
                         type,
                         payload,
                         durable,
-                        account.username(),
-                        account.password().reveal(),
+                        account.map(UsernamePassword::username).orElse(""),
+                        account.map(a -> a.password().reveal()).orElse(""),
                         true),
                 deadline,
                 Optional.of(resource));
