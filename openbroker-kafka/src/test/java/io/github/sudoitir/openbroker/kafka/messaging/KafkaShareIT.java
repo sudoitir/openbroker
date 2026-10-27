@@ -7,9 +7,11 @@ import io.github.sudoitir.openbroker.BrokerException;
 import io.github.sudoitir.openbroker.Status;
 import io.github.sudoitir.openbroker.messaging.Backoff;
 import io.github.sudoitir.openbroker.messaging.Disposition;
+import io.github.sudoitir.openbroker.messaging.FlowControl;
 import io.github.sudoitir.openbroker.messaging.OrderingScope;
 import io.github.sudoitir.openbroker.messaging.Processor;
 import io.github.sudoitir.openbroker.messaging.ProcessorOptions;
+import io.github.sudoitir.openbroker.messaging.ReceiverOptions;
 import io.github.sudoitir.openbroker.messaging.RetryMode;
 import io.github.sudoitir.openbroker.messaging.RetryPolicy;
 import io.github.sudoitir.openbroker.messaging.SendTarget;
@@ -113,6 +115,41 @@ class KafkaShareIT {
         assertThat(seen)
                 .as("a lock of 2 s held for 7 s without a second delivery")
                 .containsExactly(1);
+    }
+
+    @Test
+    void recordsWaitingForCreditAndHeldBySlowHandlersAllKeepTheirLocks() {
+        String topic = SharedKafka.topic("share-credit", 1);
+        ResourceId group = SharedKafka.shareGroup(
+                topic,
+                Map.of("errors.deadletterqueue.topic.name", "dlq." + topic, "share.record.lock.duration.ms", "2000"));
+        int total = 6;
+        for (int i = 0; i < total; i++) {
+            send(group, i);
+        }
+        List<String> seen = Collections.synchronizedList(new ArrayList<>());
+        ProcessorOptions options = new ProcessorOptions(
+                ReceiverOptions.consume().withFlow(new FlowControl(2, 0, 0)),
+                2,
+                OrderingScope.NONE,
+                RetryPolicy.defaults(),
+                Duration.ofSeconds(30));
+        try (Processor processor = transport.process(group, Scope.whole(), options, ctx -> {
+            seen.add(KafkaMessagingIT.seq(ctx.message()) + "#" + ctx.attempt());
+            Thread.sleep(4_000);
+            return Disposition.accept();
+        })) {
+            await("every record handled", () -> seen.size() >= total);
+            try {
+                Thread.sleep(3_000);
+            } catch (InterruptedException e) {
+                throw new AssertionError(e);
+            }
+        }
+        assertThat(seen)
+                .as("no record's lock ran out while it waited or was handled")
+                .hasSize(total);
+        assertThat(seen).allSatisfy(entry -> assertThat(entry).endsWith("#1"));
     }
 
     @Test
