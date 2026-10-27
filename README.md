@@ -172,6 +172,7 @@ The design is recorded in [`docs/adr/`](docs/adr/).
 - [0016](docs/adr/0016-performance-budgets-are-enforced-in-ci.md) Performance budgets are enforced in CI
 - [0017](docs/adr/0017-chaos-is-part-of-the-tck.md) Chaos is part of the TCK
 - [0019](docs/adr/0019-kafka-settles-by-offset-and-runs-keys-in-lanes.md) Kafka settles by offset and runs keys in lanes
+- [0018](docs/adr/0018-the-kafka-mapping-and-its-honest-destructive-operations.md) The Kafka mapping and its honest destructive operations
 - [0020](docs/adr/0020-deduplication-is-declared-as-a-scope.md) Deduplication is declared as a scope
 - [0021](docs/adr/0021-the-retry-default-follows-what-the-system-enforces.md) The retry default follows what the system enforces, per subscription kind
 - [0022](docs/adr/0022-share-groups-are-a-subscription-kind.md) Share groups are a subscription kind

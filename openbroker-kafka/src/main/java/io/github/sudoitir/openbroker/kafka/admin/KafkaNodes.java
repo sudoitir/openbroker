@@ -42,13 +42,9 @@ import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.DescribeClusterOptions;
 import org.apache.kafka.clients.admin.DescribeClusterResult;
 import org.apache.kafka.clients.admin.DescribeMetadataQuorumOptions;
-import org.apache.kafka.clients.admin.DescribeTopicsOptions;
-import org.apache.kafka.clients.admin.ListTopicsOptions;
 import org.apache.kafka.clients.admin.QuorumInfo;
 import org.apache.kafka.clients.admin.RaftVoterEndpoint;
-import org.apache.kafka.clients.admin.TopicDescription;
 import org.apache.kafka.common.Node;
-import org.apache.kafka.common.TopicCollection;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -75,9 +71,11 @@ public final class KafkaNodes implements Nodes {
     static final Duration VOTER_LAG_TOLERANCE = Duration.ofSeconds(10);
 
     private final KafkaCluster cluster;
+    private final Topology topology;
 
-    public KafkaNodes(KafkaCluster cluster) {
+    public KafkaNodes(KafkaCluster cluster, Topology topology) {
         this.cluster = cluster;
+        this.topology = topology;
     }
 
     @Override
@@ -144,8 +142,9 @@ public final class KafkaNodes implements Nodes {
         Collection<Node> brokers = await.get(described.nodes());
         String clusterId = await.get(described.clusterId());
         Quorum quorum = quorum(admin, await);
-        Map<Integer, Long> outOfSync = outOfSync(admin, await);
-        return new Snapshot(List.copyOf(brokers), clusterId, quorum, outOfSync);
+        Topology.Snapshot topics = topology.read(admin, await);
+        return new Snapshot(
+                List.copyOf(brokers), clusterId, quorum, Replication.outOfSyncPartitions(topics.topics()), topics);
     }
 
     private static Quorum quorum(Admin admin, Await await) {
@@ -163,27 +162,17 @@ public final class KafkaNodes implements Nodes {
         }
     }
 
-    private static Map<Integer, Long> outOfSync(Admin admin, Await await) {
-        Set<String> names = await.get(
-                admin.listTopics(new ListTopicsOptions().listInternal(true).timeoutMs(await.timeoutMs()))
-                        .names());
-        if (names.isEmpty()) {
-            return Map.of();
-        }
-        Collection<TopicDescription> topics = await.get(admin.describeTopics(
-                                TopicCollection.ofTopicNames(names),
-                                new DescribeTopicsOptions().timeoutMs(await.timeoutMs()))
-                        .allTopicNames())
-                .values();
-        return Replication.outOfSyncPartitions(topics);
-    }
-
     private static Endpoint brokerEndpoint(Node broker) {
         return new Endpoint(Plane.DATA, KafkaOptions.PROTOCOL, broker.host() + ":" + broker.port());
     }
 
     /** What one round of reads found. */
-    private record Snapshot(List<Node> brokers, String clusterId, Quorum quorum, Map<Integer, Long> outOfSync) {
+    private record Snapshot(
+            List<Node> brokers,
+            String clusterId,
+            Quorum quorum,
+            Map<Integer, Long> outOfSync,
+            Topology.Snapshot topics) {
 
         List<NodeDescription> descriptions() {
             List<NodeDescription> out = new ArrayList<>();
@@ -222,7 +211,7 @@ public final class KafkaNodes implements Nodes {
                     ConditionTypes.UNDER_REPLICATED,
                     lagging > 0 ? ConditionStatus.TRUE : ConditionStatus.FALSE,
                     lagging > 0 ? "OUT_OF_SYNC_REPLICAS" : "",
-                    lagging > 0 ? lagging + " partitions keep a replica on this broker that is not in sync." : "",
+                    underReplicationMessage(lagging),
                     Optional.empty()));
             Optional<Boolean> inSync = Optional.empty();
             QuorumInfo info = quorum.info();
@@ -312,6 +301,18 @@ public final class KafkaNodes implements Nodes {
                             : "",
                     Optional.empty()));
             return Optional.of(!behind);
+        }
+
+        /** Under-replication is read from the shared topic description, so it says as of when. */
+        private String underReplicationMessage(long lagging) {
+            return (lagging > 0 ? lagging + " partitions keep a replica on this broker that is not in sync" : "")
+                    + (lagging > 0 ? ", as" : "As")
+                    + " of "
+                    + topics.takenAt()
+                    + (topics.complete()
+                            ? "."
+                            : ", over the first " + topics.topics().size() + " of " + topics.totalTopics()
+                                    + " topics.");
         }
 
         private Condition quorumUnknown() {

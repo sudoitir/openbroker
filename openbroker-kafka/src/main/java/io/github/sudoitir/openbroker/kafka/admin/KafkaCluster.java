@@ -68,6 +68,23 @@ public final class KafkaCluster implements AutoCloseable {
         return context.options();
     }
 
+    /** How often the watch reads the cluster, and so how old the shared topic description may be. */
+    public Duration watchInterval() {
+        String text = spec.option(KafkaOptions.WATCH_INTERVAL, KafkaOptions.DEFAULT_WATCH_INTERVAL);
+        try {
+            Duration interval = Duration.parse(text);
+            if (interval.compareTo(Duration.ofSeconds(1)) < 0) {
+                throw new IllegalArgumentException(text);
+            }
+            return interval;
+        } catch (RuntimeException e) {
+            throw KafkaErrors.refused(
+                    Status.INVALID_ARGUMENT,
+                    ErrorReasons.INVALID_ARGUMENT,
+                    KafkaOptions.WATCH_INTERVAL + " is an ISO-8601 duration of one second or more, such as PT10S.");
+        }
+    }
+
     /** Points the connection at a new cluster description; the next call uses a new Admin client. */
     public void reconfigure(ClusterSpec spec) {
         this.spec = spec;
@@ -146,15 +163,28 @@ public final class KafkaCluster implements AutoCloseable {
      * deadline}.
      */
     public <T> T call(String operation, Optional<ResourceId> target, Deadline deadline, AdminCall<T> work) {
+        return guarded(operation, Plane.MANAGEMENT, target, deadline, () -> withAdmin(deadline, work));
+    }
+
+    /** Runs {@code work} on the Admin client within {@code deadline}, for a call already admitted. */
+    public <T> T withAdmin(Deadline deadline, AdminCall<T> work) {
+        return work.run(admin(), new Await(deadline, options().clock(), CLUSTER));
+    }
+
+    /**
+     * Runs {@code work} as one call to the cluster on {@code plane}: refused if the deadline has
+     * passed, admitted by the caller's interceptor, and its failures reported as the SDK's.
+     */
+    public <T> T guarded(
+            String operation, Plane plane, Optional<ResourceId> target, Deadline deadline, Supplier<T> work) {
         ConnectOptions options = options();
         if (deadline.expired(options.clock())) {
             throw Deadlines.exceeded(CLUSTER, Dispatch.NOT_SENT);
         }
         String servers = bootstrapServers();
-        try (Permit permit =
-                options.interceptor().admit(new CallInfo(CLUSTER, servers, Plane.MANAGEMENT, operation, 1, target))) {
+        try (Permit permit = options.interceptor().admit(new CallInfo(CLUSTER, servers, plane, operation, 1, target))) {
             try {
-                T result = work.run(admin(), new Await(deadline, options.clock(), CLUSTER));
+                T result = work.get();
                 permit.complete(Outcome.succeeded(), Optional.empty());
                 return result;
             } catch (RuntimeException e) {

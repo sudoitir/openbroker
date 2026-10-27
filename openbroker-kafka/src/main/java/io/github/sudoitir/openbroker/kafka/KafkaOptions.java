@@ -17,6 +17,8 @@ public final class KafkaOptions {
     public static final String SECURITY_PROTOCOL = "security.protocol";
     public static final String SASL_MECHANISM = "sasl.mechanism";
     public static final String CLIENT_ID = "client.id";
+    /** How often the watch reads the cluster, as an ISO-8601 duration such as {@code PT10S}. */
+    public static final String WATCH_INTERVAL = "watch.interval";
 
     public static final String PLAINTEXT = "PLAINTEXT";
     public static final String SSL = "SSL";
@@ -29,6 +31,7 @@ public final class KafkaOptions {
     public static final String OAUTHBEARER = "OAUTHBEARER";
 
     public static final String DEFAULT_CLIENT_ID = "openbroker";
+    public static final String DEFAULT_WATCH_INTERVAL = "PT10S";
 
     public static final ConnectionSchema SCHEMA = new ConnectionSchema(List.of(
             new OptionSpec(
@@ -57,6 +60,16 @@ public final class KafkaOptions {
                     Optional.of(DEFAULT_CLIENT_ID),
                     List.of(),
                     "The client id the brokers see in their logs and quotas.",
+                    Optional.empty()),
+            new OptionSpec(
+                    WATCH_INTERVAL,
+                    OptionSpec.Type.DURATION,
+                    false,
+                    false,
+                    Optional.of(DEFAULT_WATCH_INTERVAL),
+                    List.of(),
+                    "How often the watch reads the cluster, as an ISO-8601 duration of one second or more."
+                            + " Kafka sends no events, so changes show up this late at most.",
                     Optional.empty())));
 
     private KafkaOptions() {}

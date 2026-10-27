@@ -43,14 +43,13 @@ class KafkaConnectionIT {
 
     @BeforeAll
     static void start() {
-        kafka = KafkaTestCluster.start();
+        kafka = KafkaTestCluster.shared();
         drivers = BrokerDrivers.load();
     }
 
     @AfterAll
     static void stop() {
         drivers.close();
-        kafka.close();
     }
 
     private static ConnectRequest request(ClusterSpec spec, ConnectOptions options) {

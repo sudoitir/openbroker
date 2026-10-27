@@ -24,21 +24,27 @@ public final class KafkaConnection implements ClusterConnection {
 
     private final BrokerSystem system;
     private final KafkaCluster cluster;
+    private final Topology topology;
     private final KafkaNodes nodes;
+    private final Handlers handlers;
     private final KafkaResources resources;
     private final KafkaOperations operations;
     private final KafkaMessages messages;
+    private final KafkaNotifications notifications;
     private final KafkaAccess access;
     private final KafkaTransport transport;
 
     public KafkaConnection(BrokerSystem system, ClusterSpec spec, CredentialSource credentials, DriverContext context) {
         this.system = system;
         this.cluster = new KafkaCluster(spec, credentials, context);
-        this.nodes = new KafkaNodes(cluster);
-        this.resources = new KafkaResources(cluster);
-        this.operations = new KafkaOperations(cluster);
-        this.messages = new KafkaMessages(cluster);
+        this.topology = new Topology(context.options().clock(), cluster::watchInterval);
+        this.nodes = new KafkaNodes(cluster, topology);
+        this.handlers = new Handlers(cluster, topology);
+        this.resources = new KafkaResources(cluster, handlers);
+        this.operations = new KafkaOperations(cluster, handlers);
+        this.messages = new KafkaMessages(cluster, handlers);
         this.access = new KafkaAccess(cluster);
+        this.notifications = new KafkaNotifications(cluster, resources);
         this.transport = new KafkaTransport(cluster);
     }
 
@@ -87,17 +93,21 @@ public final class KafkaConnection implements ClusterConnection {
 
     @Override
     public Optional<Notifications> notifications() {
-        return Optional.empty();
+        return Optional.of(notifications);
     }
 
     @Override
     public Optional<Transport> transport() {
-        return Optional.of(transport);
+        // The messaging surface is not wired in yet: KafkaTransport is the seam to return here.
+        return Optional.empty();
     }
 
     @Override
     public void reconfigure(ClusterSpec spec) {
         cluster.reconfigure(spec);
+        handlers.forget();
+        messages.reset();
+        notifications.reset();
     }
 
     @Override
@@ -107,7 +117,9 @@ public final class KafkaConnection implements ClusterConnection {
 
     @Override
     public void close() {
+        notifications.close();
         transport.close();
+        messages.close();
         cluster.close();
     }
 }
