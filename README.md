@@ -19,6 +19,8 @@ Status: pre-release (`0.x`). The API may change between minor versions until 1.0
 | `openbroker-artemis` | The Apache ActiveMQ Artemis driver: management over Jolokia, messages and notifications over Core. |
 | `openbroker-kafka` | The Apache Kafka driver (4.0 and later): management over Admin, messages over the producer, consumer and share consumer. |
 | `openbroker-opentelemetry` | Optional: maps the messaging observer to OpenTelemetry spans, metrics and W3C trace context. |
+| `openbroker-spring-boot-starter` | Optional: everything a Spring Boot 4 application needs; add the drivers it uses. |
+| `openbroker-spring-boot-autoconfigure` | Optional: the auto-configuration behind the starter. |
 | `openbroker-bom` | Aligns the versions above. |
 
 Java 25. The modules ship `module-info` descriptors (the driver an `Automatic-Module-Name`).
@@ -31,7 +33,7 @@ Java 25. The modules ship `module-info` descriptors (the driver an `Automatic-Mo
     <dependency>
       <groupId>io.github.sudoitir</groupId>
       <artifactId>openbroker-bom</artifactId>
-      <version>0.1.0</version>
+      <version>0.4.0</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>
@@ -174,6 +176,90 @@ it connects. It uses `kafka-clients` alone and the consumer group protocol (KIP-
   delivery limit is archived with no copy, so choose a managed policy when you need the dead letter.
 - **Security.** SASL (PLAIN, SCRAM, OAUTHBEARER with a refreshed bearer token), TLS and mutual TLS
   (`Credentials.None`). Hostname verification stays on.
+
+## Spring Boot
+
+`openbroker-spring-boot-starter` gives a Spring Boot 4 application its OpenBroker clients as beans. It is the
+only place Spring appears: the API and the drivers stay framework-free, and the build enforces it.
+
+```xml
+<dependency>
+  <groupId>io.github.sudoitir</groupId>
+  <artifactId>openbroker-spring-boot-starter</artifactId>
+</dependency>
+<dependency>
+  <groupId>io.github.sudoitir</groupId>
+  <artifactId>openbroker-kafka</artifactId>
+</dependency>
+```
+
+- **Nothing to configure** when Spring Boot already knows the broker. With a Kafka or Artemis driver on the
+  class path, `spring.kafka.*`, `spring.artemis.*`, `@ServiceConnection` or Docker Compose give a
+  connection named `kafka` or `artemis`, with its endpoints, security protocol, SSL bundle and (for Kafka
+  `PLAIN` and `SCRAM-*`) the login from `sasl.jaas.config`. Spring states no Artemis management endpoint,
+  so its management facets stay unavailable, and its health is `UNKNOWN`, until you add one. An
+  `openbroker.connections.<name>` of the same name is laid over the derived connection key by key (nodes
+  merge by id, other lists replace), and `openbroker.spring-connections.enabled=false` turns derivation off.
+- **Connections in `application.yml`.** Each `openbroker.connections.<name>` binds the SDK's own records
+  (`SenderOptions`, `ProcessorOptions` and the rest) over their own defaults, so setting one key keeps every
+  other default. Credentials name their form. TLS comes from a Spring SSL bundle (`options.ssl-bundle`),
+  read again on every connect, so a reloaded bundle reaches the next connection.
+
+```yaml
+openbroker:
+  client:
+    connect-timeout: 5s
+  connections:
+    orders:
+      system: kafka
+      cluster:
+        cluster-endpoints:
+          - { plane: data, protocol: kafka, address: "broker-1:9093" }
+          - { plane: data, protocol: kafka, address: "broker-2:9093" }
+        options:
+          security.protocol: SASL_SSL
+          sasl.mechanism: SCRAM-SHA-512
+      credentials:
+        form: username-password
+        username: orders-app
+        password: ${ORDERS_PASSWORD}
+      options:
+        ssl-bundle: kafka
+      sender:
+        guarantee: at-least-once
+      processor:
+        concurrency: 4
+    billing:
+      system: artemis
+      cluster:
+        nodes:
+          - id: primary
+            endpoints:
+              - { plane: management, protocol: jolokia, address: "http://artemis:8161/console/jolokia" }
+              - { plane: data, protocol: core, address: "tcp://artemis:61616" }
+      credentials:
+        form: username-password
+        username: billing-app
+        password: ${BILLING_PASSWORD}
+```
+
+- **Beans by name.** Each connection is a `ClusterConnection` and a `Transport` bean (`ordersClusterConnection`,
+  `ordersTransport`), qualified by its name and primary when it is the only one. Your own bean of the same name
+  wins. A `CredentialSource` bean qualified with the connection's name wins over its credentials. A wrong
+  connection (a misspelt option, a value out of range, a missing driver, a dead-letter target in YAML) fails the
+  start naming the connection and the key, never a value.
+- **Runtime connections.** An application that opens connections from its own store gets the same pieces:
+  the `BrokerDrivers` bean, `OpenBrokerConnectOptions.forConnection(name, system, tls)` (your interceptor,
+  clock, observers and `ConnectOptionsCustomizer`s over the `openbroker.client.*` defaults) and
+  `SslBundleTls.forBundle(...)`. Health and the processor lifecycle are not applied to them.
+- **Health, metrics, tracing.** With Actuator, `openbroker` health has one indicator per connection:
+  up while the cluster describes its nodes (a partial answer counts), down with the reason otherwise, with a
+  deadline (`openbroker.health.timeout`) and at most one check at a time. Metrics go to Micrometer when a
+  `MeterRegistry` is present and spans to OpenTelemetry when an `OpenTelemetry` bean is; with both, nothing is
+  counted twice. `openbroker.tracing.inject-context=false` stops sends writing trace context into the message,
+  for tools that relay messages other producers wrote.
+- **Lifecycle.** Register processors with `OpenBrokerProcessors`: they start when the context is ready and
+  stop within their `stopGrace` before any connection closes; the drivers close last.
 
 ## Writing a driver
 

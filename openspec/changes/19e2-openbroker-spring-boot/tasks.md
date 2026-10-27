@@ -31,8 +31,8 @@ Rules:
 - [x] 6.3 Add the `SmartLifecycle` and `OpenBrokerProcessors` (D10). Check: graceful-shutdown order and no-handler-before-ready tests
 
 ## 7. End to end and documentation
-- [ ] 7.1 Add one Spring Boot application IT per driver, with Artemis and Kafka containers wired by `@ServiceConnection` and no `openbroker.*` keys: send, process, health and shutdown. Run the Kafka IT in CI's Kafka leg. Check: green in `verify`
-- [ ] 7.2 Add the README section and ADRs 0026–0030, and the `CLAUDE.md` layout rows. Check: the README's YAML is the one a test binds
+- [x] 7.1 Add one Spring Boot application IT per driver, with Artemis and Kafka containers wired by `@ServiceConnection` and no `openbroker.*` keys: send, process, health and shutdown. Run the Kafka IT in CI's Kafka leg. Check: green in `verify`
+- [x] 7.2 Add the README section and ADRs 0026–0030, and the `CLAUDE.md` layout rows. Check: the README's YAML is the one a test binds
 - [ ] 7.3 Run the full `./mvnw verify` once before the PR. Check: green locally and in CI
 
 ## Workflow follow-up
