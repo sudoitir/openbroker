@@ -2,8 +2,8 @@
 
 One Java SDK, and one vocabulary, for every message broker and queue service.
 
-OpenBroker lets a backend inspect, operate and move messages on Apache ActiveMQ Artemis today,
-and on Kafka, RabbitMQ, ActiveMQ Classic and others as their drivers arrive, through one small,
+OpenBroker lets a backend inspect, operate and move messages on Apache ActiveMQ Artemis and
+Apache Kafka today, and on RabbitMQ, ActiveMQ Classic and others as their drivers arrive, through one small,
 framework-free API. Drivers plug in like JDBC drivers, and a conformance kit (the TCK) proves each
 one against a real broker.
 
@@ -17,6 +17,7 @@ Status: pre-release (`0.x`). The API may change between minor versions until 1.0
 | `openbroker-support` | Shared helpers for drivers and consumers: the portable filter dialect, polling notifications, counter rates. |
 | `openbroker-tck` | Abstract JUnit contract tests a driver extends. |
 | `openbroker-artemis` | The Apache ActiveMQ Artemis driver: management over Jolokia, messages and notifications over Core. |
+| `openbroker-kafka` | The Apache Kafka driver (4.0 and later): management over Admin, messages over the producer, consumer and share consumer. |
 | `openbroker-opentelemetry` | Optional: maps the messaging observer to OpenTelemetry spans, metrics and W3C trace context. |
 | `openbroker-bom` | Aligns the versions above. |
 
@@ -143,6 +144,35 @@ ConnectOptions options = ConnectOptions.defaults().withObserver(OpenTelemetryMes
 
 After `giveUpAfter` a link is `FAILED`: pending receipts fail `UNAVAILABLE`, `IN_DOUBT`, and nothing is
 resent. The dedupe window is reported by `Sender.deduplication()`.
+
+## Kafka
+
+`openbroker-kafka` supports Apache Kafka 4.0 and later in KRaft mode, and refuses an older cluster when
+it connects. It uses `kafka-clients` alone and the consumer group protocol (KIP-848).
+
+- **Resources.** Brokers are nodes; topics, partitions, consumer groups, share groups, ACLs and
+  transactional ids are kinds. Classic and streams groups are listed read-only, because their offsets
+  belong to the applications that run them.
+- **Lag and counts are estimates.** Offset arithmetic overcounts on compacted and transactional
+  topics, so every total says so.
+- **Destructive operations are honest.** Purge and seek reset a group's committed offsets and fail
+  `FAILED_PRECONDITION` while the group has members, without removing them. Truncate deletes records
+  before an offset, with a preview, and is refused on a compacted topic. Moving, copying or deleting
+  one message is unavailable, because a log cannot remove one record.
+- **Browsing** reads committed records without joining a group.
+- **Messaging.** Senders deduplicate within the producer session (`DeduplicationScope.SESSION`).
+  Processors on a consumer group settle by committing offsets, keep per-key order in lanes, and join
+  transactions (KIP-447). A retry that is ordered, transacted or the default happens in place; an
+  explicitly managed, unordered policy uses one retry topic per backoff step (`<topic>.retry-<n>`).
+  Exhausted records go to `<topic>.dlt`. The processor refuses to open when a retry or dead-letter
+  topic is missing and the account cannot create it.
+- **Share groups** (Kafka 4.2 and later) are their own subscription kind: settlement per message, no
+  ordering, at least once only, and the processor renews a record's lock while a slow handler runs.
+  The broker counts attempts, so the default policy is the system's. From Kafka 4.4 with `share.version`
+  2, the broker dead-letters to the group's configured topic; at `share.version` 1 a record past the
+  delivery limit is archived with no copy, so choose a managed policy when you need the dead letter.
+- **Security.** SASL (PLAIN, SCRAM, OAUTHBEARER with a refreshed bearer token), TLS and mutual TLS
+  (`Credentials.None`). Hostname verification stays on.
 
 ## Writing a driver
 
