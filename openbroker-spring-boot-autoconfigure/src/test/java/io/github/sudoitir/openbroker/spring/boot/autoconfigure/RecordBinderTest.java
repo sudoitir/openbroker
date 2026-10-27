@@ -2,6 +2,7 @@ package io.github.sudoitir.openbroker.spring.boot.autoconfigure;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 import io.github.sudoitir.openbroker.Credentials;
 import io.github.sudoitir.openbroker.Endpoint;
@@ -13,6 +14,7 @@ import io.github.sudoitir.openbroker.messaging.SenderOptions;
 import java.nio.file.Path;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.diagnostics.FailureAnalysis;
 
 class RecordBinderTest {
 
@@ -185,6 +187,30 @@ class RecordBinderTest {
                 .hasMessageContaining("openbroker.connections.orders.sender.guarantee")
                 .hasMessageContaining("at-least-once")
                 .hasMessageNotContaining("nonsense-value");
+    }
+
+    @Test
+    void aBadValueInACredentialNeverReachesAnyMessageOfTheFailure() {
+        Throwable failure = catchThrowable(() -> bind("""
+                openbroker:
+                  connections:
+                    orders:
+                      credentials:
+                        form: bearer-token
+                        token: abc
+                        expires-at: hunter2-not-a-date
+                """));
+
+        assertThat(failure).isInstanceOf(ConnectionConfigurationException.class);
+        for (Throwable t = failure; t != null; t = t.getCause()) {
+            assertThat(String.valueOf(t.getMessage())).doesNotContain("hunter2");
+        }
+        FailureAnalysis analysis = new ConnectionFailureAnalyzer().analyze(new IllegalStateException(failure));
+        assertThat(analysis.getDescription()).contains("credentials.expires-at").doesNotContain("hunter2");
+        assertThat(analysis.getAction()).doesNotContain("hunter2");
+        for (Throwable t = analysis.getCause(); t != null; t = t.getCause()) {
+            assertThat(String.valueOf(t.getMessage())).doesNotContain("hunter2");
+        }
     }
 
     @Test

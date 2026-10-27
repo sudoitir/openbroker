@@ -118,7 +118,8 @@ final class RecordBinder {
             }
             return bound;
         } catch (BindException e) {
-            throw new ConnectionConfigurationException(connection, key(name), "is not " + describe(raw), e);
+            // Neither the exception nor its message is kept: a conversion failure quotes the value.
+            throw new ConnectionConfigurationException(connection, key(name), "is not " + describe(raw));
         }
     }
 
@@ -141,17 +142,24 @@ final class RecordBinder {
         }
     }
 
+    /**
+     * A record's constructor refused its components. Its message names the component and the limit (the
+     * SDK's records never quote a value), but it is used only for a key that is not a credential.
+     */
     private ConnectionConfigurationException invalid(
             ConfigurationPropertyName name, RecordComponent[] components, @Nullable Throwable cause) {
-        String message = cause == null || cause.getMessage() == null ? "is invalid" : cause.getMessage();
+        boolean sensitive = key(name).contains("credentials");
+        String message = cause == null || cause.getMessage() == null || sensitive ? "is invalid" : cause.getMessage();
         for (RecordComponent component : components) {
-            if (message.startsWith(component.getName())) {
+            if (cause != null
+                    && cause.getMessage() != null
+                    && cause.getMessage().startsWith(component.getName())) {
                 String problem = cause instanceof NullPointerException ? "is required" : message;
                 return new ConnectionConfigurationException(
-                        connection, key(name.append(kebab(component.getName()))), problem, cause);
+                        connection, key(name.append(kebab(component.getName()))), problem);
             }
         }
-        return new ConnectionConfigurationException(connection, key(name), message, cause);
+        return new ConnectionConfigurationException(connection, key(name), message);
     }
 
     private static @Nullable Object read(RecordComponent component, @Nullable Object base) {

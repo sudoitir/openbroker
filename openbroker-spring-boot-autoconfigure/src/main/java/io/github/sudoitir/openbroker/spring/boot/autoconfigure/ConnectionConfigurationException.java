@@ -4,7 +4,8 @@ import org.jspecify.annotations.Nullable;
 
 /**
  * A connection's configuration is wrong. It names the connection and, where there is one, the key, and
- * it never carries a value: the failure analyzer prints it as it is.
+ * it never carries a value or a cause: a binding or constructor failure can quote the raw value, and the
+ * failure analyzer prints this as it is.
  */
 public final class ConnectionConfigurationException extends RuntimeException {
 
