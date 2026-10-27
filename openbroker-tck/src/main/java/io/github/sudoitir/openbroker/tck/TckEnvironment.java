@@ -5,6 +5,7 @@ import io.github.sudoitir.openbroker.messaging.MessageFilter;
 import io.github.sudoitir.openbroker.model.Attributes;
 import io.github.sudoitir.openbroker.model.KindId;
 import io.github.sudoitir.openbroker.model.ResourceId;
+import io.github.sudoitir.openbroker.model.Shard;
 import io.github.sudoitir.openbroker.spi.BrokerDriver;
 import java.util.Optional;
 import java.util.Set;
@@ -62,6 +63,15 @@ public interface TckEnvironment {
      * A valid filter in the driver's own dialect matching messages whose string property {@code
      * name} equals {@code value}.
      */
+    /**
+     * The shard that holds the messages sent to {@code subscription}, which a browse is scoped to and
+     * names offsets of. A system whose copies are on nodes names the first node of the request; one whose
+     * log is in partitions names the partition.
+     */
+    default Shard browseShard(ResourceId subscription) {
+        return Shard.node(request().cluster().nodes().getFirst().id());
+    }
+
     MessageFilter nativeEquals(String name, String value);
 
     /** The driver's own dialect, to test that an escape from a composed filter is refused. */
