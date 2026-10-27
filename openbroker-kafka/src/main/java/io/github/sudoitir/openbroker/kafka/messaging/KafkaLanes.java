@@ -312,9 +312,12 @@ final class KafkaLanes implements ProcessorEngine.Lanes, Consuming.Sink, AutoClo
 
         /** A producer that is fenced or broken is replaced, under the same id, with senders joined to the new one. */
         private void replaceIfBroken(Transaction txn, RuntimeException failure) {
-            if (!producerLostIn(failure)) {
-                return;
+            if (producerLostIn(failure)) {
+                replace(txn);
             }
+        }
+
+        private void replace(Transaction txn) {
             joined.values().forEach(Sender::close);
             joined.clear();
             try {
@@ -337,6 +340,11 @@ final class KafkaLanes implements ProcessorEngine.Lanes, Consuming.Sink, AutoClo
         @Override
         public Sender sender(SendTarget target) {
             Transaction open = transaction;
+            if (open != null && open.broken()) {
+                // A send of the last attempt found the producer fenced: this attempt needs a new one.
+                replace(open);
+                open = transaction;
+            }
             if (open == null && transacted) {
                 // A replacement that failed is tried again here, where the handler needs it.
                 open = transaction = new Transaction(env.cluster(), transactionalId);

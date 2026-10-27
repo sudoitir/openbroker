@@ -204,6 +204,9 @@ final class KafkaSender implements Sender {
             lost(written, failure);
             return;
         }
+        if (supervisor == null && producerLost(failure)) {
+            markOwnersProducerBroken();
+        }
         BrokerException mapped = KafkaFailures.of(failure, Optional.of(target.resource()));
         confirmation.failed(
                 options.guarantee() == Guarantee.AT_MOST_ONCE && producerLost(failure) ? inDoubt(mapped) : mapped);
@@ -212,12 +215,22 @@ final class KafkaSender implements Sender {
     /** The failure of a write that threw: a dead producer keeps the message for the recovery; a refusal ends its receipt. */
     private BrokerException refused(RuntimeException e, int written) {
         // Joined to its owner's producer there is no recovery to wait for: the owner replaces the producer.
+        if (supervisor == null && producerLost(e)) {
+            markOwnersProducerBroken();
+        }
         if (supervisor != null && producerLost(e)) {
             BrokerException down = down(e);
             lost(written, e);
             return down;
         }
         return KafkaFailures.of(e, Optional.of(target.resource()));
+    }
+
+    private void markOwnersProducerBroken() {
+        Transaction owner = backend.transaction();
+        if (owner != null) {
+            owner.markBroken();
+        }
     }
 
     private void lost(int written, Throwable cause) {

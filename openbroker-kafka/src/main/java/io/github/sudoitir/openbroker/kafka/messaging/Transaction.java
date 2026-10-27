@@ -22,6 +22,7 @@ final class Transaction implements AutoCloseable {
 
     private final KafkaProducer<byte[], byte[]> producer;
     private boolean begun;
+    private volatile boolean broken;
 
     Transaction(KafkaCluster cluster, String transactionalId) {
         this.producer = Producers.create(cluster, Guarantee.TRANSACTED, transactionalId);
@@ -31,6 +32,15 @@ final class Transaction implements AutoCloseable {
             producer.close(CLOSE_WAIT);
             throw e;
         }
+    }
+
+    /** Notes that the producer is fenced or failed for good: its owner replaces it before the next use. */
+    void markBroken() {
+        broken = true;
+    }
+
+    boolean broken() {
+        return broken;
     }
 
     KafkaProducer<byte[], byte[]> producer() {
