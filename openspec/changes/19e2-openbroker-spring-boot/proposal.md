@@ -31,13 +31,20 @@ A starter makes a connection a few lines of `application.yml` and gives the clie
 - Every connection gets an Actuator health contributor, and its metrics go to Micrometer.
 - Processors that the application registers start after the context is ready and drain within their grace time on shutdown.
 - The driver's option schema is checked at startup, so a misspelt option fails the start with its name.
+- A connection is derived from Spring Boot's own Kafka and Artemis connection details (properties, service connections, Docker Compose), so an application configures nothing twice. An `openbroker.connections` entry of the same name adds what Spring cannot say.
+- Applications that open connections at runtime get the same building blocks as beans: `BrokerDrivers`, the assembled connect options and SSL-bundle TLS.
+- The SDK closes three gaps for every consumer:
+  - connect refuses options the driver's schema does not declare (breaking);
+  - observers compose;
+  - the OpenTelemetry observer can trace sends without writing trace context into the message.
 
 ## Capabilities
 ### New Capabilities
 - `broker-sdk-spring-boot`: Spring Boot auto-configuration and starter for OpenBroker connections, health, metrics, tracing and lifecycle.
 
 ### Modified Capabilities
-- `broker-sdk`: the framework-free rule names the Spring modules as the only place Spring may appear, and the release lists them as optional modules.
+- `broker-sdk`: the framework-free rule names the Spring modules as the only place Spring may appear, the release lists them as optional modules, and connecting validates options against the driver's schema.
+- `broker-sdk-messaging`: observers compose, and trace injection into messages can be turned off.
 
 ## Out of scope
 - An annotation-driven listener model (for example `@OpenBrokerListener`). A later change may add it on top of this one.
@@ -50,7 +57,7 @@ A starter makes a connection a few lines of `application.yml` and gives the clie
 ## Execution
 **Inline**: two small modules with one design, tested with the context runner.
 
-Drivers touched: none; the starter is driver-neutral. The API is not broken unless an options record must change to bind, which would make it a minor bump.
+Drivers touched: none; the starter is driver-neutral. The API breaks in one place: connect refuses options its driver does not declare. That takes the minor bump to `0.4.0`.
 
 ## Impact
 New modules `openbroker-spring-boot-autoconfigure` and `openbroker-spring-boot-starter`; the BOM; the parent pom (Spring Boot's dependency management imported only in these modules); `ci.yml`; README; ADRs. Possibly small fixes to options records in `openbroker-api` so that they bind.

@@ -210,6 +210,11 @@ The design is recorded in [`docs/adr/`](docs/adr/).
 - [0023](docs/adr/0023-credentials-are-a-sealed-set-of-forms.md) Credentials are a sealed set of forms
 - [0024](docs/adr/0024-kinds-carry-a-label.md) Kinds carry a label
 - [0025](docs/adr/0025-the-chaos-fixture-names-the-serving-node-and-its-successor.md) The chaos fixture names the serving node and its successor
+- [0026](docs/adr/0026-the-spring-boot-starter-binds-the-sdks-records-and-takes-functions-from-beans.md) The Spring Boot starter binds the SDK's records and takes functions from beans
+- [0027](docs/adr/0027-spring-lives-only-in-the-spring-modules.md) Spring lives only in the Spring modules
+- [0028](docs/adr/0028-connect-validates-options-against-the-drivers-schema.md) Connect validates options against the driver's schema
+- [0029](docs/adr/0029-micrometer-owns-metrics-opentelemetry-owns-traces.md) Micrometer owns metrics, OpenTelemetry owns traces
+- [0030](docs/adr/0030-connections-are-derived-from-spring-boots-connection-details.md) Connections are derived from Spring Boot's connection details
 
 ## Trademarks
 
