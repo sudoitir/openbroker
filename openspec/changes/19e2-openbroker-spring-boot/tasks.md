@@ -28,7 +28,7 @@ Rules:
 ## 6. Observability and lifecycle
 - [x] 6.1 Add the health composite with deadlines and redacted details (D5). Check: tests for up, partial, down, timeout, stale and closing
 - [x] 6.2 Add the Micrometer observer, and the OpenTelemetry observer with the meter rule (D6). Check: meter and span assertions, a no-double-count test, and a test that nothing is wired when neither is present
-- [ ] 6.3 Add the `SmartLifecycle` and `OpenBrokerProcessors` (D10). Check: graceful-shutdown order and no-handler-before-ready tests
+- [x] 6.3 Add the `SmartLifecycle` and `OpenBrokerProcessors` (D10). Check: graceful-shutdown order and no-handler-before-ready tests
 
 ## 7. End to end and documentation
 - [ ] 7.1 Add one Spring Boot application IT per driver, with Artemis and Kafka containers wired by `@ServiceConnection` and no `openbroker.*` keys: send, process, health and shutdown. Run the Kafka IT in CI's Kafka leg. Check: green in `verify`

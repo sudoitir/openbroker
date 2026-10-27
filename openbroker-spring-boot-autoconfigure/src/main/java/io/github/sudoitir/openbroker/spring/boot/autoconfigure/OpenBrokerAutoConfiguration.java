@@ -11,6 +11,7 @@ import java.time.Clock;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.jspecify.annotations.Nullable;
+import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.artemis.autoconfigure.ArtemisConnectionDetails;
@@ -82,6 +83,13 @@ public class OpenBrokerAutoConfiguration {
             ObjectProvider<ObserverSource> observers,
             ListableBeanFactory beans) {
         return new OpenBrokerConnections(environment, drivers, connectOptions, ssl, derivers, observers, beans);
+    }
+
+    /** The processors the application registers: started when the context is ready, stopped before connections close. */
+    @Bean
+    @ConditionalOnMissingBean
+    OpenBrokerProcessors openBrokerProcessors(BeanFactory beans, OpenBrokerConnections connections) {
+        return new OpenBrokerProcessors(beans, connections);
     }
 
     @Configuration(proxyBeanMethods = false)

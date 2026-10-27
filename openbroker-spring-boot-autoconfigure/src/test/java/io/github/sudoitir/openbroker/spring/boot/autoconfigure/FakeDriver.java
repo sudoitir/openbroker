@@ -10,6 +10,7 @@ import io.github.sudoitir.openbroker.CredentialSource;
 import io.github.sudoitir.openbroker.OptionSpec;
 import io.github.sudoitir.openbroker.Partial;
 import io.github.sudoitir.openbroker.messaging.LinkListener;
+import io.github.sudoitir.openbroker.messaging.Processor;
 import io.github.sudoitir.openbroker.messaging.Transport;
 import io.github.sudoitir.openbroker.model.NodeDescription;
 import io.github.sudoitir.openbroker.model.Nodes;
@@ -101,6 +102,19 @@ class FakeDriver implements BrokerDriver {
             case "watch" -> {
                 watchers.add((LinkListener) args[0]);
                 yield (AutoCloseable) () -> {};
+            }
+            case "process" -> {
+                events.add("process started");
+                yield proxy(
+                        Processor.class,
+                        (processorSelf, processorMethod, processorArgs) -> switch (processorMethod.getName()) {
+                            case "stop" -> {
+                                events.add("processor stopped within " + processorArgs[0]);
+                                yield null;
+                            }
+                            case "close" -> null;
+                            default -> throw new UnsupportedOperationException(processorMethod.getName());
+                        });
             }
             default -> throw new UnsupportedOperationException(method.getName());
         });
