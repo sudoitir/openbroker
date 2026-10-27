@@ -82,9 +82,12 @@ class SpringBootKafkaIT {
     @Order(1)
     void theClusterAnswersAndHealthIsUp() throws InterruptedException {
         HealthIndicator indicator = (HealthIndicator) openbrokerHealthContributor.getContributor("kafka");
-        // The first check opens the admin client and may pass the deadline; the next one finds it ready.
+        // The first check opens the admin client and may pass the deadline: unknown, never down.
         Health health = indicator.health();
         for (int attempt = 0; attempt < 30 && !health.getStatus().getCode().equals("UP"); attempt++) {
+            assertThat(health.getStatus().getCode())
+                    .as(health.getDetails().toString())
+                    .isEqualTo("UNKNOWN");
             Thread.sleep(500);
             health = indicator.health();
         }

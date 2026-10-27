@@ -142,16 +142,12 @@ class HealthTest {
     }
 
     @Test
-    void aCheckThatHangsTurnsDownWithinTheTimeoutAndIsNotStartedTwice() throws InterruptedException {
+    void theFirstCheckPassingItsDeadlineIsUnknownAndTheResultReplacesIt() throws InterruptedException {
         CountDownLatch release = new CountDownLatch(1);
         AtomicInteger calls = new AtomicInteger();
         driver.describe = () -> {
             calls.incrementAndGet();
-            try {
-                release.await();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
+            await(release);
             return nodes(Map.of(), "n1");
         };
         try {
@@ -162,23 +158,68 @@ class HealthTest {
                 Health first = indicator.health();
 
                 assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(3));
-                assertThat(first.getStatus()).isEqualTo(Status.DOWN);
-                assertThat(first.getDetails()).containsEntry("reason", "TIMEOUT");
+                assertThat(first.getStatus()).isEqualTo(Status.UNKNOWN);
+                assertThat(first.getDetails()).containsEntry("reason", "first check still running");
 
                 Health second = indicator.health();
 
                 assertThat(calls).hasValue(1);
-                assertThat(second.getStatus()).isEqualTo(Status.DOWN);
-                assertThat(second.getDetails()).containsEntry("stale", true);
+                assertThat(second.getStatus()).isEqualTo(Status.UNKNOWN);
 
                 release.countDown();
                 Thread.sleep(200);
 
                 assertThat(indicator.health().getStatus()).isEqualTo(Status.UP);
-                assertThat(calls).hasValue(2);
             });
         } finally {
             release.countDown();
+        }
+    }
+
+    @Test
+    void aLaterCheckPassingItsDeadlineIsDownAndStaleUntilALateResultReplacesIt() throws InterruptedException {
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger calls = new AtomicInteger();
+        driver.describe = () -> {
+            if (calls.incrementAndGet() > 1) {
+                await(release);
+            }
+            return nodes(Map.of(), "n1");
+        };
+        try {
+            runner.run(context -> {
+                HealthIndicator indicator = indicator(context, "orders");
+                assertThat(indicator.health().getStatus()).isEqualTo(Status.UP);
+
+                Health timedOut = indicator.health();
+
+                assertThat(timedOut.getStatus()).isEqualTo(Status.DOWN);
+                assertThat(timedOut.getDetails()).containsEntry("reason", "TIMEOUT");
+
+                Health stale = indicator.health();
+
+                assertThat(calls).hasValue(2);
+                assertThat(stale.getStatus()).isEqualTo(Status.DOWN);
+                assertThat(stale.getDetails()).containsEntry("stale", true);
+
+                release.countDown();
+                Thread.sleep(200);
+
+                // The late result was remembered before the next check was allowed, so it is not stale DOWN.
+                Health late = indicator.health();
+                assertThat(late.getStatus()).isEqualTo(Status.UP);
+                assertThat(calls).hasValue(3);
+            });
+        } finally {
+            release.countDown();
+        }
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 

@@ -28,7 +28,9 @@ import org.springframework.boot.health.contributor.HealthIndicator;
  * <ul>
  *   <li>Up when the cluster answers. A partial answer counts: a cluster that serves must not flap
  *       readiness, and the details name each node that did not answer, with its status and reason.
- *   <li>Down when no node answers or the deadline passes, with the reason.
+ *   <li>Down when no node answers or a deadline passes, with the reason. The one exception is the deadline
+ *       of the first check ever: a cold client can take seconds, so that is unknown ("first check still
+ *       running"), not down, and readiness does not fail at startup.
  *   <li>Unknown when no node has a management endpoint to ask, as with a connection derived from Spring's
  *       details: the cluster is neither shown up nor shown down.
  *   <li>Out of service while the connection closes.
@@ -42,7 +44,7 @@ final class ConnectionHealthIndicator implements HealthIndicator {
     private final ClusterConnection connection;
     private final Duration timeout;
     private final AtomicReference<@Nullable CompletableFuture<Health>> running = new AtomicReference<>();
-    private volatile @Nullable Health last;
+    private @Nullable Health last;
     private volatile boolean closing;
 
     ConnectionHealthIndicator(ClusterConnection connection, Duration timeout) {
@@ -62,39 +64,70 @@ final class ConnectionHealthIndicator implements HealthIndicator {
         }
         CompletableFuture<Health> check = new CompletableFuture<>();
         if (!running.compareAndSet(null, check)) {
-            return stale(last);
+            return stale(lastResult());
         }
         Thread.ofVirtual().name("openbroker-health").start(() -> finish(check));
         try {
-            Health result = check.get(timeout.toNanos(), TimeUnit.NANOSECONDS);
-            last = result;
-            return result;
+            return check.get(timeout.toNanos(), TimeUnit.NANOSECONDS);
         } catch (TimeoutException e) {
-            return remember(Health.down()
-                    .withDetail("reason", "TIMEOUT")
-                    .withDetail("timeout", timeout.toString())
-                    .build());
+            return timedOut(check);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return Health.down().withDetail("reason", "INTERRUPTED").build();
         } catch (ExecutionException e) {
-            return remember(down(e.getCause()));
+            return down(e.getCause());
         }
+    }
+
+    private synchronized @Nullable Health lastResult() {
+        return last;
     }
 
     private Health remember(Health health) {
-        last = health;
+        synchronized (this) {
+            last = health;
+        }
         return health;
     }
 
-    private void finish(CompletableFuture<Health> check) {
-        try {
-            check.complete(probe());
-        } catch (Exception e) {
-            check.complete(down(e));
-        } finally {
-            running.set(null);
+    /**
+     * The deadline passed. Before any check has ever finished that says nothing against the cluster (a cold
+     * first check can take seconds), so it is unknown and not remembered; later it is down, and is
+     * remembered until the check in flight finishes and replaces it.
+     */
+    private Health timedOut(CompletableFuture<Health> check) {
+        synchronized (this) {
+            if (last == null) {
+                return firstCheckRunning();
+            }
+            Health down = Health.down()
+                    .withDetail("reason", "TIMEOUT")
+                    .withDetail("timeout", timeout.toString())
+                    .build();
+            if (running.get() == check) {
+                last = down;
+            }
+            return down;
         }
+    }
+
+    private static Health firstCheckRunning() {
+        return Health.unknown()
+                .withDetail("reason", "first check still running")
+                .build();
+    }
+
+    /** Remembers the result before it lets the next check start, so a late result replaces a stale one. */
+    private void finish(CompletableFuture<Health> check) {
+        Health result;
+        try {
+            result = probe();
+        } catch (Exception e) {
+            result = down(e);
+        }
+        remember(result);
+        check.complete(result);
+        running.set(null);
     }
 
     private Health probe() {
@@ -160,9 +193,12 @@ final class ConnectionHealthIndicator implements HealthIndicator {
     }
 
     private static Health stale(@Nullable Health previous) {
-        Health.Builder health = previous == null
-                ? Health.down().withDetail("reason", "CHECK_IN_PROGRESS")
-                : Health.status(previous.getStatus()).withDetails(previous.getDetails());
-        return health.withDetail("stale", true).build();
+        if (previous == null) {
+            return firstCheckRunning();
+        }
+        return Health.status(previous.getStatus())
+                .withDetails(previous.getDetails())
+                .withDetail("stale", true)
+                .build();
     }
 }
