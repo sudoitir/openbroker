@@ -3,6 +3,7 @@ package io.github.sudoitir.openbroker.kafka.messaging;
 import io.github.sudoitir.openbroker.BrokerException;
 import io.github.sudoitir.openbroker.Plane;
 import io.github.sudoitir.openbroker.kafka.admin.KafkaCluster;
+import io.github.sudoitir.openbroker.kafka.codec.RecordCodec;
 import io.github.sudoitir.openbroker.messaging.LinkState;
 import io.github.sudoitir.openbroker.model.ResourceId;
 import java.time.Duration;
@@ -213,8 +214,11 @@ final class ShareConsumption implements Consuming {
             returned.add(record);
             if (!holding.containsKey(key(record))) {
                 int attempt = record.deliveryCount().map(Short::intValue).orElse(1);
-                Delivery delivery =
-                        new Delivery(Records.message(settings.source(), record, attempt), record, attempt, assignment);
+                Delivery delivery = new Delivery(
+                        RecordCodec.message(settings.source(), record, Long.MAX_VALUE, attempt),
+                        record,
+                        attempt,
+                        assignment);
                 holding.put(key(record), new Held(delivery));
                 waiting.addLast(delivery);
             }

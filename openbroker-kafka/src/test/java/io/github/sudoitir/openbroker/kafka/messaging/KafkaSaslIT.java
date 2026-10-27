@@ -26,8 +26,11 @@ import io.github.sudoitir.openbroker.messaging.SenderOptions;
 import io.github.sudoitir.openbroker.messaging.Transport;
 import io.github.sudoitir.openbroker.model.ResourceId;
 import io.github.sudoitir.openbroker.model.Scope;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -218,6 +221,44 @@ class KafkaSaslIT {
             assertThat(admin.listConsumerGroups().all().get())
                     .extracting(listing -> listing.groupId())
                     .doesNotContain(subscription.path().segments().getFirst());
+        }
+    }
+
+    /** An unsigned JWS, which Kafka's unsecured validator accepts: the subject is the account. */
+    private static String unsignedToken(String subject) {
+        long now = Instant.now().getEpochSecond();
+        var base64 = Base64.getUrlEncoder().withoutPadding();
+        String header = base64.encodeToString("{\"alg\":\"none\"}".getBytes(StandardCharsets.UTF_8));
+        String claims =
+                base64.encodeToString(("{\"sub\":\"" + subject + "\",\"iat\":" + now + ",\"exp\":" + (now + 3600) + "}")
+                        .getBytes(StandardCharsets.UTF_8));
+        return header + "." + claims + ".";
+    }
+
+    @Test
+    void aBearerTokenAuthenticatesAndTheTokensAccountIsAuthorized() {
+        String topic = topic("oauth");
+        createTopic(topic);
+        kafka.grant("oauth-user");
+        ResourceId subscription = group(topic);
+        try (ClusterConnection connection = connect(
+                KafkaOptions.OAUTHBEARER,
+                CredentialSource.of(Credentials.bearerToken(
+                        unsignedToken("oauth-user"), Instant.now().plusSeconds(3600))))) {
+            Transport transport = connection.transport().orElseThrow();
+            try (Sender sender =
+                    transport.sender(SendTarget.subscription(subscription), Scope.whole(), SenderOptions.defaults())) {
+                sender.send(KafkaMessagingIT.message(9));
+            }
+            try (Receiver receiver = transport.receiver(subscription, Scope.whole(), ReceiverOptions.consume())) {
+                List<Message> got = new ArrayList<>();
+                await("the message", () -> {
+                    got.addAll(receiver.receive(1, Duration.ofMillis(300)));
+                    return !got.isEmpty();
+                });
+                assertThat(KafkaMessagingIT.seq(got.getFirst())).isEqualTo(9);
+                receiver.settle(got.getFirst(), Disposition.accept());
+            }
         }
     }
 }

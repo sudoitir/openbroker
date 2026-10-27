@@ -2,6 +2,7 @@ package io.github.sudoitir.openbroker.kafka.messaging;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.sudoitir.openbroker.kafka.codec.RecordCodec;
 import io.github.sudoitir.openbroker.messaging.Backoff;
 import io.github.sudoitir.openbroker.messaging.Disposition;
 import io.github.sudoitir.openbroker.messaging.Guarantee;
@@ -184,7 +185,7 @@ class KafkaRetryIT {
             List<Message> dead = deadLetters(topic, 1);
             Message letter = dead.getFirst();
             assertThat(KafkaMessagingIT.seq(letter)).isEqualTo(1);
-            var origin = letter.extension(Records.EXTENSION);
+            var origin = letter.extension(RecordCodec.EXTENSION);
             assertThat(origin.raw("origin_topic")).hasValue(topic);
             assertThat(origin.raw("origin_partition")).hasValue("0");
             assertThat(origin.raw("origin_offset")).hasValue("1");
@@ -214,7 +215,7 @@ class KafkaRetryIT {
                         : Disposition.accept())) {
             List<Message> dead = deadLetters(topic, 1);
             assertThat(KafkaMessagingIT.seq(dead.getFirst())).isZero();
-            assertThat(dead.getFirst().extension(Records.EXTENSION).raw("origin_reason"))
+            assertThat(dead.getFirst().extension(RecordCodec.EXTENSION).raw("origin_reason"))
                     .hasValue("bad input");
         }
         try (Receiver receiver = transport.receiver(subscription, Scope.whole(), ReceiverOptions.consume())) {

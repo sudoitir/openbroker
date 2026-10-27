@@ -72,7 +72,14 @@ final class SaslKafka implements AutoCloseable {
                         Map.entry("KAFKA_INTER_BROKER_LISTENER_NAME", "BROKER"),
                         Map.entry("KAFKA_CONTROLLER_LISTENER_NAMES", "CONTROLLER"),
                         Map.entry("KAFKA_CONTROLLER_QUORUM_VOTERS", "1@localhost:9093"),
-                        Map.entry("KAFKA_SASL_ENABLED_MECHANISMS", "PLAIN,SCRAM-SHA-256"),
+                        Map.entry("KAFKA_SASL_ENABLED_MECHANISMS", "PLAIN,SCRAM-SHA-256,OAUTHBEARER"),
+                        Map.entry(
+                                "KAFKA_LISTENER_NAME_SASL_OAUTHBEARER_SASL_JAAS_CONFIG",
+                                "org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required;"),
+                        // Kafka's validator for unsigned tokens: the test's token is a JWS with no signature.
+                        Map.entry(
+                                "KAFKA_LISTENER_NAME_SASL_OAUTHBEARER_SASL_SERVER_CALLBACK_HANDLER_CLASS",
+                                "org.apache.kafka.common.security.oauthbearer.internals.unsecured.OAuthBearerUnsecuredValidatorCallbackHandler"),
                         Map.entry("KAFKA_LISTENER_NAME_SASL_PLAIN_SASL_JAAS_CONFIG", jaas),
                         Map.entry(
                                 "KAFKA_LISTENER_NAME_SASL_SCRAM-SHA-256_SASL_JAAS_CONFIG",

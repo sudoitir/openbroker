@@ -7,6 +7,7 @@ import io.github.sudoitir.openbroker.ErrorReasons;
 import io.github.sudoitir.openbroker.NodeId;
 import io.github.sudoitir.openbroker.Status;
 import io.github.sudoitir.openbroker.kafka.admin.KafkaCluster;
+import io.github.sudoitir.openbroker.kafka.codec.RecordCodec;
 import io.github.sudoitir.openbroker.messaging.DeduplicationWindow;
 import io.github.sudoitir.openbroker.messaging.Guarantee;
 import io.github.sudoitir.openbroker.messaging.LinkState;
@@ -175,7 +176,8 @@ final class KafkaSender implements Sender {
         int written = generation;
         ProducerRecord<byte[], byte[]> record;
         try {
-            record = Records.record(target.topic(), target.partition(), target.routingKey(), message);
+            record = RecordCodec.record(
+                    target.topic(), Optional.ofNullable(target.partition()), target.routingKey(), message);
         } catch (RuntimeException e) {
             throw KafkaFailures.of(e, Optional.of(target.resource()));
         }

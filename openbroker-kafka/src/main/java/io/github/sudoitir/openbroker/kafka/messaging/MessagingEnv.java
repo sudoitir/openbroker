@@ -7,8 +7,12 @@ import io.github.sudoitir.openbroker.Permit;
 import io.github.sudoitir.openbroker.Plane;
 import io.github.sudoitir.openbroker.kafka.KafkaDriver;
 import io.github.sudoitir.openbroker.kafka.admin.KafkaCluster;
+import io.github.sudoitir.openbroker.messaging.Disposition;
 import io.github.sudoitir.openbroker.messaging.LinkEvent;
 import io.github.sudoitir.openbroker.messaging.LinkListener;
+import io.github.sudoitir.openbroker.messaging.Message;
+import io.github.sudoitir.openbroker.messaging.MessagingObserver;
+import io.github.sudoitir.openbroker.messaging.Observation;
 import io.github.sudoitir.openbroker.messaging.OperationInfo;
 import io.github.sudoitir.openbroker.messaging.OperationType;
 import io.github.sudoitir.openbroker.model.ResourceId;
@@ -92,6 +96,28 @@ final class MessagingEnv implements AutoCloseable {
                 BrokerException failure = KafkaFailures.of(e, Optional.of(target));
                 permit.complete(Outcome.failed(failure), Optional.empty());
                 throw failure;
+            }
+        }
+    }
+
+    /** Runs a settlement under the observer's {@code onSettle}, ending it with the settlement's failure, if any. */
+    void settling(OperationInfo info, Message message, Disposition disposition, Runnable work) {
+        MessagingObserver observer = cluster.options().observer();
+        Observation observation =
+                observer == MessagingObserver.none() ? null : observer.onSettle(info, message, disposition);
+        RuntimeException failure = null;
+        try {
+            work.run();
+        } catch (RuntimeException e) {
+            failure = e;
+            throw e;
+        } finally {
+            if (observation != null) {
+                try {
+                    observation.end(failure);
+                } catch (RuntimeException e) {
+                    LOG.log(System.Logger.Level.WARNING, "An observer failed", e);
+                }
             }
         }
     }

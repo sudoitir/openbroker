@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.sudoitir.openbroker.BrokerException;
 import io.github.sudoitir.openbroker.ErrorReasons;
+import io.github.sudoitir.openbroker.kafka.codec.RecordCodec;
 import io.github.sudoitir.openbroker.messaging.Guarantee;
 import io.github.sudoitir.openbroker.model.ResourceId;
 import java.nio.charset.StandardCharsets;
@@ -226,8 +227,8 @@ class ConsumptionTest {
         open(Guarantee.AT_LEAST_ONCE, 10, Duration.ZERO);
         long due = System.currentTimeMillis() + 800;
         RecordHeaders headers = new RecordHeaders();
-        headers.add(Records.DUE, Long.toString(due).getBytes(StandardCharsets.UTF_8));
-        headers.add(Records.ATTEMPT, "2".getBytes(StandardCharsets.UTF_8));
+        headers.add(RecordCodec.DUE, Long.toString(due).getBytes(StandardCharsets.UTF_8));
+        headers.add(RecordCodec.ATTEMPT, "2".getBytes(StandardCharsets.UTF_8));
         ConsumerRecord<byte[], byte[]> retry = new ConsumerRecord<>(
                 TOPIC,
                 0,

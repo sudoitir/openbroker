@@ -6,6 +6,8 @@ import io.github.sudoitir.openbroker.messaging.Disposition;
 import io.github.sudoitir.openbroker.messaging.Guarantee;
 import io.github.sudoitir.openbroker.messaging.LinkState;
 import io.github.sudoitir.openbroker.messaging.Message;
+import io.github.sudoitir.openbroker.messaging.OperationType;
+import io.github.sudoitir.openbroker.messaging.OrderingScope;
 import io.github.sudoitir.openbroker.messaging.ProcessorOptions;
 import io.github.sudoitir.openbroker.messaging.SendTarget;
 import io.github.sudoitir.openbroker.messaging.Sender;
@@ -36,7 +38,7 @@ import org.jspecify.annotations.Nullable;
  *   <li>{@code GROUP}: a record goes to the lane its group (or key) hashes to within its partition;
  *       a record without either is its own group.
  *   <li>{@code SUBSCRIPTION}: one lane, on a one-partition topic.
- *   <li>{@code NONE}: the shortest queue.
+ *   <li>{@code NONE}: one queue, from which whichever lane is free takes the next record.
  * </ul>
  *
  * Each lane runs one record at a time, so a lane's records stay in order and the system pins groups to
@@ -86,7 +88,9 @@ final class KafkaLanes implements ProcessorEngine.Lanes, Consuming.Sink, AutoClo
         this.retryTopics = retryTopics;
         this.brokerDeadLetters = brokerDeadLetters;
         this.transacted = options.receive().guarantee() == Guarantee.TRANSACTED;
-        for (int i = 0; i < options.concurrency(); i++) {
+        // Unordered lanes take from one queue, so whichever is free takes the next record.
+        int queueCount = options.ordering() == OrderingScope.NONE ? 1 : options.concurrency();
+        for (int i = 0; i < queueCount; i++) {
             queues.add(new LinkedBlockingQueue<>());
         }
         this.consuming = consuming.apply(this);
@@ -149,23 +153,12 @@ final class KafkaLanes implements ProcessorEngine.Lanes, Consuming.Sink, AutoClo
                 } else if (message.headers().key().isPresent()) {
                     hash = Arrays.hashCode(message.headers().key().get().toByteArray());
                 } else {
-                    yield shortest();
+                    yield Math.floorMod(next.getAndIncrement(), n);
                 }
                 yield Math.floorMod(31 * delivery.partition().hashCode() + hash, n);
             }
-            case NONE -> shortest();
+            case NONE -> 0;
         };
-    }
-
-    private int shortest() {
-        int best = Math.floorMod(next.getAndIncrement(), queues.size());
-        for (int i = 0; i < queues.size(); i++) {
-            int candidate = Math.floorMod(best + i, queues.size());
-            if (queues.get(candidate).size() < queues.get(best).size()) {
-                best = candidate;
-            }
-        }
-        return best;
     }
 
     // ---- one lane --------------------------------------------------------------------------------
@@ -187,7 +180,8 @@ final class KafkaLanes implements ProcessorEngine.Lanes, Consuming.Sink, AutoClo
 
         @Override
         public Optional<Message> next(Duration timeout) throws InterruptedException {
-            Delivery delivery = queues.get(index).poll(timeout.toNanos(), TimeUnit.NANOSECONDS);
+            Delivery delivery =
+                    queues.get(Math.min(index, queues.size() - 1)).poll(timeout.toNanos(), TimeUnit.NANOSECONDS);
             if (delivery == null) {
                 BrokerException failure = consuming.failure();
                 if (failure != null) {
@@ -204,6 +198,14 @@ final class KafkaLanes implements ProcessorEngine.Lanes, Consuming.Sink, AutoClo
 
         @Override
         public void settle(Message message, Disposition disposition) {
+            env.settling(
+                    env.info(OperationType.SETTLE, subscription.id(), Optional.of(subscription.id()), 1),
+                    message,
+                    disposition,
+                    () -> settleObserved(message, disposition));
+        }
+
+        private void settleObserved(Message message, Disposition disposition) {
             Delivery delivery = current;
             current = null;
             if (delivery == null || delivery.message() != message) {

@@ -5,6 +5,7 @@ import io.github.sudoitir.openbroker.messaging.Disposition;
 import io.github.sudoitir.openbroker.messaging.Guarantee;
 import io.github.sudoitir.openbroker.messaging.LinkState;
 import io.github.sudoitir.openbroker.messaging.Message;
+import io.github.sudoitir.openbroker.messaging.OperationType;
 import io.github.sudoitir.openbroker.messaging.Receiver;
 import io.github.sudoitir.openbroker.messaging.ReceiverOptions;
 import io.github.sudoitir.openbroker.messaging.SendTarget;
@@ -15,6 +16,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -141,6 +143,14 @@ final class KafkaReceiver implements Receiver, Consuming.Sink {
 
     @Override
     public void settle(Message message, Disposition disposition) {
+        env.settling(
+                env.info(OperationType.SETTLE, subscription.id(), Optional.of(subscription.id()), 1),
+                message,
+                disposition,
+                () -> settleObserved(message, disposition));
+    }
+
+    private void settleObserved(Message message, Disposition disposition) {
         Delivery delivery = delivery(message);
         switch (disposition) {
             case Disposition.Accept a -> accept(delivery);

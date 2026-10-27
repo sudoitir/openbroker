@@ -3,6 +3,7 @@ package io.github.sudoitir.openbroker.kafka.messaging;
 import io.github.sudoitir.openbroker.BrokerException;
 import io.github.sudoitir.openbroker.Plane;
 import io.github.sudoitir.openbroker.kafka.admin.KafkaCluster;
+import io.github.sudoitir.openbroker.kafka.codec.RecordCodec;
 import io.github.sudoitir.openbroker.messaging.Guarantee;
 import io.github.sudoitir.openbroker.messaging.LinkState;
 import io.github.sudoitir.openbroker.model.ResourceId;
@@ -300,7 +301,10 @@ final class Consumption implements Consuming {
             }
             int attempt = old.attempt() + (requeue.failed() ? 1 : 0);
             Delivery again = new Delivery(
-                    Records.message(settings.source(), old.record(), attempt), old.record(), attempt, t.assignment);
+                    RecordCodec.message(settings.source(), old.record(), Long.MAX_VALUE, attempt),
+                    old.record(),
+                    attempt,
+                    t.assignment);
             t.held.put(again.offset(), again);
         }
     }
@@ -374,8 +378,9 @@ final class Consumption implements Consuming {
                 continue;
             }
             for (ConsumerRecord<byte[], byte[]> record : records.records(partition)) {
-                long due =
-                        Records.header(record, Records.DUE).map(Long::parseLong).orElse(0L);
+                long due = RecordCodec.header(record, RecordCodec.DUE)
+                        .map(Long::parseLong)
+                        .orElse(0L);
                 if (due > now) {
                     consumer.seek(partition, record.offset());
                     delayed.put(
@@ -383,12 +388,15 @@ final class Consumption implements Consuming {
                             System.nanoTime() + Duration.ofMillis(due - now).toNanos());
                     break;
                 }
-                int attempt = Records.header(record, Records.ATTEMPT)
+                int attempt = RecordCodec.header(record, RecordCodec.ATTEMPT)
                         .map(failed -> Integer.parseInt(failed) + 1)
                         .orElse(1);
                 t.tracker.fetched(record.offset());
                 Delivery delivery = new Delivery(
-                        Records.message(settings.source(), record, attempt), record, attempt, t.assignment);
+                        RecordCodec.message(settings.source(), record, Long.MAX_VALUE, attempt),
+                        record,
+                        attempt,
+                        t.assignment);
                 t.held.put(record.offset(), delivery);
             }
         }

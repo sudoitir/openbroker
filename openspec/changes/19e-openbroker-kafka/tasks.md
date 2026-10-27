@@ -38,13 +38,13 @@ Order and parallelism:
 - [x] 3.3 Rebalance handling: revoke drains within grace and commits; lost marks stale (`DELIVERY_STALE`); grace longer than the rebalance timeout is refused at open. Check: join, cut-off and grace ITs
 - [x] 3.4 Transacted guarantee and joined transactions through `sendOffsetsToTransaction`, with one stable transactional id per processor instance and group-metadata fencing (KIP-447). Check: the consume-transform-produce case, and a zombie-fencing IT
 - [x] 3.5 SASL PLAIN, SCRAM and OAUTHBEARER callback handlers, and the TLS engine factory over `TlsProvider`. Check: rotation and permission-denied cases against a SASL-enabled container
-- [ ] 3.6 ADR 0019. Check: `KafkaMessagingTckIT extends MessagingTck` green for consumer groups
+- [x] 3.6 ADR 0019. Check: `KafkaMessagingTckIT extends MessagingTck` green for consumer groups
 
 ## 4. Retry, dead letters and share groups (files: openbroker-kafka/src/**/kafka/messaging/retry/**, …/share/**)
 - [x] 4.1 In-place retry for ordered processing and for the resolved default, and one retry topic per backoff step with attempt and due-time headers for an explicitly managed unordered policy. Check: "a message that keeps failing" and "ordered retries keep the order" on Kafka
 - [x] 4.2 Dead-letter topic with origin headers, transactional with the commit when transacted, and a `FAILED_PRECONDITION` refusal naming the topic and remedy when it cannot be created, including for a default processor. Check: the dead-letter IT
 - [x] 4.3 The share-group processor on `KafkaShareConsumer` (explicit acknowledgement), lock renewal with `RENEW` at half the acquisition lock while a handler runs, the system retry by delivery count, system dead-letter where `share.version` ≥ 2 (refused at open when the group names no DLQ topic), otherwise a managed send-then-reject, and the kind declared from the cluster's features at connect (ctx7 first: which release and level ship `RENEW` and production share groups). Check: release, redeliver, lock-renewal, delivery-limit and share-DLQ ITs on 4.4.0; the managed fallback on 4.4.0 with `share.version` set to 1; kind unavailable on 4.0.2
-- [ ] 4.4 ADR 0022. Check: `KafkaMessagingTckIT` green for both subscription kinds
+- [x] 4.4 ADR 0022. Check: `KafkaMessagingTckIT` green for both subscription kinds
 
 ## 5. Chaos, benchmarks and CI (files: openbroker-kafka/src/test/**/KafkaChaosIT*, openbroker-benchmarks/**, .github/workflows/ci.yml)
 - [ ] 5.1 `KafkaChaosIT extends ChaosTck`: one-partition chaos topics, Toxiproxy per broker, with advertised listeners through the proxies, leader kill and cut, follower takeover. Check: `-Pchaos -Dit.test=KafkaChaosIT` green on both images

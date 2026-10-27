@@ -11,6 +11,7 @@ import org.apache.kafka.clients.admin.ListOffsetsOptions;
 import org.apache.kafka.clients.admin.ListOffsetsResult;
 import org.apache.kafka.clients.admin.OffsetSpec;
 import org.apache.kafka.clients.admin.TopicDescription;
+import org.apache.kafka.common.IsolationLevel;
 import org.apache.kafka.common.TopicCollection;
 import org.apache.kafka.common.TopicPartition;
 
@@ -66,7 +67,9 @@ final class Offsets {
                 .get(context.admin()
                         .listOffsets(
                                 request,
-                                new ListOffsetsOptions()
+                                // Committed records only: what a read-committed group can still reach, so a
+                                // transaction that is open or aborted is not counted as waiting.
+                                new ListOffsetsOptions(IsolationLevel.READ_COMMITTED)
                                         .timeoutMs(context.await().timeoutMs()))
                         .all());
         Map<TopicPartition, Long> out =

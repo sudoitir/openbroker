@@ -67,7 +67,33 @@ public final class RecordCodec {
     /** The namespace of the native data on a message. */
     public static final String EXTENSION = "kafka";
 
+    /** Headers of a dead letter: where the record was first read, how many attempts it had and why it was given up. */
+    public static final String ORIGIN_TOPIC = PREFIX + "origin.topic";
+
+    public static final String ORIGIN_PARTITION = PREFIX + "origin.partition";
+    public static final String ORIGIN_OFFSET = PREFIX + "origin.offset";
+    public static final String ORIGIN_ATTEMPTS = PREFIX + "origin.attempts";
+    public static final String ORIGIN_REASON = PREFIX + "origin.reason";
+
+    /** Headers of a record waiting in a retry topic: the attempt that failed, and when the next is due (epoch milliseconds). */
+    public static final String ATTEMPT = PREFIX + "retry.attempt";
+
+    public static final String DUE = PREFIX + "retry.due";
+
+    /** The properties the engine puts on the copy it dead-letters; they become the dead letter's headers. */
+    public static final String ATTEMPTS_PROPERTY = "openbroker.dead_letter_attempts";
+
+    public static final String REASON_PROPERTY = "openbroker.dead_letter_reason";
+
     private RecordCodec() {}
+
+    /** The value of a record header as text; empty when there is none. */
+    public static Optional<String> header(ConsumerRecord<byte[], byte[]> record, String name) {
+        Header header = record.headers().lastHeader(name);
+        return header == null || header.value() == null
+                ? Optional.empty()
+                : Optional.of(new String(header.value(), StandardCharsets.UTF_8));
+    }
 
     // Writing.
 
@@ -92,14 +118,13 @@ public final class RecordCodec {
         text(headers, REPLY_TO, h.replyTo());
         text(headers, CONTENT_TYPE, h.contentType());
         text(headers, TYPE, h.type());
-        // The group id is the key when there is no other; it is kept as a header when a key is given too.
-        if (h.key().isPresent()) {
-            text(headers, GROUP_ID, h.groupId());
-        }
+        // The group id is also the key when there is no other; it is always kept, so it comes back.
+        text(headers, GROUP_ID, h.groupId());
         text(headers, DEDUPLICATION_ID, h.deduplicationId());
         text(headers, ORIGIN, h.origin());
         text(headers, ORIGIN_ID, h.originId());
         message.properties().forEach((name, value) -> property(headers, name, value));
+        deadLetterFacts(message).forEach((name, value) -> headers.add(name, utf8(value)));
         return new ProducerRecord<>(
                 topic,
                 partition.orElse(null),
@@ -107,6 +132,34 @@ public final class RecordCodec {
                 key,
                 value(message.body()),
                 headers);
+    }
+
+    /** The headers of a dead letter: a message is one when it carries the properties the engine puts on its copy. */
+    private static Map<String, String> deadLetterFacts(OutboundMessage message) {
+        Map<String, String> facts = new LinkedHashMap<>();
+        PropertyValue attempts = message.properties().get(ATTEMPTS_PROPERTY);
+        PropertyValue reason = message.properties().get(REASON_PROPERTY);
+        if (attempts == null && reason == null) {
+            return facts;
+        }
+        if (attempts != null) {
+            facts.put(ORIGIN_ATTEMPTS, attempts.asText());
+        }
+        if (reason != null) {
+            facts.put(ORIGIN_REASON, reason.asText());
+        }
+        Attributes kafka = message.extensions().getOrDefault(EXTENSION, Attributes.empty());
+        for (String name : new String[] {"topic", "partition", "offset"}) {
+            kafka.raw("origin_" + name)
+                    .or(() -> kafka.raw(name))
+                    .ifPresent(v -> facts.put(PREFIX + "origin." + name, String.valueOf(v)));
+        }
+        return facts;
+    }
+
+    /** The two properties of a dead-lettered copy are the one place a property may be named under the codec's prefix. */
+    private static boolean isDeadLetterProperty(String name) {
+        return name.equals(ATTEMPTS_PROPERTY) || name.equals(REASON_PROPERTY);
     }
 
     private static void refuse(boolean present, String what) {
@@ -123,7 +176,7 @@ public final class RecordCodec {
     }
 
     private static void property(Headers headers, String name, PropertyValue value) {
-        if (name.isEmpty() || name.startsWith(PREFIX)) {
+        if (name.isEmpty() || (name.startsWith(PREFIX) && !isDeadLetterProperty(name))) {
             throw KafkaErrors.refused(
                     Status.INVALID_ARGUMENT,
                     ErrorReasons.INVALID_ARGUMENT,
@@ -178,11 +231,20 @@ public final class RecordCodec {
 
     /** The message in a record read from {@code source}, its body cut to {@code maxBodyBytes}. */
     public static Message message(ResourceId source, ConsumerRecord<byte[], byte[]> record, long maxBodyBytes) {
+        return message(source, record, maxBodyBytes, 0);
+    }
+
+    /** As {@link #message(ResourceId, ConsumerRecord, long)}, saying which delivery attempt it is (1 or more) when known. */
+    public static Message message(
+            ResourceId source, ConsumerRecord<byte[], byte[]> record, long maxBodyBytes, int deliveryCount) {
         Map<String, byte[]> raw = new LinkedHashMap<>();
         for (Header header : record.headers()) {
             raw.put(header.key(), header.value() == null ? new byte[0] : header.value());
         }
         MessageHeaders.Builder headers = MessageHeaders.builder();
+        if (deliveryCount > 0) {
+            headers.deliveryCount(deliveryCount);
+        }
         headers.id(string(raw, ID));
         headers.correlationId(string(raw, CORRELATION_ID));
         headers.replyTo(string(raw, REPLY_TO));
@@ -200,7 +262,7 @@ public final class RecordCodec {
         }
         Map<String, PropertyValue> properties = new LinkedHashMap<>();
         raw.forEach((name, bytes) -> {
-            if (!name.startsWith(PREFIX)) {
+            if (!name.startsWith(PREFIX) || isDeadLetterProperty(name)) {
                 properties.put(name, property(bytes, string(raw, TYPE_PREFIX + name)));
             }
         });
@@ -222,6 +284,13 @@ public final class RecordCodec {
                 .putRaw("offset", record.offset())
                 .putRaw("timestamp_type", record.timestampType().name().toLowerCase(Locale.ROOT));
         record.leaderEpoch().ifPresent(e -> native_.putRaw("leader_epoch", (long) e));
+        // A record that went through a retry topic, or was dead-lettered, says where it was first read.
+        for (String name : new String[] {"topic", "partition", "offset", "attempts", "reason"}) {
+            String origin = string(raw, PREFIX + "origin." + name);
+            if (origin != null) {
+                native_.putRaw("origin_" + name, origin);
+            }
+        }
         return new Message(
                 new MessageRef(
                         source,

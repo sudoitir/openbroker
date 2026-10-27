@@ -98,8 +98,7 @@ public final class KafkaConnection implements ClusterConnection {
 
     @Override
     public Optional<Transport> transport() {
-        // The messaging surface is not wired in yet: KafkaTransport is the seam to return here.
-        return Optional.empty();
+        return Optional.of(transport);
     }
 
     @Override

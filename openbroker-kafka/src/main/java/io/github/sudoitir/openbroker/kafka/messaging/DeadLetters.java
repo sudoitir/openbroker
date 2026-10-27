@@ -1,5 +1,6 @@
 package io.github.sudoitir.openbroker.kafka.messaging;
 
+import io.github.sudoitir.openbroker.kafka.codec.RecordCodec;
 import io.github.sudoitir.openbroker.messaging.Guarantee;
 import io.github.sudoitir.openbroker.messaging.OutboundMessage;
 import io.github.sudoitir.openbroker.messaging.PropertyValue;
@@ -65,9 +66,9 @@ final class DeadLetters implements AutoCloseable {
                         .deliveryCount(null)
                         .build())
                 .withProperties(Map.of(
-                        Records.ATTEMPTS_PROPERTY,
+                        RecordCodec.ATTEMPTS_PROPERTY,
                         PropertyValue.of(attempts),
-                        Records.REASON_PROPERTY,
+                        RecordCodec.REASON_PROPERTY,
                         PropertyValue.of(reason)));
         if (joined != null) {
             joined.apply(SendTarget.destination(Targets.topic(dead).resource())).send(copy);

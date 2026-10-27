@@ -53,6 +53,15 @@ public interface TckEnvironment {
         return subscriptionAttributes(name);
     }
 
+    /**
+     * Whether receivers of one subscription compete for its messages, as consumers of a queue do. False
+     * where each receiver owns a share of the messages (a partition), so a message one receiver holds
+     * stays with it. The default is true.
+     */
+    default boolean competingReceivers() {
+        return true;
+    }
+
     private void requireOwnKind(KindId kind) {
         if (!kind.equals(subscriptionKind())) {
             throw new IllegalArgumentException("This environment makes only " + subscriptionKind() + ", not " + kind);

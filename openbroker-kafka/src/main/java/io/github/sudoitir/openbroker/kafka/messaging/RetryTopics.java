@@ -1,6 +1,7 @@
 package io.github.sudoitir.openbroker.kafka.messaging;
 
 import io.github.sudoitir.openbroker.BrokerException;
+import io.github.sudoitir.openbroker.kafka.codec.RecordCodec;
 import io.github.sudoitir.openbroker.messaging.Backoff;
 import io.github.sudoitir.openbroker.messaging.Guarantee;
 import io.github.sudoitir.openbroker.messaging.RetryPolicy;
@@ -77,19 +78,20 @@ final class RetryTopics implements AutoCloseable {
         ConsumerRecord<byte[], byte[]> source = delivery.record();
         Headers headers = new RecordHeaders();
         for (Header header : source.headers()) {
-            if (!header.key().equals(Records.ATTEMPT) && !header.key().equals(Records.DUE)) {
+            if (!header.key().equals(RecordCodec.ATTEMPT) && !header.key().equals(RecordCodec.DUE)) {
                 headers.add(header);
             }
         }
-        if (source.headers().lastHeader(Records.ORIGIN_TOPIC) == null) {
-            headers.add(Records.ORIGIN_TOPIC, delivery.originTopic().getBytes(StandardCharsets.UTF_8));
+        if (source.headers().lastHeader(RecordCodec.ORIGIN_TOPIC) == null) {
+            headers.add(RecordCodec.ORIGIN_TOPIC, delivery.originTopic().getBytes(StandardCharsets.UTF_8));
             headers.add(
-                    Records.ORIGIN_PARTITION,
+                    RecordCodec.ORIGIN_PARTITION,
                     Integer.toString(source.partition()).getBytes(StandardCharsets.UTF_8));
-            headers.add(Records.ORIGIN_OFFSET, Long.toString(source.offset()).getBytes(StandardCharsets.UTF_8));
+            headers.add(
+                    RecordCodec.ORIGIN_OFFSET, Long.toString(source.offset()).getBytes(StandardCharsets.UTF_8));
         }
-        headers.add(Records.ATTEMPT, Integer.toString(attempt).getBytes(StandardCharsets.UTF_8));
-        headers.add(Records.DUE, Long.toString(due).getBytes(StandardCharsets.UTF_8));
+        headers.add(RecordCodec.ATTEMPT, Integer.toString(attempt).getBytes(StandardCharsets.UTF_8));
+        headers.add(RecordCodec.DUE, Long.toString(due).getBytes(StandardCharsets.UTF_8));
         ProducerRecord<byte[], byte[]> retry = new ProducerRecord<>(
                 topic(delivery.originTopic(), attempt),
                 source.partition(),

@@ -149,12 +149,12 @@ public final class KafkaTransport implements Transport, AutoCloseable {
         }
         Declared.require(
                 "Kafka", declared, options.guarantee(), DeduplicationScope.NONE, OrderingScope.NONE, kind.orderings());
-        if (options.mode() == ReceiveMode.BROWSE) {
-            throw KafkaErrors.unimplemented("browse through a receiver: browse the topic through the connection");
-        }
         refuseFilter(options.filter().isPresent());
         return env.admitted("receiver.open", subscription, () -> {
             topics.requirePartitions(group.topic(), subscription);
+            if (options.mode() == ReceiveMode.BROWSE) {
+                return env.track(new KafkaBrowser(env, group, options));
+            }
             return env.track(
                     new KafkaReceiver(env, group, options, new DeadLetters(env, topics, RetryPolicy.defaults())));
         });

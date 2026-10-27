@@ -31,23 +31,13 @@ import org.apache.kafka.common.config.ConfigResource;
  */
 final class SharedKafka {
 
-    private static KafkaTestCluster cluster;
     private static BrokerDrivers drivers;
     private static ClusterConnection connection;
 
     private SharedKafka() {}
 
-    static synchronized KafkaTestCluster cluster() {
-        if (cluster == null) {
-            cluster = KafkaTestCluster.start();
-            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-                if (drivers != null) {
-                    drivers.close();
-                }
-                cluster.close();
-            }));
-        }
-        return cluster;
+    static KafkaTestCluster cluster() {
+        return KafkaTestCluster.shared();
     }
 
     /** A connection every test shares; it holds no state a test depends on. */
