@@ -7,7 +7,7 @@
     <!-- No parent on purpose: importing this BOM must bring OpenBroker's versions and nothing else. -->
     <groupId>io.github.sudoitir</groupId>
     <artifactId>openbroker-bom</artifactId>
-    <version>0.2.0-SNAPSHOT</version>
+    <version>0.3.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>OpenBroker BOM</name>
@@ -53,6 +53,11 @@
             <dependency>
                 <groupId>io.github.sudoitir</groupId>
                 <artifactId>openbroker-artemis</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.sudoitir</groupId>
+                <artifactId>openbroker-kafka</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

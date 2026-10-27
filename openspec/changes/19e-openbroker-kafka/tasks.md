@@ -13,7 +13,7 @@ Order and parallelism:
 - **Unit 6 runs last.**
 
 ## 1. SDK changes and build skeleton (files: openbroker-api/**, openbroker-tck/**, openbroker-artemis/**, poms, BOM)
-- [ ] 1.1 Raise every pom to `0.3.0-SNAPSHOT`, set `openbroker.previous.version` to `0.2.0`, add the `openbroker-kafka` module and BOM entry, and manage `kafka-clients` 4.4.0 and `testcontainers-kafka` (from the repository's Testcontainers 2.0.5 BOM). Check: `./mvnw -B -DskipTests verify` builds
+- [x] 1.1 Raise every pom to `0.3.0-SNAPSHOT`, set `openbroker.previous.version` to `0.2.0`, add the `openbroker-kafka` module and BOM entry, and manage `kafka-clients` 4.4.0 and `testcontainers-kafka` (from the repository's Testcontainers 2.0.5 BOM). Check: `./mvnw -B -DskipTests verify` builds
 - [ ] 1.2 `Kind.label` as a `KindLabel(singular, plural)` record with non-blank validation; Artemis fills every label; a TCK case fails a blank label. Check: `ArtemisTckIT` green
 - [ ] 1.3 Sealed `Credentials` (`UsernamePassword`, `BearerToken`, `None`, replacing `none()` and `isNone()`) and the `INVALID_ARGUMENT` refusal of an unsupported form; Artemis accepts `UsernamePassword` and `None`, switching on the form in `CoreLinks`, `ArtemisNotifications`, `ArtemisMessages` and `JolokiaClient`; redaction tests for both. Check: api unit tests and `ArtemisTckIT`
 - [ ] 1.4 `DeduplicationScope` in `TransportCapabilities`, and `SenderOptions.deduplication` (a minimum scope) replacing `idempotent`; an ask above the declared scope is `UNIMPLEMENTED`; ordered at least once needs `SESSION` (`Failures`, `SendPipeline`); Artemis declares `WINDOW`; the `MessagingTck` and `ChaosTck` dedup assumptions ask for a minimum scope, and the caller-id case assumes `WINDOW`. Check: `ArtemisMessagingTckIT`
