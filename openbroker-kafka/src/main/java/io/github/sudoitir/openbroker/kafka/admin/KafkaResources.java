@@ -151,7 +151,7 @@ public final class KafkaResources implements Resources {
                 Offsets.earliest(context, all);
                 Offsets.latest(context, all);
             }
-        } catch (BrokerException e) {
+        } catch (BrokerException _) {
             // The query that needs it asks again and reports the failure itself.
         }
     }

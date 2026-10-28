@@ -15,7 +15,6 @@ import io.github.sudoitir.openbroker.model.ResourceQuery;
 import io.github.sudoitir.openbroker.spi.DriverContext;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -71,7 +70,7 @@ class KafkaBatchedReadsIT {
                                     .all()
                                     .get()
                                     .size();
-                        } catch (Exception e) {
+                        } catch (Exception _) {
                             return 0;
                         }
                     },
@@ -89,7 +88,9 @@ class KafkaBatchedReadsIT {
             }
 
             @Override
-            public void evict(String key) {}
+            public void evict(String key) {
+                // Nothing is shared in this test.
+            }
         };
         KafkaCluster cluster =
                 new KafkaCluster(kafka.spec(), CredentialSource.none(), context, KafkaBatchedReadsIT::counting);
@@ -101,17 +102,27 @@ class KafkaBatchedReadsIT {
 
     /** Commits the offsets once the brokers know the topic: metadata reaches them a moment after it is created. */
     private static void commit(Admin admin, String group, Map<TopicPartition, OffsetAndMetadata> at) throws Exception {
-        long until = System.nanoTime() + Duration.ofSeconds(30).toNanos();
-        while (true) {
-            try {
-                admin.alterConsumerGroupOffsets(group, at).all().get();
-                return;
-            } catch (ExecutionException e) {
-                if (!(e.getCause() instanceof UnknownTopicOrPartitionException) || System.nanoTime() > until) {
-                    throw e;
-                }
-                Thread.sleep(200);
-            }
+        List<Exception> failure = new ArrayList<>();
+        Kafka.eventually(
+                () -> {
+                    try {
+                        admin.alterConsumerGroupOffsets(group, at).all().get();
+                        failure.clear();
+                        return true;
+                    } catch (ExecutionException e) {
+                        failure.clear();
+                        failure.add(e);
+                        return !(e.getCause() instanceof UnknownTopicOrPartitionException);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        failure.clear();
+                        failure.add(e);
+                        return true;
+                    }
+                },
+                done -> done);
+        if (!failure.isEmpty()) {
+            throw failure.getFirst();
         }
     }
 

@@ -74,7 +74,7 @@ public final class KafkaAccess implements Access {
         if (read.status() == Assessment.Status.AVAILABLE) {
             try {
                 out.putAll(cluster.features().assessments());
-            } catch (BrokerException e) {
+            } catch (BrokerException _) {
                 // A cluster that would not say what it offers leaves those capabilities out.
             }
         }
