@@ -57,6 +57,8 @@ public final class KafkaCluster implements AutoCloseable {
     public static final NodeId CLUSTER = NodeId.of("cluster");
 
     private static final Duration CLOSE_WAIT = Duration.ofSeconds(2);
+    private static final long RECONNECT_BACKOFF_MS = 200;
+    private static final long RECONNECT_BACKOFF_MAX_MS = 2000;
 
     private final CredentialSource credentials;
     private final DriverContext context;
@@ -191,6 +193,9 @@ public final class KafkaCluster implements AutoCloseable {
         long call = options().timeouts().call().toMillis();
         config.put(CommonClientConfigs.REQUEST_TIMEOUT_MS_CONFIG, (int) Math.min(call, Integer.MAX_VALUE));
         config.put(CommonClientConfigs.DEFAULT_API_TIMEOUT_MS_CONFIG, (int) Math.min(call, Integer.MAX_VALUE));
+        // A broker that cannot be connected to is tried again after a growing pause, not in a tight loop.
+        config.put(CommonClientConfigs.RECONNECT_BACKOFF_MS_CONFIG, RECONNECT_BACKOFF_MS);
+        config.put(CommonClientConfigs.RECONNECT_BACKOFF_MAX_MS_CONFIG, RECONNECT_BACKOFF_MAX_MS);
         config.put(CommonClientConfigs.SOCKET_CONNECTION_SETUP_TIMEOUT_MS_CONFIG, (int)
                 Math.min(options().timeouts().connect().toMillis(), Integer.MAX_VALUE));
         String protocol = current.option(KafkaOptions.SECURITY_PROTOCOL, KafkaOptions.PLAINTEXT);
@@ -295,7 +300,18 @@ public final class KafkaCluster implements AutoCloseable {
                     Status.FAILED_PRECONDITION, ErrorReasons.UNREACHABLE, "The connection is closed.");
         }
         if (admin == null) {
-            admin = adminFactory.apply(clientConfig(Plane.MANAGEMENT));
+            Map<String, Object> config = new LinkedHashMap<>(clientConfig(Plane.MANAGEMENT));
+            // A client given a name that does not resolve fails to build, and one given a closed port retries
+            // until its deadline: it is given the servers that accept a connection, or the call fails here.
+            config.put(
+                    CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG,
+                    String.join(
+                            ",",
+                            Bootstrap.reachable(
+                                    List.of(bootstrapServers().split(",")),
+                                    options().timeouts().connect(),
+                                    options().clock())));
+            admin = adminFactory.apply(config);
         }
         return admin;
     }

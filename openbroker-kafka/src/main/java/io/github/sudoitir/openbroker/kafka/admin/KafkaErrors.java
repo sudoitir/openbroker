@@ -6,6 +6,7 @@ import io.github.sudoitir.openbroker.ErrorInfo;
 import io.github.sudoitir.openbroker.ErrorReasons;
 import io.github.sudoitir.openbroker.NodeId;
 import io.github.sudoitir.openbroker.Status;
+import java.net.UnknownHostException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.apache.kafka.common.config.ConfigException;
@@ -54,6 +55,14 @@ public final class KafkaErrors {
         if (failure instanceof BrokerException e) {
             return e;
         }
+        if (isUnresolvable(failure)) {
+            return new BrokerException(
+                    Status.UNAVAILABLE,
+                    ErrorInfo.of(ErrorReasons.UNREACHABLE, Map.of("kafka.reach_failure", "dns")),
+                    Dispatch.NOT_SENT,
+                    node,
+                    "No bootstrap server resolves.");
+        }
         if (failure instanceof ConfigException) {
             return new BrokerException(
                     Status.INVALID_ARGUMENT,
@@ -75,6 +84,18 @@ public final class KafkaErrors {
                 node,
                 mapped.message + (failure.getMessage() == null ? "" : ": " + failure.getMessage()),
                 failure);
+    }
+
+    /** A client that could not be built because none of its bootstrap servers resolves. */
+    private static boolean isUnresolvable(Throwable failure) {
+        for (Throwable t = failure; t != null; t = t.getCause()) {
+            if (t instanceof UnknownHostException
+                    || (t instanceof ConfigException
+                            && String.valueOf(t.getMessage()).contains("No resolvable bootstrap"))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static Mapped map(Throwable failure) {

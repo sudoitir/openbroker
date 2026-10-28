@@ -20,6 +20,8 @@ import io.github.sudoitir.openbroker.kafka.KafkaOptions;
 import io.github.sudoitir.openbroker.kafka.security.CredentialCallbackHandler;
 import io.github.sudoitir.openbroker.kafka.security.TlsEngineFactory;
 import io.github.sudoitir.openbroker.spi.DriverContext;
+import java.io.IOException;
+import java.net.ServerSocket;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
@@ -280,9 +282,13 @@ class KafkaClusterTest {
     }
 
     @Test
-    void theNativeAdminViewIgnoresCloseAndKeepsWorking() {
-        try (KafkaCluster cluster =
-                cluster(spec(Map.of(), "localhost:9092"), CredentialSource.none(), ConnectOptions.defaults())) {
+    void theNativeAdminViewIgnoresCloseAndKeepsWorking() throws IOException {
+        // Something must accept connections, or the cluster is unreachable and no client is made.
+        try (ServerSocket listening = new ServerSocket(0);
+                KafkaCluster cluster = cluster(
+                        spec(Map.of(), "localhost:" + listening.getLocalPort()),
+                        CredentialSource.none(),
+                        ConnectOptions.defaults())) {
             Admin view = cluster.nativeAdmin();
 
             view.close();
@@ -307,6 +313,45 @@ class KafkaClusterTest {
             assertThat(cluster.declaredNodes())
                     .extracting(n -> n.id().value())
                     .containsExactly("bootstrap-1", "bootstrap-2");
+        }
+    }
+
+    @Test
+    void noClientIsMadeForABootstrapPortNobodyListensOnSoItCannotRetryAndLog() throws IOException {
+        int closed;
+        try (ServerSocket probe = new ServerSocket(0)) {
+            closed = probe.getLocalPort();
+        }
+        AtomicInteger made = new AtomicInteger();
+        try (KafkaCluster cluster = new KafkaCluster(
+                spec(Map.of(), "127.0.0.1:" + closed),
+                CredentialSource.none(),
+                context(ConnectOptions.defaults()),
+                config -> {
+                    made.incrementAndGet();
+                    return Admin.create(config);
+                })) {
+            assertThatThrownBy(() -> cluster.nativeAdmin().metrics())
+                    .isInstanceOfSatisfying(
+                            BrokerException.class,
+                            e -> assertThat(e.info().metadata()).containsEntry("kafka.reach_failure", "refused"));
+        }
+
+        assertThat(made).hasValue(0);
+    }
+
+    @Test
+    void aClientBacksOffBetweenAttemptsToABrokerItCannotConnectTo() throws IOException {
+        try (ServerSocket listening = new ServerSocket(0);
+                KafkaCluster cluster = cluster(
+                        spec(Map.of(), "localhost:" + listening.getLocalPort()),
+                        CredentialSource.none(),
+                        ConnectOptions.defaults())) {
+            Map<String, Object> config = cluster.clientConfig(Plane.MANAGEMENT);
+
+            assertThat(config)
+                    .containsEntry("reconnect.backoff.ms", 200L)
+                    .containsEntry("reconnect.backoff.max.ms", 2000L);
         }
     }
 }

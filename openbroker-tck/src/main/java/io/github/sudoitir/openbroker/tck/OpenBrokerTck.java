@@ -11,6 +11,7 @@ import io.github.sudoitir.openbroker.CallScope;
 import io.github.sudoitir.openbroker.ClusterConnection;
 import io.github.sudoitir.openbroker.ConnectRequest;
 import io.github.sudoitir.openbroker.Deadline;
+import io.github.sudoitir.openbroker.Dispatch;
 import io.github.sudoitir.openbroker.ErrorReasons;
 import io.github.sudoitir.openbroker.NodeOutcome;
 import io.github.sudoitir.openbroker.Outcome;
@@ -65,6 +66,7 @@ import io.github.sudoitir.openbroker.operation.Preview;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
+import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
@@ -137,6 +139,39 @@ public abstract class OpenBrokerTck {
                         nodes.value().stream().map(NodeDescription::node).toList());
         assertThat(nodes.outcomes().values())
                 .allSatisfy(o -> assertThat(o).isIn(NodeOutcome.APPLIED, NodeOutcome.SKIPPED));
+    }
+
+    @Test
+    void verifyClassifiesAnUnreachableAddress() throws Exception {
+        int closed;
+        try (ServerSocket probe = new ServerSocket(0)) {
+            closed = probe.getLocalPort();
+        }
+        for (String[] address :
+                new String[][] {{"tck-no-such-host.invalid", "9"}, {"127.0.0.1", String.valueOf(closed)}}) {
+            ConnectRequest request = env.requestToAddress(address[0], Integer.parseInt(address[1]))
+                    .orElse(null);
+            assumeTrue(request != null, "The driver gives no request to an address");
+            long started = System.nanoTime();
+            // Verify either fails as a whole, or names each node's failure: nothing answered either way.
+            BrokerException failure;
+            try {
+                failure = drivers.verify(request).nodes().failures().values().stream()
+                        .findFirst()
+                        .orElse(null);
+                assertThat(failure)
+                        .as("an unreachable address is reported, not verified")
+                        .isNotNull();
+            } catch (BrokerException e) {
+                failure = e;
+            }
+            assertThat(failure.status()).as(address[0] + ":" + address[1]).isEqualTo(Status.UNAVAILABLE);
+            assertThat(failure.reason()).isEqualTo(ErrorReasons.UNREACHABLE);
+            assertThat(failure.dispatch()).isEqualTo(Dispatch.NOT_SENT);
+            assertThat(TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - started))
+                    .as("an unreachable address fails fast")
+                    .isLessThan(8);
+        }
     }
 
     @Test
