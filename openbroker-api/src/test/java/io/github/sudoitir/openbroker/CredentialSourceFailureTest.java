@@ -18,10 +18,10 @@ import org.junit.jupiter.api.Test;
 class CredentialSourceFailureTest {
 
     @Test
-    void aFailingSourceIsReportedAsUnavailableWithoutItsMessage() {
+    void aFailingSourceIsReportedAsUnavailableWithoutItsText() {
         CapturingDriver driver = new CapturingDriver();
         CredentialSource failing = plane -> {
-            throw new IllegalStateException("database down, password=s3cr3t-value");
+            throw new IllegalStateException("store unreachable: detail-not-to-quote");
         };
         try (BrokerDrivers drivers = BrokerDrivers.of(List.of(driver))) {
             drivers.connect(request(failing));
@@ -33,7 +33,7 @@ class CredentialSourceFailureTest {
                         assertThat(e.info().reason()).isEqualTo(ErrorReasons.UNREACHABLE);
                         assertThat(e.getMessage())
                                 .contains("DATA", "IllegalStateException")
-                                .doesNotContain("s3cr3t-value");
+                                .doesNotContain("detail-not-to-quote");
                         assertThat(e.getCause()).isInstanceOf(IllegalStateException.class);
                     });
         }
@@ -61,7 +61,7 @@ class CredentialSourceFailureTest {
     @Test
     void aWorkingSourceAnswersAsItWould() {
         CapturingDriver driver = new CapturingDriver();
-        Credentials account = Credentials.usernamePassword("app", "pw");
+        Credentials account = Credentials.usernamePassword("app", "not-a-secret");
         try (BrokerDrivers drivers = BrokerDrivers.of(List.of(driver))) {
             drivers.connect(request(CredentialSource.of(account)));
 

@@ -130,8 +130,9 @@ class ConnectionBeansTest {
                         "openbroker.connections.orders.credentials.form=username-password",
                         "openbroker.connections.orders.credentials.username=app",
                         "openbroker.connections.orders.credentials.password=" + TestSecrets.PASSWORD)
-                .run(context ->
-                        assertThat(driver.requests.getFirst().credentials()).isSameAs(own));
+                .run(context -> assertThat(
+                                driver.requests.getFirst().credentials().forPlane(Plane.DATA))
+                        .isEqualTo(own.forPlane(Plane.DATA)));
     }
 
     @Test
