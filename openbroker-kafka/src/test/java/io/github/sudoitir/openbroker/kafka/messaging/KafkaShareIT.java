@@ -93,6 +93,7 @@ class KafkaShareIT {
             counts.add(ctx.message().headers().deliveryCount().orElse(0));
             return counts.size() == 1 ? new Disposition.Release(Optional.empty(), false) : Disposition.accept();
         })) {
+            assertThat(processor.retry().mode()).isEqualTo(RetryMode.SYSTEM);
             await("the second delivery", () -> counts.size() >= 2);
         }
         assertThat(counts.get(1)).isGreaterThan(counts.get(0));
