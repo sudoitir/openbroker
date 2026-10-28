@@ -7,7 +7,7 @@
     <!-- No parent on purpose: importing this BOM must bring OpenBroker's versions and nothing else. -->
     <groupId>io.github.sudoitir</groupId>
     <artifactId>openbroker-bom</artifactId>
-    <version>0.6.0-SNAPSHOT</version>
+    <version>0.6.1-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>OpenBroker BOM</name>

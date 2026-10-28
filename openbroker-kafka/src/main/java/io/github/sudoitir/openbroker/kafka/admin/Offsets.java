@@ -1,5 +1,7 @@
 package io.github.sudoitir.openbroker.kafka.admin;
 
+import io.github.sudoitir.openbroker.BrokerException;
+import io.github.sudoitir.openbroker.Status;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -12,6 +14,7 @@ import org.apache.kafka.clients.admin.ListOffsetsResult;
 import org.apache.kafka.clients.admin.OffsetSpec;
 import org.apache.kafka.clients.admin.TopicDescription;
 import org.apache.kafka.common.IsolationLevel;
+import org.apache.kafka.common.KafkaFuture;
 import org.apache.kafka.common.TopicCollection;
 import org.apache.kafka.common.TopicPartition;
 
@@ -19,6 +22,40 @@ import org.apache.kafka.common.TopicPartition;
 final class Offsets {
 
     private Offsets() {}
+
+    /** The partitions of each topic in one round; a topic that does not exist has none. */
+    static Map<String, List<TopicPartition>> partitions(Context context, Collection<String> topics) {
+        Reads reads = context.reads();
+        return reads != null ? reads.partitions(context, topics) : ask(context, topics);
+    }
+
+    /** Asks the cluster for the partitions of the topics, all in one request. */
+    static Map<String, List<TopicPartition>> ask(Context context, Collection<String> topics) {
+        if (topics.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, KafkaFuture<TopicDescription>> pending = context.admin()
+                .describeTopics(
+                        TopicCollection.ofTopicNames(topics),
+                        new DescribeTopicsOptions().timeoutMs(context.await().timeoutMs()))
+                .topicNameValues();
+        Map<String, List<TopicPartition>> out = new HashMap<>();
+        for (String topic : topics) {
+            try {
+                out.put(
+                        topic,
+                        context.await().get(pending.get(topic)).partitions().stream()
+                                .map(p -> new TopicPartition(topic, p.partition()))
+                                .toList());
+            } catch (BrokerException e) {
+                if (e.status() != Status.NOT_FOUND) {
+                    throw e;
+                }
+                out.put(topic, List.of());
+            }
+        }
+        return out;
+    }
 
     /** The partitions of a topic. */
     static List<TopicPartition> partitions(Context context, String topic) {
@@ -36,10 +73,20 @@ final class Offsets {
     }
 
     static Map<TopicPartition, Long> earliest(Context context, Collection<TopicPartition> partitions) {
-        return list(context, partitions, OffsetSpec.earliest());
+        Reads reads = context.reads();
+        return reads != null ? reads.earliest(context, partitions) : askEarliest(context, partitions);
     }
 
     static Map<TopicPartition, Long> latest(Context context, Collection<TopicPartition> partitions) {
+        Reads reads = context.reads();
+        return reads != null ? reads.latest(context, partitions) : askLatest(context, partitions);
+    }
+
+    static Map<TopicPartition, Long> askEarliest(Context context, Collection<TopicPartition> partitions) {
+        return list(context, partitions, OffsetSpec.earliest());
+    }
+
+    static Map<TopicPartition, Long> askLatest(Context context, Collection<TopicPartition> partitions) {
         return list(context, partitions, OffsetSpec.latest());
     }
 

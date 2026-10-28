@@ -31,6 +31,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.Admin;
@@ -57,15 +58,26 @@ public final class KafkaCluster implements AutoCloseable {
 
     private final CredentialSource credentials;
     private final DriverContext context;
+    private final Function<Map<String, Object>, Admin> adminFactory;
     private volatile ClusterSpec spec;
     private @Nullable Admin admin;
     private final AtomicReference<@Nullable ClusterFeatures> features = new AtomicReference<>();
     private boolean closed;
 
     public KafkaCluster(ClusterSpec spec, CredentialSource credentials, DriverContext context) {
+        this(spec, credentials, context, Admin::create);
+    }
+
+    /** Like the connection's, with the Admin client made by {@code adminFactory}: a test counts its calls. */
+    public KafkaCluster(
+            ClusterSpec spec,
+            CredentialSource credentials,
+            DriverContext context,
+            Function<Map<String, Object>, Admin> adminFactory) {
         this.spec = spec;
         this.credentials = credentials;
         this.context = context;
+        this.adminFactory = adminFactory;
     }
 
     public ConnectOptions options() {
@@ -250,7 +262,7 @@ public final class KafkaCluster implements AutoCloseable {
                     Status.FAILED_PRECONDITION, ErrorReasons.UNREACHABLE, "The connection is closed.");
         }
         if (admin == null) {
-            admin = Admin.create(clientConfig(Plane.MANAGEMENT));
+            admin = adminFactory.apply(clientConfig(Plane.MANAGEMENT));
         }
         return admin;
     }

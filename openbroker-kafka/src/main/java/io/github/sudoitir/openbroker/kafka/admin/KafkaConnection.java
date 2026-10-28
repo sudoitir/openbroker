@@ -46,8 +46,13 @@ public final class KafkaConnection implements ClusterConnection {
     private final KafkaTransport transport;
 
     public KafkaConnection(BrokerSystem system, ClusterSpec spec, CredentialSource credentials, DriverContext context) {
+        this(system, new KafkaCluster(spec, credentials, context), context);
+    }
+
+    /** A connection over {@code cluster}, whose Admin client a test may count the calls of. */
+    public KafkaConnection(BrokerSystem system, KafkaCluster cluster, DriverContext context) {
         this.system = system;
-        this.cluster = new KafkaCluster(spec, credentials, context);
+        this.cluster = cluster;
         this.topology = new Topology(context.options().clock(), cluster::watchInterval);
         this.nodes = new KafkaNodes(cluster, topology);
         this.handlers = new Handlers(cluster, topology);

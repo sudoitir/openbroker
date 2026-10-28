@@ -98,6 +98,12 @@ record GroupInfo(
     }
 
     static List<GroupListing> list(Context context) {
+        Reads reads = context.reads();
+        return reads != null ? reads.listings(context) : ask(context);
+    }
+
+    /** Asks the cluster for the listing of every group. */
+    static List<GroupListing> ask(Context context) {
         return List.copyOf(context.await()
                 .get(context.admin()
                         .listGroups(new ListGroupsOptions()
@@ -107,6 +113,12 @@ record GroupInfo(
 
     /** Describes the groups, each by the way its type is described. */
     static Map<String, GroupInfo> describe(Context context, Collection<GroupListing> listings) {
+        Reads reads = context.reads();
+        return reads != null ? reads.describe(context, listings) : ask(context, listings);
+    }
+
+    /** Asks the cluster to describe the groups, in one round for each type. */
+    static Map<String, GroupInfo> ask(Context context, Collection<GroupListing> listings) {
         List<String> consumers = new ArrayList<>();
         List<String> shares = new ArrayList<>();
         List<String> streams = new ArrayList<>();

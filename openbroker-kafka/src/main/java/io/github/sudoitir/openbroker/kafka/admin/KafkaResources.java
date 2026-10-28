@@ -9,6 +9,7 @@ import io.github.sudoitir.openbroker.Partial;
 import io.github.sudoitir.openbroker.Status;
 import io.github.sudoitir.openbroker.model.Attributes;
 import io.github.sudoitir.openbroker.model.Kind;
+import io.github.sudoitir.openbroker.model.KindId;
 import io.github.sudoitir.openbroker.model.Ordering;
 import io.github.sudoitir.openbroker.model.Placement;
 import io.github.sudoitir.openbroker.model.Resource;
@@ -21,10 +22,13 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import org.apache.kafka.clients.admin.GroupListing;
+import org.apache.kafka.common.TopicPartition;
 
 /**
  * The Kafka kinds and their resources. A listing is in three steps: the handlers say which resources
@@ -70,21 +74,90 @@ public final class KafkaResources implements Resources {
         };
     }
 
+    /**
+     * Reads the queries in one call to the cluster, so that they share their rounds: the groups, topics
+     * and offsets the queries name are asked for together, once. A query that fails fails alone.
+     */
     private Partial<List<ResourcePage>> read(List<ResourceQuery> queries, boolean details) {
         Deadline deadline = Deadlines.current(cluster.options());
+        ResourcePage none = new ResourcePage(List.of(), Optional.empty());
+        try {
+            return handlers.callReading("resources.read", deadline, context -> {
+                prefetch(context, queries, details);
+                return readEach(context, queries, none, details);
+            });
+        } catch (BrokerException e) {
+            // The call itself was refused or ran out of time: every query has the same failure.
+            return Outcomes.of(queries.stream().map(q -> none).toList(), () -> {
+                throw e;
+            });
+        }
+    }
+
+    private Partial<List<ResourcePage>> readEach(
+            Context context, List<ResourceQuery> queries, ResourcePage none, boolean details) {
         List<ResourcePage> pages = new ArrayList<>();
         Map<NodeId, NodeOutcome> outcomes = new LinkedHashMap<>();
         Map<NodeId, BrokerException> failures = new LinkedHashMap<>();
         for (ResourceQuery query : queries) {
-            Partial<ResourcePage> one = Outcomes.of(
-                    new ResourcePage(List.of(), Optional.empty()),
-                    () -> handlers.call(
-                            "resources.read", Optional.empty(), deadline, context -> read(context, query, details)));
+            Partial<ResourcePage> one = Outcomes.of(none, () -> read(context, query, details));
             pages.add(one.value());
             one.outcomes().forEach((n, o) -> outcomes.merge(n, o, (a, b) -> a == NodeOutcome.APPLIED ? b : a));
             failures.putAll(one.failures());
         }
         return new Partial<>(pages, outcomes, failures);
+    }
+
+    /**
+     * Asks, for all the queries at once, what each would ask alone: the descriptions and offsets of the
+     * groups they name and the partitions and log offsets of their topics. What cannot be read here is
+     * left to the query that needs it, which reports it.
+     */
+    private void prefetch(Context context, List<ResourceQuery> queries, boolean details) {
+        Set<String> groups = new LinkedHashSet<>();
+        Set<String> topics = new LinkedHashSet<>();
+        Map<KindId, Set<String>> groupsByKind = new LinkedHashMap<>();
+        for (ResourceQuery query : queries) {
+            Optional<KindId> kind = query.kind();
+            if (kind.isEmpty()) {
+                continue;
+            }
+            String group = query.fieldSelector().get("group");
+            if (group != null && isSubscription(kind.get())) {
+                groups.add(group);
+                groupsByKind
+                        .computeIfAbsent(kind.get(), k -> new LinkedHashSet<>())
+                        .add(group);
+                String topic = query.fieldSelector().get("topic");
+                if (topic != null) {
+                    topics.add(topic);
+                }
+            }
+        }
+        try {
+            if (!groups.isEmpty()) {
+                List<GroupListing> listed = GroupInfo.list(context).stream()
+                        .filter(l -> groups.contains(l.groupId()))
+                        .toList();
+                GroupInfo.describe(context, listed);
+                for (Map.Entry<KindId, Set<String>> e : groupsByKind.entrySet()) {
+                    ((Subscriptions) handlers.of(context, e.getKey())).positions(context, e.getValue());
+                }
+            }
+            if (details && !topics.isEmpty()) {
+                List<TopicPartition> all = Offsets.partitions(context, topics).values().stream()
+                        .flatMap(List::stream)
+                        .toList();
+                Offsets.earliest(context, all);
+                Offsets.latest(context, all);
+            }
+        } catch (BrokerException e) {
+            // The query that needs it asks again and reports the failure itself.
+        }
+    }
+
+    private static boolean isSubscription(KindId kind) {
+        return kind.equals(KafkaKinds.GROUP_TOPIC) || kind.equals(KafkaKinds.SHARE_GROUP_TOPIC);
     }
 
     private ResourcePage read(Context context, ResourceQuery query, boolean details) {
