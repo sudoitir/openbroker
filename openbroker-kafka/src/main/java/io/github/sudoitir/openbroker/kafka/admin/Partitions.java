@@ -104,11 +104,8 @@ final class Partitions implements Handler {
         return out;
     }
 
-    @Override
-    public List<Resource> resources(Context context, List<Candidate> page, Listing listing) {
-        if (page.isEmpty()) {
-            return List.of();
-        }
+    /** Every partition of the shared topic description, by topic and number. */
+    private static Map<TopicPartition, TopicPartitionInfo> infos(Context context) {
         Map<TopicPartition, TopicPartitionInfo> infos = new HashMap<>();
         for (TopicDescription description :
                 context.topology().read(context.admin(), context.await()).topics()) {
@@ -116,6 +113,58 @@ final class Partitions implements Handler {
                 infos.put(new TopicPartition(description.name(), info.partition()), info);
             }
         }
+        return infos;
+    }
+
+    /** The leader and replicas of a partition, and its eligible leaders where the cluster keeps them. */
+    private static Attributes.Builder placementAttributes(TopicPartitionInfo info, boolean eligibleLeaders) {
+        Attributes.Builder attributes = Attributes.builder();
+        if (info.leader() != null) {
+            attributes.putRaw(KafkaKinds.LEADER, (long) info.leader().id());
+        }
+        attributes
+                .putRaw(
+                        KafkaKinds.REPLICAS,
+                        info.replicas().stream().map(Node::id).toList())
+                .putRaw(
+                        KafkaKinds.IN_SYNC_REPLICAS,
+                        info.isr().stream().map(Node::id).toList());
+        if (eligibleLeaders) {
+            attributes
+                    .putRaw(
+                            KafkaKinds.ELIGIBLE_LEADER_REPLICAS,
+                            info.elr().stream().map(Node::id).toList())
+                    .putRaw(
+                            KafkaKinds.LAST_KNOWN_ELIGIBLE_LEADER_REPLICAS,
+                            info.lastKnownElr().stream().map(Node::id).toList());
+        }
+        return attributes;
+    }
+
+    private static void putIfKnown(
+            Attributes.Builder attributes, String key, Map<TopicPartition, Long> values, TopicPartition tp) {
+        if (values.containsKey(tp)) {
+            attributes.putRaw(key, values.get(tp));
+        }
+    }
+
+    private static Condition underReplication(TopicPartitionInfo info) {
+        int missing = info.replicas().size() - info.isr().size();
+        boolean underReplicated = missing > 0;
+        return new Condition(
+                ConditionTypes.UNDER_REPLICATED,
+                underReplicated ? ConditionStatus.TRUE : ConditionStatus.FALSE,
+                underReplicated ? "OUT_OF_SYNC_REPLICAS" : "",
+                underReplicated ? missing + " replicas are not in sync." : "",
+                Optional.empty());
+    }
+
+    @Override
+    public List<Resource> resources(Context context, List<Candidate> page, Listing listing) {
+        if (page.isEmpty()) {
+            return List.of();
+        }
+        Map<TopicPartition, TopicPartitionInfo> infos = infos(context);
         List<TopicPartition> wanted = page.stream().map(c -> partition(c.id())).toList();
         Map<TopicPartition, Long> start =
                 listing.wants(KafkaKinds.LOG_START_OFFSET) ? Offsets.earliest(context, wanted) : Map.of();
@@ -123,6 +172,8 @@ final class Partitions implements Handler {
                 listing.wants(KafkaKinds.LOG_END_OFFSET) ? Offsets.latest(context, wanted) : Map.of();
         Map<TopicPartition, Long> sizes =
                 listing.wants(KafkaKinds.SIZE_BYTES) ? sizes(context, infos, wanted) : Map.of();
+        boolean eligibleLeaders =
+                context.cluster().features(context.admin(), context.await()).eligibleLeaders();
         List<Resource> out = new ArrayList<>();
         for (Candidate candidate : page) {
             TopicPartition tp = partition(candidate.id());
@@ -130,33 +181,11 @@ final class Partitions implements Handler {
             if (info == null) {
                 continue;
             }
-            Attributes.Builder attributes = Attributes.builder();
-            if (info.leader() != null) {
-                attributes.putRaw(KafkaKinds.LEADER, (long) info.leader().id());
-            }
-            attributes
-                    .putRaw(
-                            KafkaKinds.REPLICAS,
-                            info.replicas().stream().map(Node::id).toList())
-                    .putRaw(
-                            KafkaKinds.IN_SYNC_REPLICAS,
-                            info.isr().stream().map(Node::id).toList());
-            if (start.containsKey(tp)) {
-                attributes.putRaw(KafkaKinds.LOG_START_OFFSET, start.get(tp));
-            }
-            if (end.containsKey(tp)) {
-                attributes.putRaw(KafkaKinds.LOG_END_OFFSET, end.get(tp));
-            }
-            if (sizes.containsKey(tp)) {
-                attributes.putRaw(KafkaKinds.SIZE_BYTES, sizes.get(tp));
-            }
-            boolean underReplicated = info.isr().size() < info.replicas().size();
-            List<Condition> conditions = List.of(new Condition(
-                    ConditionTypes.UNDER_REPLICATED,
-                    underReplicated ? ConditionStatus.TRUE : ConditionStatus.FALSE,
-                    underReplicated ? "OUT_OF_SYNC_REPLICAS" : "",
-                    underReplicated ? (info.replicas().size() - info.isr().size()) + " replicas are not in sync." : "",
-                    Optional.empty()));
+            Attributes.Builder attributes = placementAttributes(info, eligibleLeaders);
+            putIfKnown(attributes, KafkaKinds.LOG_START_OFFSET, start, tp);
+            putIfKnown(attributes, KafkaKinds.LOG_END_OFFSET, end, tp);
+            putIfKnown(attributes, KafkaKinds.SIZE_BYTES, sizes, tp);
+            List<Condition> conditions = List.of(underReplication(info));
             out.add(new Resource(
                     candidate.id(),
                     Attrs.project(attributes.build(), listing.query().projection()),

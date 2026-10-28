@@ -127,6 +127,19 @@ public abstract class OpenBrokerTck {
     }
 
     @Test
+    void verifyNamesEveryNodesOutcome() {
+        var report = drivers.verify(env.request());
+        var nodes = report.nodes();
+        assertThat(nodes.value()).isNotEmpty();
+        assertThat(nodes.failures()).isEmpty();
+        assertThat(nodes.outcomes().keySet())
+                .containsExactlyInAnyOrderElementsOf(
+                        nodes.value().stream().map(NodeDescription::node).toList());
+        assertThat(nodes.outcomes().values())
+                .allSatisfy(o -> assertThat(o).isIn(NodeOutcome.APPLIED, NodeOutcome.SKIPPED));
+    }
+
+    @Test
     void aWrongPasswordFailsAsUnauthenticatedWithoutShowingIt() {
         String wrong = "tck-wrong-" + UUID.randomUUID();
         try (ClusterConnection bad = drivers.connect(env.requestWithWrongPassword(wrong))) {

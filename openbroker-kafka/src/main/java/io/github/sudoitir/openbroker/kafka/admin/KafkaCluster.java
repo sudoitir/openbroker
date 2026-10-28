@@ -22,12 +22,15 @@ import io.github.sudoitir.openbroker.kafka.security.TlsEngineFactory;
 import io.github.sudoitir.openbroker.model.ResourceId;
 import io.github.sudoitir.openbroker.spi.DriverContext;
 import io.github.sudoitir.openbroker.support.Deadlines;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.Admin;
@@ -56,6 +59,7 @@ public final class KafkaCluster implements AutoCloseable {
     private final DriverContext context;
     private volatile ClusterSpec spec;
     private @Nullable Admin admin;
+    private final AtomicReference<@Nullable ClusterFeatures> features = new AtomicReference<>();
     private boolean closed;
 
     public KafkaCluster(ClusterSpec spec, CredentialSource credentials, DriverContext context) {
@@ -88,7 +92,33 @@ public final class KafkaCluster implements AutoCloseable {
     /** Points the connection at a new cluster description; the next call uses a new Admin client. */
     public void reconfigure(ClusterSpec spec) {
         this.spec = spec;
+        features.set(null);
         closeAdmin();
+    }
+
+    /** What the cluster is and offers, read on first use and kept until the connection is pointed elsewhere. */
+    public ClusterFeatures features() {
+        ClusterFeatures known = features.get();
+        return known != null ? known : readFeatures();
+    }
+
+    /** Reads what the cluster is and offers again, and keeps it. */
+    public ClusterFeatures readFeatures() {
+        return call("features.read", Optional.empty(), Deadlines.current(options()), (admin, await) -> {
+            ClusterFeatures read = ClusterFeatures.read(admin, await);
+            features.set(read);
+            return read;
+        });
+    }
+
+    /** The cluster's features, read with {@code admin} for a call already admitted when not yet known. */
+    ClusterFeatures features(Admin admin, Await await) {
+        ClusterFeatures known = features.get();
+        if (known == null) {
+            known = ClusterFeatures.read(admin, await);
+            features.set(known);
+        }
+        return known;
     }
 
     /** The bootstrap servers: the {@code kafka} endpoints of the data plane, the cluster's first. */
@@ -193,6 +223,25 @@ public final class KafkaCluster implements AutoCloseable {
                 throw failure;
             }
         }
+    }
+
+    /**
+     * A view of the connection's Admin client for callers that need Kafka's own API. It follows the
+     * client across a reconfiguration, ignores {@code close}, and is not admitted by the caller's
+     * interceptor: the connection owns the client.
+     */
+    public Admin nativeAdmin() {
+        return (Admin) Proxy.newProxyInstance(
+                Admin.class.getClassLoader(), new Class<?>[] {Admin.class}, (proxy, method, args) -> {
+                    if (method.getName().equals("close")) {
+                        return null;
+                    }
+                    try {
+                        return method.invoke(admin(), args);
+                    } catch (InvocationTargetException e) {
+                        throw e.getCause();
+                    }
+                });
     }
 
     private synchronized Admin admin() {

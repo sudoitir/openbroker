@@ -89,13 +89,16 @@ final class Kafka {
 
     /**
      * A consumer that has joined {@code group} on {@code topic} with the given protocol, and is
-     * assigned its partitions. Close it to leave the group.
+     * assigned its partitions; {@code consumer} falls back to {@code classic} on a cluster that lacks
+     * the consumer protocol. Close it to leave the group.
      */
     static KafkaConsumer<byte[], byte[]> member(KafkaTestCluster kafka, String group, String topic, String protocol) {
         Map<String, Object> config = new HashMap<>();
         config.put("bootstrap.servers", kafka.bootstrapServers());
         config.put("group.id", group);
-        config.put("group.protocol", protocol);
+        config.put(
+                "group.protocol",
+                protocol.equals("consumer") && !kafka.supports("group.version", 1) ? "classic" : protocol);
         config.put("auto.offset.reset", "earliest");
         config.put("enable.auto.commit", "false");
         KafkaConsumer<byte[], byte[]> consumer =
