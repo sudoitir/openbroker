@@ -25,6 +25,8 @@ jobs:
         include:
           - { driver: artemis, image: "apache/activemq-artemis:2.33.0" }
           - { driver: artemis, image: "apache/artemis:2.57.0" }
+          - { driver: kafka, image: "confluentinc/cp-kafka:7.0.16", profile: "-Pzookeeper" }
+          - { driver: kafka, image: "apache/kafka:3.9.2" }
           - { driver: kafka, image: "apache/kafka:4.0.2" }
           - { driver: kafka, image: "apache/kafka:4.4.0" }
     name: verify (${{ matrix.image }})
@@ -40,7 +42,7 @@ jobs:
       - if: matrix.driver == 'artemis'
         run: ./mvnw -B verify -pl '!openbroker-kafka,!openbroker-benchmarks,!openbroker-spring-boot-autoconfigure,!openbroker-spring-boot-starter' -Dartemis.image=${{ matrix.image }}
       - if: matrix.driver == 'kafka'
-        run: ./mvnw -B verify -pl openbroker-kafka -am -Dkafka.image=${{ matrix.image }}
+        run: ./mvnw -B verify -pl openbroker-kafka -am ${{ matrix.profile }} -Dkafka.image=${{ matrix.image }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: matrix.image == 'apache/artemis:2.57.0'
         with:
@@ -136,7 +138,6 @@ jobs:
         include:
           - { driver: artemis, image: "apache/activemq-artemis:2.33.0" }
           - { driver: artemis, image: "apache/artemis:2.57.0" }
-          - { driver: kafka, image: "apache/kafka:4.0.2" }
           - { driver: kafka, image: "apache/kafka:4.4.0" }
     name: chaos (${{ matrix.image }})
     steps:

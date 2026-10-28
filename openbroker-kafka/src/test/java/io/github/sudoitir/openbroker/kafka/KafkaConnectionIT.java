@@ -119,10 +119,7 @@ class KafkaConnectionIT {
     void anyOneBrokerIsEnoughToReachTheCluster() {
         ClusterSpec one = new ClusterSpec(
                 List.of(),
-                List.of(Endpoint.of(
-                        Plane.DATA,
-                        KafkaOptions.PROTOCOL,
-                        kafka.brokers().get(2).getBootstrapServers())),
+                List.of(Endpoint.of(Plane.DATA, KafkaOptions.PROTOCOL, kafka.bootstrapServers(2))),
                 Map.of(KafkaOptions.CLIENT_ID, "openbroker-it"));
 
         assertThat(drivers.verify(request(one, ConnectOptions.defaults()))

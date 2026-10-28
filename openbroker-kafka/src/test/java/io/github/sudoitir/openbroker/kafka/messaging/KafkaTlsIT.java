@@ -67,7 +67,7 @@ class KafkaTlsIT {
             port = socket.getLocalPort();
         }
         String secrets = "/etc/kafka/secrets/";
-        broker = new GenericContainer<>(KafkaTestCluster.image())
+        broker = new GenericContainer<>(KafkaTestCluster.kraftImage())
                 .withEnv(Map.ofEntries(
                         Map.entry("KAFKA_NODE_ID", "1"),
                         Map.entry("KAFKA_PROCESS_ROLES", "broker,controller"),

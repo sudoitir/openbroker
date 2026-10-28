@@ -195,12 +195,14 @@ class KafkaSubscriptionsIT {
     }
 
     @Test
-    void aClassicApplicationGroupIsListedReadOnlyAndHasNoSubscription() throws Exception {
+    void anEmptyClassicGroupIsASubscriptionAndPurgeMovesItToTheEnd() throws Exception {
         String topic = topicWith(1);
+        Kafka.produce(kafka, topic, 4);
         String group = Kafka.unique("classic");
         try (KafkaConsumer<byte[], byte[]> member = Kafka.member(kafka, group, topic, "classic")) {
             member.commitSync(Map.of(new TopicPartition(topic, 0), new OffsetAndMetadata(0)));
         }
+        ResourceId id = subscription(group, topic);
 
         Resource listed = connection
                 .resources()
@@ -208,26 +210,37 @@ class KafkaSubscriptionsIT {
                 .orThrow()
                 .items()
                 .getFirst();
-
         assertThat(listed.attributes().raw(KafkaKinds.GROUP_TYPE)).contains("classic");
-        assertThat(listed.attributes()
-                        .raw(KafkaKinds.READ_ONLY_REASON)
-                        .orElseThrow()
-                        .toString())
-                .contains("belong to the application");
-        assertThat(connection
-                        .resources()
-                        .read(ResourceQuery.of(KafkaKinds.GROUP_TOPIC).where(Map.of("group", group)))
-                        .orThrow()
-                        .items())
-                .isEmpty();
-        Partial<OperationResult> purge = connection
+        assertThat(listed.attributes().raw(KafkaKinds.READ_ONLY_REASON)).isEmpty();
+        assertThat(read(id).id()).isEqualTo(id);
+
+        Preview preview = connection.operations().preview(id, Operation.purge(), Scope.whole());
+        assertThat(preview.diff()).anySatisfy(change -> assertThat(change.key()).isEqualTo(KafkaKinds.NOTE));
+        connection
                 .operations()
-                .execute(new ResourceId(KafkaKinds.GROUP, ResourcePath.of(group)), Operation.purge(), Scope.whole());
-        assertThat(purge.failures().values()).singleElement().satisfies(e -> {
-            assertThat(e.status()).isEqualTo(Status.UNIMPLEMENTED);
-            assertThat(e.getMessage()).contains("belong to the application");
-        });
+                .execute(id, Operation.purge(), Scope.whole(), Precondition.ifMatch(preview.etag()))
+                .orThrow();
+
+        assertThat(committed(group, topic, 0)).isEqualTo(4);
+    }
+
+    @Test
+    void aClassicGroupWithAMemberIsRefusedUntilItIsEmpty() throws Exception {
+        String topic = topicWith(1);
+        Kafka.produce(kafka, topic, 4);
+        String group = Kafka.unique("classic-active");
+        ResourceId id = subscription(group, topic);
+        try (KafkaConsumer<byte[], byte[]> member = Kafka.member(kafka, group, topic, "classic")) {
+            member.commitSync(Map.of(new TopicPartition(topic, 0), new OffsetAndMetadata(0)));
+
+            Partial<OperationResult> run = connection.operations().execute(id, Operation.purge(), Scope.whole());
+
+            assertThat(run.failures().values()).singleElement().satisfies(e -> {
+                assertThat(e.status()).isEqualTo(Status.FAILED_PRECONDITION);
+                assertThat(e.reason()).isEqualTo(ErrorReasons.NOT_EMPTY);
+            });
+            assertThat(committed(group, topic, 0)).isZero();
+        }
     }
 
     @Test

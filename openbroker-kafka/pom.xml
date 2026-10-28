@@ -74,6 +74,8 @@
                     <!-- The chaos TCK kills brokers and takes minutes per image: the chaos profile runs it. -->
                     <excludes>
                         <exclude>**/*ChaosIT.java</exclude>
+                        <!-- The ZooKeeper-mode tests need a Confluent Platform image: the zookeeper profile runs them. -->
+                        <exclude>**/*ZooKeeperIT.java</exclude>
                     </excludes>
                 </configuration>
             </plugin>
@@ -98,6 +100,32 @@
     </properties>
 
     <profiles>
+        <!--
+            Kafka 3.0 in ZooKeeper mode, the oldest supported cluster: the TCKs and the ZooKeeper-mode tests.
+            ./mvnw -pl openbroker-kafka verify -Pzookeeper
+        -->
+        <profile>
+            <id>zookeeper</id>
+            <properties>
+                <kafka.image>confluentinc/cp-kafka:7.0.16</kafka.image>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <configuration>
+                            <excludes combine.self="override"/>
+                            <includes>
+                                <include>**/KafkaTckIT.java</include>
+                                <include>**/KafkaMessagingTckIT.java</include>
+                                <include>**/*ZooKeeperIT.java</include>
+                            </includes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
         <!-- The chaos TCK alone: ./mvnw -pl openbroker-kafka verify -Pchaos [-Dkafka.image=...] -->
         <profile>
             <id>chaos</id>
