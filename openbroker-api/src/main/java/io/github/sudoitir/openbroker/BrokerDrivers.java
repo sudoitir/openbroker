@@ -71,7 +71,7 @@ public final class BrokerDrivers implements AutoCloseable {
      * call, a cluster whose options break the driver's {@link ConnectionSchema}.
      */
     public ConnectionReport verify(ConnectRequest request) {
-        return checked(request).verify(request.cluster(), request.credentials(), context(request.options()));
+        return checked(request).verify(request.cluster(), guarded(request.credentials()), context(request.options()));
     }
 
     /**
@@ -79,7 +79,7 @@ public final class BrokerDrivers implements AutoCloseable {
      * {@link ConnectionSchema}: {@code INVALID_ARGUMENT}, not sent, naming each option and never its value.
      */
     public ClusterConnection connect(ConnectRequest request) {
-        return checked(request).connect(request.cluster(), request.credentials(), context(request.options()));
+        return checked(request).connect(request.cluster(), guarded(request.credentials()), context(request.options()));
     }
 
     /**
@@ -91,6 +91,32 @@ public final class BrokerDrivers implements AutoCloseable {
         closed = true;
         shared.values().forEach(BrokerDrivers::closeQuietly);
         shared.clear();
+    }
+
+    /**
+     * The caller's credential source, with any failure of its own reported as {@code UNAVAILABLE}, not
+     * sent. A driver asks it on its own threads, on every connect and reconnect, and backs off and asks
+     * again on a {@link BrokerException}; any other exception would end that thread, and the link it
+     * keeps would never come back. The message names the plane and the failure's type, never its text,
+     * which could hold a secret.
+     */
+    private static CredentialSource guarded(CredentialSource source) {
+        return plane -> {
+            try {
+                return source.forPlane(plane);
+            } catch (BrokerException e) {
+                throw e;
+            } catch (RuntimeException e) {
+                throw new BrokerException(
+                        Status.UNAVAILABLE,
+                        ErrorInfo.of(ErrorReasons.UNREACHABLE),
+                        Dispatch.NOT_SENT,
+                        null,
+                        "The credentials for the " + plane + " plane could not be read ("
+                                + e.getClass().getSimpleName() + ").",
+                        e);
+            }
+        };
     }
 
     private BrokerDriver driver(String system) {
