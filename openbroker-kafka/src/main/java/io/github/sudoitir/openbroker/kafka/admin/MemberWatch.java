@@ -25,23 +25,27 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import org.apache.kafka.clients.admin.GroupListing;
 import org.apache.kafka.common.GroupType;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Tells a subscriber when a consumer attaches to a subscription or leaves it: every {@code
  * watch.interval} it reads the members of the consumer, classic and share groups, and reports the
  * (member, topic) pairs that appeared and disappeared. A member shows on the topics it is assigned.
- * The first read only learns who is there, and a read that fails is skipped.
+ * The first read only learns who is there. It is made before the subscription is handed back, so a
+ * consumer that attaches afterwards is always seen as new; a read that fails is retried at once a
+ * few times there, and skipped later.
  */
 final class MemberWatch implements AutoCloseable {
 
     private static final int BUFFER = 1024;
+    private static final int BASELINE_ATTEMPTS = 3;
 
     private final KafkaCluster cluster;
     private final Handlers handlers;
     private final NotificationDispatcher dispatcher;
     private final ScheduledExecutorService timer = Executors.newSingleThreadScheduledExecutor(
             Thread.ofPlatform().daemon().name("openbroker-kafka-members").factory());
-    private Map<String, Attachment> known;
+    private @Nullable Map<String, Attachment> known;
 
     private record Attachment(ResourceId subscription, String clientId, String host) {}
 
@@ -50,7 +54,24 @@ final class MemberWatch implements AutoCloseable {
         this.handlers = handlers;
         this.dispatcher =
                 new NotificationDispatcher(listener, BUFFER, cluster.options().clock(), r -> r);
-        timer.scheduleWithFixedDelay(this::cycle, 0, cluster.watchInterval().toMillis(), TimeUnit.MILLISECONDS);
+        this.known = baseline();
+        long interval = cluster.watchInterval().toMillis();
+        timer.scheduleWithFixedDelay(this::cycle, interval, interval, TimeUnit.MILLISECONDS);
+    }
+
+    /**
+     * Who is attached now, read before the caller can attach anything new; null if the cluster would not
+     * say, in which case the first cycle that can read takes it.
+     */
+    private @Nullable Map<String, Attachment> baseline() {
+        for (int attempt = 1; attempt <= BASELINE_ATTEMPTS; attempt++) {
+            try {
+                return read();
+            } catch (BrokerException e) {
+                // A group deleted between the listing and its description fails one read, not the next.
+            }
+        }
+        return null;
     }
 
     private void cycle() {
@@ -61,13 +82,14 @@ final class MemberWatch implements AutoCloseable {
             return;
         }
         Instant at = cluster.options().clock().instant();
-        if (known != null) {
+        Map<String, Attachment> before = known;
+        if (before != null) {
             now.forEach((key, a) -> {
-                if (!known.containsKey(key)) {
+                if (!before.containsKey(key)) {
                     emit(EventTypes.CONSUMER_ATTACHED, a, at);
                 }
             });
-            known.forEach((key, a) -> {
+            before.forEach((key, a) -> {
                 if (!now.containsKey(key)) {
                     emit(EventTypes.CONSUMER_DETACHED, a, at);
                 }
