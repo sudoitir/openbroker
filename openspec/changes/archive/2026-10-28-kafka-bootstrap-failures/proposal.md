@@ -6,6 +6,7 @@ A consumer connecting to a Kafka cluster found that an address nothing can reach
 - A client that cannot be built because no bootstrap server resolves is reported the same way.
 - Clients wait longer between attempts to reconnect to a broker, so a broker that goes away costs a bounded, quiet number of attempts.
 - The TCK checks that a driver classifies an address nothing answers on, unresolvable or refusing connections.
+- A new kind, `kafka.hanging-transaction`: transactions the coordinator no longer tracks, left open on a partition and holding its last stable offset back (KIP-664). They are listed on demand, scoped to the cluster or one topic and bounded, and RESOLVE aborts one with a preview and an etag.
 - No API change.
 
 ## Capabilities
@@ -13,7 +14,7 @@ A consumer connecting to a Kafka cluster found that an address nothing can reach
 None.
 
 ### Modified Capabilities
-- `broker-sdk-kafka`: unreachable bootstrap servers are classified before a client is made.
+- `broker-sdk-kafka`: unreachable bootstrap servers are classified before a client is made; hanging transactions are found and aborted.
 
 ## Impact
 `openbroker-kafka` (`Bootstrap`, `Sockets`, `KafkaCluster`, `KafkaErrors`, `Reach`), `openbroker-tck` (`OpenBrokerTck`, `TckEnvironment.requestToAddress`), the Artemis TCK environment. Released as `0.6.2`.

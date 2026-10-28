@@ -47,6 +47,12 @@ public final class KafkaKinds {
     /** A transactional id. Its id is {@code [transactional id]}. */
     public static final KindId TRANSACTIONAL_ID = KindId.of("kafka.transactional-id");
 
+    /**
+     * A transaction the coordinator no longer tracks, left open on a partition and holding its last
+     * stable offset back. Its id is {@code [topic, partition, producerId]}.
+     */
+    public static final KindId HANGING_TRANSACTION = KindId.of("kafka.hanging-transaction");
+
     // Native attributes, namespaced.
 
     public static final String PARTITIONS = "kafka.partitions";
@@ -93,6 +99,12 @@ public final class KafkaKinds {
     public static final String PATTERN_TYPE = "kafka.pattern_type";
     public static final String RESOURCE_NAME = "kafka.resource_name";
 
+    public static final String HANGING_TOPIC = "kafka.hanging_topic";
+    public static final String HANGING_PARTITION = "kafka.hanging_partition";
+    public static final String COORDINATOR_EPOCH = "kafka.coordinator_epoch";
+    public static final String TRANSACTION_START_OFFSET = "kafka.transaction_start_offset";
+    public static final String RECORDS_HELD_BACK = "kafka.records_held_back";
+    public static final String HANGING_AGE_MS = "kafka.hanging_age_ms";
     public static final String PRODUCER_ID = "kafka.producer_id";
     public static final String PRODUCER_EPOCH = "kafka.producer_epoch";
     public static final String TRANSACTION_STATE = "kafka.transaction_state";
@@ -189,6 +201,21 @@ public final class KafkaKinds {
                         AttributeSpec.status(TRANSACTION_TIMEOUT_MS),
                         AttributeSpec.status(TRANSACTION_START),
                         AttributeSpec.status(TRANSACTION_PARTITIONS))));
+        kinds.add(kind(
+                HANGING_TRANSACTION,
+                KindLabel.of("Hanging transaction", "Hanging transactions"),
+                ResourceClass.TRANSACTION,
+                Set.of(LIST, GET, RESOLVE),
+                Optional.of(TOPIC),
+                List.of(
+                        AttributeSpec.status(HANGING_TOPIC),
+                        AttributeSpec.status(HANGING_PARTITION),
+                        AttributeSpec.status(PRODUCER_ID),
+                        AttributeSpec.status(PRODUCER_EPOCH),
+                        AttributeSpec.status(COORDINATOR_EPOCH),
+                        AttributeSpec.status(TRANSACTION_START_OFFSET),
+                        AttributeSpec.status(RECORDS_HELD_BACK),
+                        AttributeSpec.status(HANGING_AGE_MS))));
         return kinds;
     }
 

@@ -38,6 +38,7 @@ final class Handlers {
                         case "kafka.group" -> new Groups(kind);
                         case "kafka.group-topic" -> new ConsumerSubscriptions(kind);
                         case "kafka.acl" -> new Acls(kind);
+                        case "kafka.hanging-transaction" -> new HangingTransactions(kind);
                         default -> new TransactionalIds(kind);
                     };
             base.put(kind.id(), handler);

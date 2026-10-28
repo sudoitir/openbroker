@@ -180,6 +180,11 @@ broker.
   classic group can be rewound too. Truncate deletes records
   before an offset, with a preview, and is refused on a compacted topic. Moving, copying or deleting
   one message is unavailable, because a log cannot remove one record.
+- **Hanging transactions** (`kafka.hanging-transaction`) are transactions the coordinator no longer
+  tracks, open on a partition for longer than `transaction.max.timeout.ms`, which hold its last stable
+  offset back so that `read_committed` consumers stall (KIP-664). They are listed on demand, never on the
+  watch, for the cluster or one topic, and `RESOLVE` aborts one, previewing the records it holds back.
+  A transaction the coordinator still lists heals itself and is not listed.
 - **Browsing** reads committed records without joining a group.
 - **Messaging.** Senders deduplicate within the producer session (`DeduplicationScope.SESSION`).
   Processors on a consumer or classic group settle by committing offsets, keep per-key order in lanes, and join
