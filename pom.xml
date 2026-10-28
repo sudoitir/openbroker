@@ -90,6 +90,10 @@
         <jacoco.version>0.8.15</jacoco.version>
         <japicmp.version>0.26.3</japicmp.version>
 
+        <!-- Failsafe has no skipTests parameter, only skipITs: -DskipTests skips the integration tests too. -->
+        <skipTests>false</skipTests>
+        <skipITs>${skipTests}</skipITs>
+
         <!-- Sonar: one project for the whole repository. -->
         <sonar.organization>sudoitir</sonar.organization>
         <sonar.projectKey>sudoitir_openbroker</sonar.projectKey>
