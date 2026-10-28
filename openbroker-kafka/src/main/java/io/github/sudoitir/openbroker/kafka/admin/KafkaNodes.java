@@ -206,7 +206,7 @@ public final class KafkaNodes implements Nodes {
             Attributes.Builder attributes = Attributes.builder()
                     .putRaw(CLUSTER_ID, clusterId)
                     .putRaw(CLUSTER_VERSION, features.release())
-                    .putRaw(CLUSTER_MODE, features.kraft() ? "kraft" : "zookeeper");
+                    .putRaw(CLUSTER_MODE, features.mode().attribute());
             if (broker.hasRack()) {
                 attributes.putRaw(RACK, broker.rack());
             }

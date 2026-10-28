@@ -18,7 +18,16 @@ class ClusterFeaturesTest {
 
     private static ClusterFeatures features(
             boolean kraft, String release, OptionalInt level, ClusterFeatures.Level group) {
-        return new ClusterFeatures(kraft, release, level, null, group, OFF, OFF, OFF, new ShareFeatures(0, 0, false));
+        return new ClusterFeatures(
+                kraft ? ClusterFeatures.Mode.KRAFT : ClusterFeatures.Mode.ZOOKEEPER,
+                release,
+                level,
+                null,
+                group,
+                OFF,
+                OFF,
+                OFF,
+                new ShareFeatures(0, 0, false));
     }
 
     @Test
@@ -45,7 +54,7 @@ class ClusterFeaturesTest {
     @Test
     void aClusterBeforeThreeZeroIsRefusedNamingWhatWasFound() {
         ClusterFeatures old = new ClusterFeatures(
-                false,
+                ClusterFeatures.Mode.ZOOKEEPER,
                 "before 3.0",
                 OptionalInt.empty(),
                 "it reports no metadata.version and does not list transactions",
@@ -120,7 +129,15 @@ class ClusterFeaturesTest {
     void aClusterWithEveryFeatureOnDeclaresEveryCapabilityAvailable() {
         ClusterFeatures.Level on = new ClusterFeatures.Level(1, 1);
         ClusterFeatures all = new ClusterFeatures(
-                true, "4.4", OptionalInt.of(33), null, on, on, on, on, new ShareFeatures(2, 2, true));
+                ClusterFeatures.Mode.KRAFT,
+                "4.4",
+                OptionalInt.of(33),
+                null,
+                on,
+                on,
+                on,
+                on,
+                new ShareFeatures(2, 2, true));
 
         assertThat(all.streamsGroups()).isTrue();
         assertThat(all.eligibleLeaders()).isTrue();
@@ -133,7 +150,7 @@ class ClusterFeaturesTest {
         ClusterFeatures.Level absent = new ClusterFeatures.Level(0, 0);
         ClusterFeatures.Level supported = new ClusterFeatures.Level(0, 1);
         ClusterFeatures cluster = new ClusterFeatures(
-                true,
+                ClusterFeatures.Mode.KRAFT,
                 "4.0",
                 OptionalInt.of(25),
                 null,
@@ -149,5 +166,60 @@ class ClusterFeaturesTest {
                 .hasValueSatisfying(r -> assertThat(r.snippet()).contains("eligible.leader.replicas.version=1"));
         assertThat(out.get(KafkaAccess.SHARE_GROUPS).status()).isEqualTo(Assessment.Status.UNAVAILABLE);
         assertThat(out.get(KafkaAccess.SHARE_GROUPS).remedy()).isPresent();
+    }
+
+    private static BrokerException failure(Status status, String reason) {
+        return KafkaErrors.refused(status, reason, "x");
+    }
+
+    @Test
+    void aQuorumReadThatGetsNoAnswerLeavesTheModeUnknownBeforeKafkaFour() {
+        BrokerException silent = failure(Status.DEADLINE_EXCEEDED, "DEADLINE_EXCEEDED");
+
+        assertThat(ClusterFeatures.modeAfter(silent, OptionalInt.of(21))).isEqualTo(ClusterFeatures.Mode.UNKNOWN);
+        assertThat(ClusterFeatures.modeAfter(silent, OptionalInt.empty())).isEqualTo(ClusterFeatures.Mode.UNKNOWN);
+        assertThat(ClusterFeatures.modeAfter(failure(Status.UNAVAILABLE, ErrorReasons.UNREACHABLE), OptionalInt.of(21)))
+                .isEqualTo(ClusterFeatures.Mode.UNKNOWN);
+    }
+
+    @Test
+    void aQuorumReadThatGetsNoAnswerIsKraftFromKafkaFourBecauseItHasNoZooKeeper() {
+        assertThat(ClusterFeatures.modeAfter(
+                        failure(Status.DEADLINE_EXCEEDED, "DEADLINE_EXCEEDED"), OptionalInt.of(25)))
+                .isEqualTo(ClusterFeatures.Mode.KRAFT);
+    }
+
+    @Test
+    void otherQuorumAnswersDecideTheModeOrAreNotAbsorbed() {
+        assertThat(ClusterFeatures.modeAfter(
+                        failure(Status.UNIMPLEMENTED, ErrorReasons.UNSUPPORTED_VERSION), OptionalInt.empty()))
+                .isEqualTo(ClusterFeatures.Mode.ZOOKEEPER);
+        assertThat(ClusterFeatures.modeAfter(
+                        failure(Status.PERMISSION_DENIED, ErrorReasons.NOT_AUTHORIZED), OptionalInt.empty()))
+                .isEqualTo(ClusterFeatures.Mode.KRAFT);
+        assertThat(ClusterFeatures.modeAfter(
+                        failure(Status.INTERNAL, ErrorReasons.UNEXPECTED_SYSTEM), OptionalInt.empty()))
+                .isNull();
+    }
+
+    @Test
+    void anUnknownModeIsSaidSoAndSkipsWhatOnlyKraftHas() {
+        ClusterFeatures unknown = new ClusterFeatures(
+                ClusterFeatures.Mode.UNKNOWN,
+                "3.6",
+                OptionalInt.of(14),
+                null,
+                OFF,
+                OFF,
+                OFF,
+                OFF,
+                new ShareFeatures(0, 0, false));
+
+        assertThat(unknown.describe()).isEqualTo("3.6, mode unknown (the controller did not answer)");
+        assertThat(unknown.mode().attribute()).isEqualTo("unknown");
+        assertThat(unknown.kraft()).isFalse();
+        assertThat(unknown.fencedBrokers()).isFalse();
+        assertThat(unknown.assessments().get(KafkaAccess.QUORUM).status()).isEqualTo(Assessment.Status.UNKNOWN);
+        assertThat(unknown.assessments().get(KafkaAccess.QUORUM).reason()).contains("did not answer");
     }
 }
