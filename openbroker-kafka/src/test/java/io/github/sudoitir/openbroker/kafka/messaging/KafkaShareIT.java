@@ -80,6 +80,22 @@ class KafkaShareIT {
         assertThat(kind.orderings()).containsExactly(OrderingScope.NONE);
         assertThat(kind.joinedTransactions()).isFalse();
         assertThat(kind.retry()).isEqualTo(new SystemRetry(false, true, true));
+        assertThat(kind.releaseCountsDelivery()).isTrue();
+    }
+
+    @Test
+    void anUncountedReleaseStillRaisesTheDeliveryCountBecauseTheBrokerCountsEveryRedelivery() {
+        String topic = SharedKafka.topic("share-uncounted", 1);
+        ResourceId group = SharedKafka.shareGroup(topic, withDeadLetters(topic));
+        send(group, 1);
+        List<Integer> counts = Collections.synchronizedList(new ArrayList<>());
+        try (Processor processor = transport.process(group, Scope.whole(), one(), ctx -> {
+            counts.add(ctx.message().headers().deliveryCount().orElse(0));
+            return counts.size() == 1 ? new Disposition.Release(Optional.empty(), false) : Disposition.accept();
+        })) {
+            await("the second delivery", () -> counts.size() >= 2);
+        }
+        assertThat(counts.get(1)).isGreaterThan(counts.get(0));
     }
 
     @Test

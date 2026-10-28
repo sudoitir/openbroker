@@ -82,7 +82,8 @@ public final class ArtemisTransport implements Transport, AutoCloseable {
                             Set.of(OrderingScope.NONE, OrderingScope.GROUP, OrderingScope.SUBSCRIPTION),
                             SettlementScope.RECEIVER,
                             true,
-                            new SystemRetry(true, true, true))),
+                            new SystemRetry(true, true, true),
+                            false)),
             true);
 
     private final Cluster cluster;
