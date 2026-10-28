@@ -15,11 +15,13 @@ import io.github.sudoitir.openbroker.model.ResourceQuery;
 import io.github.sudoitir.openbroker.spi.DriverContext;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import org.apache.kafka.clients.admin.Admin;
@@ -27,6 +29,7 @@ import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.admin.OffsetSpec;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.errors.UnknownTopicOrPartitionException;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -58,7 +61,7 @@ class KafkaBatchedReadsIT {
                 for (int p = 0; p < 3; p++) {
                     at.put(new TopicPartition(topic, p), new OffsetAndMetadata(0));
                 }
-                admin.alterConsumerGroupOffsets(group, at).all().get();
+                commit(admin, group, at);
             }
             Kafka.eventually(
                     () -> {
@@ -94,6 +97,22 @@ class KafkaBatchedReadsIT {
                 new BrokerSystem(KafkaDriver.SYSTEM, "Apache Kafka", "[3.0.0,)", 1, java.util.Set.of(), List.of()),
                 cluster,
                 context);
+    }
+
+    /** Commits the offsets once the brokers know the topic: metadata reaches them a moment after it is created. */
+    private static void commit(Admin admin, String group, Map<TopicPartition, OffsetAndMetadata> at) throws Exception {
+        long until = System.nanoTime() + Duration.ofSeconds(30).toNanos();
+        while (true) {
+            try {
+                admin.alterConsumerGroupOffsets(group, at).all().get();
+                return;
+            } catch (ExecutionException e) {
+                if (!(e.getCause() instanceof UnknownTopicOrPartitionException) || System.nanoTime() > until) {
+                    throw e;
+                }
+                Thread.sleep(200);
+            }
+        }
     }
 
     @AfterAll

@@ -222,4 +222,13 @@ class ClusterFeaturesTest {
         assertThat(unknown.assessments().get(KafkaAccess.QUORUM).status()).isEqualTo(Assessment.Status.UNKNOWN);
         assertThat(unknown.assessments().get(KafkaAccess.QUORUM).reason()).contains("did not answer");
     }
+
+    @Test
+    void aClusterThatDidNotAnswerIsUnknownAndNotUnsupported() {
+        ClusterFeatures unread = ClusterFeatures.unread();
+
+        unread.require("[3.0.0,)");
+        assertThat(unread.mode()).isEqualTo(ClusterFeatures.Mode.UNKNOWN);
+        assertThat(unread.consumerProtocol()).isFalse();
+    }
 }

@@ -25,8 +25,10 @@ import io.github.sudoitir.openbroker.support.Deadlines;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -133,6 +135,21 @@ public final class KafkaCluster implements AutoCloseable {
         return known;
     }
 
+    /** The nodes the caller named, as they are known without asking the cluster: the nodes of the spec, else its endpoints. */
+    public List<NodeSpec> declaredNodes() {
+        ClusterSpec current = spec;
+        if (!current.nodes().isEmpty()) {
+            return current.nodes();
+        }
+        List<NodeSpec> out = new ArrayList<>();
+        for (Endpoint e : current.clusterEndpoints()) {
+            if (e.plane() == Plane.DATA && e.protocol().equals(KafkaOptions.PROTOCOL)) {
+                out.add(new NodeSpec(NodeId.of("bootstrap-" + (out.size() + 1)), List.of(e)));
+            }
+        }
+        return out;
+    }
+
     /** The bootstrap servers: the {@code kafka} endpoints of the data plane, the cluster's first. */
     public String bootstrapServers() {
         Set<String> servers = new LinkedHashSet<>();
@@ -206,6 +223,22 @@ public final class KafkaCluster implements AutoCloseable {
      */
     public <T> T call(String operation, Optional<ResourceId> target, Deadline deadline, AdminCall<T> work) {
         return guarded(operation, Plane.MANAGEMENT, target, deadline, () -> withAdmin(deadline, work));
+    }
+
+    /**
+     * Runs {@code work} on an Admin client of its own that bootstraps from {@code address} alone, within
+     * {@code deadline}, and closes it. What it asks reaches that broker and no other, so a broker that
+     * cannot be reached fails by itself instead of holding up the connection's shared client.
+     */
+    public <T> T withAdminAt(String address, Deadline deadline, AdminCall<T> work) {
+        Map<String, Object> config = new LinkedHashMap<>(clientConfig(Plane.MANAGEMENT));
+        config.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, address);
+        Admin own = adminFactory.apply(config);
+        try {
+            return work.run(own, new Await(deadline, options().clock(), CLUSTER));
+        } finally {
+            own.close(Duration.ofMillis(100));
+        }
     }
 
     /** Runs {@code work} on the Admin client within {@code deadline}, for a call already admitted. */

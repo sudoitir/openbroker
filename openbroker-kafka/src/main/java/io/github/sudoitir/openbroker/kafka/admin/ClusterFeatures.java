@@ -109,6 +109,13 @@ public record ClusterFeatures(
         }
     }
 
+    /** What is known of a cluster that did not answer: nothing, and not that it is unsupported. */
+    public static ClusterFeatures unread() {
+        Level off = new Level(0, 0);
+        return new ClusterFeatures(
+                Mode.UNKNOWN, "unknown", OptionalInt.empty(), null, off, off, off, off, new ShareFeatures(0, 0, false));
+    }
+
     /** Reads the cluster's features. */
     public static ClusterFeatures read(Admin admin, Await await) {
         FeatureMetadata metadata =
