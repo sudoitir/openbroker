@@ -141,6 +141,24 @@ final class Partitions implements Handler {
         return attributes;
     }
 
+    private static void putIfKnown(
+            Attributes.Builder attributes, String key, Map<TopicPartition, Long> values, TopicPartition tp) {
+        if (values.containsKey(tp)) {
+            attributes.putRaw(key, values.get(tp));
+        }
+    }
+
+    private static Condition underReplication(TopicPartitionInfo info) {
+        int missing = info.replicas().size() - info.isr().size();
+        boolean underReplicated = missing > 0;
+        return new Condition(
+                ConditionTypes.UNDER_REPLICATED,
+                underReplicated ? ConditionStatus.TRUE : ConditionStatus.FALSE,
+                underReplicated ? "OUT_OF_SYNC_REPLICAS" : "",
+                underReplicated ? missing + " replicas are not in sync." : "",
+                Optional.empty());
+    }
+
     @Override
     public List<Resource> resources(Context context, List<Candidate> page, Listing listing) {
         if (page.isEmpty()) {
@@ -164,22 +182,10 @@ final class Partitions implements Handler {
                 continue;
             }
             Attributes.Builder attributes = placementAttributes(info, eligibleLeaders);
-            if (start.containsKey(tp)) {
-                attributes.putRaw(KafkaKinds.LOG_START_OFFSET, start.get(tp));
-            }
-            if (end.containsKey(tp)) {
-                attributes.putRaw(KafkaKinds.LOG_END_OFFSET, end.get(tp));
-            }
-            if (sizes.containsKey(tp)) {
-                attributes.putRaw(KafkaKinds.SIZE_BYTES, sizes.get(tp));
-            }
-            boolean underReplicated = info.isr().size() < info.replicas().size();
-            List<Condition> conditions = List.of(new Condition(
-                    ConditionTypes.UNDER_REPLICATED,
-                    underReplicated ? ConditionStatus.TRUE : ConditionStatus.FALSE,
-                    underReplicated ? "OUT_OF_SYNC_REPLICAS" : "",
-                    underReplicated ? (info.replicas().size() - info.isr().size()) + " replicas are not in sync." : "",
-                    Optional.empty()));
+            putIfKnown(attributes, KafkaKinds.LOG_START_OFFSET, start, tp);
+            putIfKnown(attributes, KafkaKinds.LOG_END_OFFSET, end, tp);
+            putIfKnown(attributes, KafkaKinds.SIZE_BYTES, sizes, tp);
+            List<Condition> conditions = List.of(underReplication(info));
             out.add(new Resource(
                     candidate.id(),
                     Attrs.project(attributes.build(), listing.query().projection()),

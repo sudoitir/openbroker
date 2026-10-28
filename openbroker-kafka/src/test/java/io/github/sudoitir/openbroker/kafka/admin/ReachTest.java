@@ -138,4 +138,11 @@ class ReachTest {
                 .containsEntry(NodeId.of("9"), NodeOutcome.SKIPPED)
                 .containsEntry(NodeId.of("2"), NodeOutcome.FAILED);
     }
+
+    @Test
+    void anIpv6LiteralLosesItsBrackets() {
+        assertThat(Reach.unbracketed("[::1]")).isEqualTo("::1");
+        assertThat(Reach.unbracketed("broker-1")).isEqualTo("broker-1");
+        assertThat(Reach.unbracketed("[")).isEqualTo("[");
+    }
 }

@@ -115,4 +115,39 @@ class ClusterFeaturesTest {
         assertThat(features(true, "4.0", OptionalInt.of(25), OFF).fencedBrokers())
                 .isTrue();
     }
+
+    @Test
+    void aClusterWithEveryFeatureOnDeclaresEveryCapabilityAvailable() {
+        ClusterFeatures.Level on = new ClusterFeatures.Level(1, 1);
+        ClusterFeatures all = new ClusterFeatures(
+                true, "4.4", OptionalInt.of(33), null, on, on, on, on, new ShareFeatures(2, 2, true));
+
+        assertThat(all.streamsGroups()).isTrue();
+        assertThat(all.eligibleLeaders()).isTrue();
+        assertThat(all.assessments().values())
+                .allSatisfy(a -> assertThat(a.status()).isEqualTo(Assessment.Status.AVAILABLE));
+    }
+
+    @Test
+    void aGapNamesItsRemedyOnlyWhereTheSoftwareHasTheFeature() {
+        ClusterFeatures.Level absent = new ClusterFeatures.Level(0, 0);
+        ClusterFeatures.Level supported = new ClusterFeatures.Level(0, 1);
+        ClusterFeatures cluster = new ClusterFeatures(
+                true,
+                "4.0",
+                OptionalInt.of(25),
+                null,
+                supported,
+                absent,
+                supported,
+                OFF,
+                new ShareFeatures(0, 1, true));
+        var out = cluster.assessments();
+
+        assertThat(out.get(KafkaAccess.STREAMS_GROUPS).remedy()).isEmpty();
+        assertThat(out.get(KafkaAccess.ELIGIBLE_LEADERS).remedy())
+                .hasValueSatisfying(r -> assertThat(r.snippet()).contains("eligible.leader.replicas.version=1"));
+        assertThat(out.get(KafkaAccess.SHARE_GROUPS).status()).isEqualTo(Assessment.Status.UNAVAILABLE);
+        assertThat(out.get(KafkaAccess.SHARE_GROUPS).remedy()).isPresent();
+    }
 }

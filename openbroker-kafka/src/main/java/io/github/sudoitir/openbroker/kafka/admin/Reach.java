@@ -134,7 +134,7 @@ final class Reach {
         }
         String address = advertised.get().address();
         int colon = address.lastIndexOf(':');
-        String host = address.substring(0, colon).replaceAll("(?:^\\[)|(?:\\]$)", "");
+        String host = unbracketed(address.substring(0, colon));
         int port = Integer.parseInt(address.substring(colon + 1));
         InetAddress[] resolved;
         try {
@@ -147,6 +147,13 @@ final class Reach {
             return connect;
         }
         return answers(node, limit);
+    }
+
+    /** An IPv6 literal without the brackets an address writes it in. */
+    static String unbracketed(String host) {
+        return host.length() > 1 && host.startsWith("[") && host.endsWith("]")
+                ? host.substring(1, host.length() - 1)
+                : host;
     }
 
     private Optional<BrokerException> connect(NodeDescription node, InetAddress[] resolved, int port, Deadline limit) {
