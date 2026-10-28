@@ -63,9 +63,18 @@ final class Reach {
     private final KafkaCluster cluster;
     private final Clock clock;
 
-    private Reach(KafkaCluster cluster) {
+    /** The request addressed to one broker; it throws what the cluster answered with. */
+    @FunctionalInterface
+    interface Ask {
+        void to(NodeDescription node, Deadline limit);
+    }
+
+    private final Ask ask;
+
+    private Reach(KafkaCluster cluster, Ask ask) {
         this.cluster = cluster;
         this.clock = cluster.options().clock();
+        this.ask = ask;
     }
 
     /**
@@ -74,7 +83,14 @@ final class Reach {
      */
     static Partial<List<NodeDescription>> of(
             KafkaCluster cluster, Partial<List<NodeDescription>> described, Deadline deadline) {
-        return new Reach(cluster).check(described, deadline);
+        Reach reach = new Reach(cluster, null);
+        return new Reach(cluster, reach::describeConfigs).check(described, deadline);
+    }
+
+    /** Like {@link #of}, asking each broker through {@code ask}. */
+    static Partial<List<NodeDescription>> of(
+            KafkaCluster cluster, Partial<List<NodeDescription>> described, Deadline deadline, Ask ask) {
+        return new Reach(cluster, ask).check(described, deadline);
     }
 
     private Partial<List<NodeDescription>> check(Partial<List<NodeDescription>> described, Deadline deadline) {
@@ -178,13 +194,8 @@ final class Reach {
 
     /** Sends the broker a request addressed to it, which a half-open connection does not answer. */
     private Optional<BrokerException> answers(NodeDescription node, Deadline limit) {
-        ConfigResource broker = new ConfigResource(ConfigResource.Type.BROKER, node.nativeId());
         try {
-            cluster.withAdmin(
-                    limit,
-                    (admin, await) -> await.get(admin.describeConfigs(
-                                    List.of(broker), new DescribeConfigsOptions().timeoutMs(await.timeoutMs()))
-                            .all()));
+            ask.to(node, limit);
             return Optional.empty();
         } catch (BrokerException e) {
             if (e.reason().equals(ErrorReasons.TLS_HANDSHAKE_FAILED)) {
@@ -199,6 +210,15 @@ final class Reach {
             // Any other answer, a denial included, is a broker that was reached.
             return Optional.empty();
         }
+    }
+
+    private void describeConfigs(NodeDescription node, Deadline limit) {
+        ConfigResource broker = new ConfigResource(ConfigResource.Type.BROKER, node.nativeId());
+        cluster.withAdmin(
+                limit,
+                (admin, await) -> await.get(admin.describeConfigs(
+                                List.of(broker), new DescribeConfigsOptions().timeoutMs(await.timeoutMs()))
+                        .all()));
     }
 
     private static BrokerException named(NodeDescription node, String failure, BrokerException cause) {

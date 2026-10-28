@@ -9,11 +9,13 @@ import io.github.sudoitir.openbroker.CredentialSource;
 import io.github.sudoitir.openbroker.Deadline;
 import io.github.sudoitir.openbroker.Dispatch;
 import io.github.sudoitir.openbroker.Endpoint;
+import io.github.sudoitir.openbroker.ErrorReasons;
 import io.github.sudoitir.openbroker.NodeId;
 import io.github.sudoitir.openbroker.NodeOutcome;
 import io.github.sudoitir.openbroker.Partial;
 import io.github.sudoitir.openbroker.Plane;
 import io.github.sudoitir.openbroker.Status;
+import io.github.sudoitir.openbroker.Timeouts;
 import io.github.sudoitir.openbroker.kafka.KafkaOptions;
 import io.github.sudoitir.openbroker.model.Attributes;
 import io.github.sudoitir.openbroker.model.Membership;
@@ -29,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
 
@@ -68,18 +71,131 @@ class ReachTest {
     }
 
     private static Partial<List<NodeDescription>> reach(NodeDescription... nodes) {
+        return reach(Duration.ofSeconds(10), null, nodes);
+    }
+
+    private static Partial<List<NodeDescription>> reach(Duration connect, Reach.Ask ask, NodeDescription... nodes) {
         ClusterSpec spec = new ClusterSpec(
                 List.of(), List.of(Endpoint.of(Plane.DATA, KafkaOptions.PROTOCOL, "localhost:1")), Map.of());
-        try (KafkaCluster cluster =
-                new KafkaCluster(spec, CredentialSource.none(), context(ConnectOptions.defaults()))) {
+        ConnectOptions options = ConnectOptions.defaults().withTimeouts(Timeouts.fixed(connect, connect));
+        try (KafkaCluster cluster = new KafkaCluster(spec, CredentialSource.none(), context(options))) {
             List<NodeDescription> all = List.of(nodes);
             Partial<List<NodeDescription>> described = Partial.complete(
                     all, all.stream().map(NodeDescription::node).toList());
-            return Reach.of(
-                    cluster,
-                    described,
-                    Deadline.after(Duration.ofSeconds(10), cluster.options().clock()));
+            Deadline deadline =
+                    Deadline.after(Duration.ofSeconds(10), cluster.options().clock());
+            return ask == null ? Reach.of(cluster, described, deadline) : Reach.of(cluster, described, deadline, ask);
         }
+    }
+
+    /** Runs {@code body} on the outcome for a broker that accepts connections and is asked through {@code ask}. */
+    private static void listening(Duration connect, Reach.Ask ask, Consumer<Partial<List<NodeDescription>>> body)
+            throws IOException {
+        try (ServerSocket server = new ServerSocket(0)) {
+            NodeDescription broker = node("1", EnumSet.of(NodeFunction.BROKER), "127.0.0.1:" + server.getLocalPort());
+            body.accept(reach(connect, ask, broker));
+        }
+    }
+
+    private static BrokerException answered(Status status, String reason) {
+        return KafkaErrors.refused(status, reason, "answer");
+    }
+
+    @Test
+    void aBrokerThatAnswersEvenWithADenialWasReached() throws IOException {
+        listening(
+                Duration.ofSeconds(5),
+                (n, l) -> {
+                    throw answered(Status.PERMISSION_DENIED, ErrorReasons.NOT_AUTHORIZED);
+                },
+                result -> {
+                    assertThat(result.outcomes()).containsEntry(NodeId.of("1"), NodeOutcome.APPLIED);
+                    assertThat(result.failures()).isEmpty();
+                });
+        listening(
+                Duration.ofSeconds(5),
+                (n, l) -> {},
+                result -> assertThat(result.failures()).isEmpty());
+    }
+
+    @Test
+    void aTlsFailureAndRejectedCredentialsAreNamedWithTheirStatus() throws IOException {
+        listening(
+                Duration.ofSeconds(5),
+                (n, l) -> {
+                    throw answered(Status.UNAVAILABLE, ErrorReasons.TLS_HANDSHAKE_FAILED);
+                },
+                result -> {
+                    BrokerException failure = result.failures().get(NodeId.of("1"));
+                    assertThat(failure.reason()).isEqualTo(ErrorReasons.TLS_HANDSHAKE_FAILED);
+                    assertThat(failure.info().metadata()).containsEntry(Reach.FAILURE, "tls");
+                    assertThat(failure.dispatch()).isEqualTo(Dispatch.NOT_SENT);
+                });
+        listening(
+                Duration.ofSeconds(5),
+                (n, l) -> {
+                    throw answered(Status.UNAUTHENTICATED, ErrorReasons.CREDENTIALS_REJECTED);
+                },
+                result -> {
+                    BrokerException failure = result.failures().get(NodeId.of("1"));
+                    assertThat(failure.status()).isEqualTo(Status.UNAUTHENTICATED);
+                    assertThat(failure.info().metadata()).containsEntry(Reach.FAILURE, "authentication");
+                    assertThat(failure.getMessage()).contains("127.0.0.1:");
+                });
+    }
+
+    @Test
+    void aBrokerThatAcceptsAndDoesNotAnswerIsATimeout() throws IOException {
+        listening(
+                Duration.ofSeconds(5),
+                (n, l) -> {
+                    throw answered(Status.UNAVAILABLE, ErrorReasons.UNREACHABLE);
+                },
+                result -> {
+                    BrokerException failure = result.failures().get(NodeId.of("1"));
+                    assertThat(failure.info().metadata()).containsEntry(Reach.FAILURE, "timeout");
+                    assertThat(failure.getMessage()).contains("accepted a connection but did not answer in time");
+                });
+        listening(
+                Duration.ofSeconds(5),
+                (n, l) -> {
+                    throw answered(Status.DEADLINE_EXCEEDED, ErrorReasons.UNREACHABLE);
+                },
+                result -> assertThat(result.outcomes()).containsEntry(NodeId.of("1"), NodeOutcome.FAILED));
+    }
+
+    @Test
+    void aCheckThatOutlastsTheBudgetIsAbandonedAndNamesTheBudget() throws IOException {
+        long started = System.nanoTime();
+        listening(
+                Duration.ofMillis(300),
+                (n, l) -> {
+                    try {
+                        Thread.sleep(Duration.ofSeconds(30));
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                },
+                result -> {
+                    BrokerException failure = result.failures().get(NodeId.of("1"));
+                    assertThat(failure.info().metadata()).containsEntry(Reach.FAILURE, "timeout");
+                    assertThat(failure.getMessage()).contains("127.0.0.1:").contains("did not answer within 300 ms");
+                });
+        assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(5));
+    }
+
+    @Test
+    void aCheckThatBreaksIsAFailedBrokerNotAnException() throws IOException {
+        listening(
+                Duration.ofSeconds(5),
+                (n, l) -> {
+                    throw new IllegalStateException("boom");
+                },
+                result -> {
+                    assertThat(result.outcomes()).containsEntry(NodeId.of("1"), NodeOutcome.FAILED);
+                    assertThat(result.failures().get(NodeId.of("1")).getMessage())
+                            .contains("could not be checked");
+                });
     }
 
     @Test
