@@ -25,6 +25,15 @@ public final class KafkaAccess implements Access {
     public static final Capability COPY_MESSAGES = new Capability("messages.copy");
     public static final Capability DELETE_MESSAGES = new Capability("messages.delete");
 
+    /** The cluster runs in KRaft mode, so its controller quorum can be described. */
+    public static final Capability QUORUM = new Capability("kafka.quorum");
+
+    public static final Capability CONSUMER_PROTOCOL_GROUPS = new Capability("kafka.consumer-protocol-groups");
+    public static final Capability SHARE_GROUPS = new Capability("kafka.share-groups");
+    public static final Capability STREAMS_GROUPS = new Capability("kafka.streams-groups");
+    public static final Capability FENCED_BROKERS = new Capability("kafka.fenced-brokers");
+    public static final Capability ELIGIBLE_LEADERS = new Capability("kafka.eligible-leaders");
+
     private final KafkaCluster cluster;
 
     public KafkaAccess(KafkaCluster cluster) {
@@ -61,6 +70,9 @@ public final class KafkaAccess implements Access {
         out.put(MOVE_MESSAGES, appendOnly);
         out.put(COPY_MESSAGES, appendOnly);
         out.put(DELETE_MESSAGES, appendOnly);
+        if (read.status() == Assessment.Status.AVAILABLE) {
+            out.putAll(cluster.features().assessments());
+        }
         return new AccessSnapshot(out, cluster.options().clock().instant());
     }
 

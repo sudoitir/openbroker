@@ -58,6 +58,8 @@ public final class KafkaNodes implements Nodes {
     /** Native attributes of a node, namespaced. */
     public static final String CLUSTER_ID = "kafka.cluster_id";
 
+    public static final String CLUSTER_VERSION = "kafka.cluster_version";
+    public static final String CLUSTER_MODE = "kafka.cluster_mode";
     public static final String RACK = "kafka.rack";
     public static final String QUORUM_VOTER = "kafka.quorum_voter";
     public static final String QUORUM_LEADER = "kafka.quorum_leader";
@@ -137,14 +139,21 @@ public final class KafkaNodes implements Nodes {
     }
 
     private Snapshot snapshot(Admin admin, Await await) {
-        DescribeClusterResult described =
-                admin.describeCluster(new DescribeClusterOptions().timeoutMs(await.timeoutMs()));
+        ClusterFeatures features = cluster.features(admin, await);
+        DescribeClusterResult described = admin.describeCluster(new DescribeClusterOptions()
+                .includeFencedBrokers(features.fencedBrokers())
+                .timeoutMs(await.timeoutMs()));
         Collection<Node> brokers = await.get(described.nodes());
         String clusterId = await.get(described.clusterId());
-        Quorum quorum = quorum(admin, await);
+        Quorum quorum = features.kraft() ? quorum(admin, await) : new Quorum(null, null);
         Topology.Snapshot topics = topology.read(admin, await);
         return new Snapshot(
-                List.copyOf(brokers), clusterId, quorum, Replication.outOfSyncPartitions(topics.topics()), topics);
+                List.copyOf(brokers),
+                clusterId,
+                features,
+                quorum,
+                Replication.outOfSyncPartitions(topics.topics()),
+                topics);
     }
 
     private static Quorum quorum(Admin admin, Await await) {
@@ -170,6 +179,7 @@ public final class KafkaNodes implements Nodes {
     private record Snapshot(
             List<Node> brokers,
             String clusterId,
+            ClusterFeatures features,
             Quorum quorum,
             Map<Integer, Long> outOfSync,
             Topology.Snapshot topics) {
@@ -194,7 +204,10 @@ public final class KafkaNodes implements Nodes {
 
         private NodeDescription broker(Node broker) {
             Set<NodeFunction> functions = EnumSet.of(NodeFunction.BROKER);
-            Attributes.Builder attributes = Attributes.builder().putRaw(CLUSTER_ID, clusterId);
+            Attributes.Builder attributes = Attributes.builder()
+                    .putRaw(CLUSTER_ID, clusterId)
+                    .putRaw(CLUSTER_VERSION, features.release())
+                    .putRaw(CLUSTER_MODE, features.kraft() ? "kraft" : "zookeeper");
             if (broker.hasRack()) {
                 attributes.putRaw(RACK, broker.rack());
             }
@@ -216,7 +229,9 @@ public final class KafkaNodes implements Nodes {
             Optional<Boolean> inSync = Optional.empty();
             QuorumInfo info = quorum.info();
             if (info == null) {
-                conditions.add(quorumUnknown());
+                if (quorum.failure() != null) {
+                    conditions.add(quorumUnknown());
+                }
             } else {
                 QuorumInfo.ReplicaState voter = voter(info, broker.id());
                 if (voter != null) {
@@ -241,7 +256,10 @@ public final class KafkaNodes implements Nodes {
         }
 
         private NodeDescription controller(QuorumInfo info, QuorumInfo.ReplicaState voter) {
-            Attributes.Builder attributes = Attributes.builder().putRaw(CLUSTER_ID, clusterId);
+            Attributes.Builder attributes = Attributes.builder()
+                    .putRaw(CLUSTER_ID, clusterId)
+                    .putRaw(CLUSTER_VERSION, features.release())
+                    .putRaw(CLUSTER_MODE, "kraft");
             List<Condition> conditions = new ArrayList<>();
             Optional<Boolean> inSync = voterState(info, voter, attributes, conditions);
             QuorumInfo.Node node = info.nodes().get(voter.replicaId());

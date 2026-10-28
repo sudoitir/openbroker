@@ -14,7 +14,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
-import org.jspecify.annotations.Nullable;
 
 /**
  * The handler of each kind, and which kinds this cluster has. The share-group kind is declared only
@@ -27,7 +26,6 @@ final class Handlers {
     private final Topology topology;
     private final Map<KindId, Handler> base = new LinkedHashMap<>();
     private final Handler shares;
-    private volatile @Nullable Boolean sharesInProduction;
 
     Handlers(KafkaCluster cluster, Topology topology) {
         this.cluster = cluster;
@@ -49,7 +47,6 @@ final class Handlers {
 
     /** Forgets what was read from the cluster, because the connection now points at another. */
     void forget() {
-        sharesInProduction = null;
         topology.invalidate();
     }
 
@@ -86,12 +83,7 @@ final class Handlers {
     }
 
     private boolean sharesInProduction(Context context) {
-        Boolean known = sharesInProduction;
-        if (known == null) {
-            known = ClusterVersions.sharesInProduction(context.admin(), context.await());
-            sharesInProduction = known;
-        }
-        return known;
+        return cluster.features(context.admin(), context.await()).share().available();
     }
 
     /** The kinds of the cluster the context is on. */

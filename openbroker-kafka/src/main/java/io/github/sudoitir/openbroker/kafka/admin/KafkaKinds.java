@@ -59,6 +59,10 @@ public final class KafkaKinds {
     public static final String LEADER = "kafka.leader";
     public static final String REPLICAS = "kafka.replicas";
     public static final String IN_SYNC_REPLICAS = "kafka.isr";
+    /** The eligible leader replicas (KIP-966), present only where the cluster keeps them. */
+    public static final String ELIGIBLE_LEADER_REPLICAS = "kafka.elr";
+
+    public static final String LAST_KNOWN_ELIGIBLE_LEADER_REPLICAS = "kafka.last_known_elr";
     public static final String LOG_START_OFFSET = "kafka.log_start_offset";
     public static final String LOG_END_OFFSET = "kafka.log_end_offset";
     public static final String SIZE_BYTES = "kafka.size_bytes";
@@ -67,6 +71,10 @@ public final class KafkaKinds {
     public static final String GROUP_STATE = "kafka.group_state";
     public static final String GROUP_EPOCH = "kafka.group_epoch";
     public static final String MEMBERS = "kafka.members";
+
+    /** What a preview of a subscription's reset adds that is not an attribute: a note for the operator. */
+    public static final String NOTE = "kafka.note";
+
     public static final String COORDINATOR = "kafka.coordinator";
     public static final String ASSIGNOR = "kafka.assignor";
     /** Why a group's offsets cannot be changed through this driver; absent when they can. */
@@ -128,6 +136,8 @@ public final class KafkaKinds {
                         AttributeSpec.status(LEADER),
                         AttributeSpec.status(REPLICAS),
                         AttributeSpec.status(IN_SYNC_REPLICAS),
+                        AttributeSpec.status(ELIGIBLE_LEADER_REPLICAS),
+                        AttributeSpec.status(LAST_KNOWN_ELIGIBLE_LEADER_REPLICAS),
                         AttributeSpec.metric(LOG_START_OFFSET, Instrument.GAUGE, "{offset}"),
                         AttributeSpec.metric(LOG_END_OFFSET, Instrument.GAUGE, "{offset}"),
                         AttributeSpec.metric(SIZE_BYTES, Instrument.GAUGE, "By"))));

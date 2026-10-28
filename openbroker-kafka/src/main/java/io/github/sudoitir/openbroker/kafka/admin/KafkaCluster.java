@@ -56,6 +56,7 @@ public final class KafkaCluster implements AutoCloseable {
     private final DriverContext context;
     private volatile ClusterSpec spec;
     private @Nullable Admin admin;
+    private volatile @Nullable ClusterFeatures features;
     private boolean closed;
 
     public KafkaCluster(ClusterSpec spec, CredentialSource credentials, DriverContext context) {
@@ -88,7 +89,33 @@ public final class KafkaCluster implements AutoCloseable {
     /** Points the connection at a new cluster description; the next call uses a new Admin client. */
     public void reconfigure(ClusterSpec spec) {
         this.spec = spec;
+        features = null;
         closeAdmin();
+    }
+
+    /** What the cluster is and offers, read on first use and kept until the connection is pointed elsewhere. */
+    public ClusterFeatures features() {
+        ClusterFeatures known = features;
+        return known != null ? known : readFeatures();
+    }
+
+    /** Reads what the cluster is and offers again, and keeps it. */
+    public ClusterFeatures readFeatures() {
+        return call("features.read", Optional.empty(), Deadlines.current(options()), (admin, await) -> {
+            ClusterFeatures read = ClusterFeatures.read(admin, await);
+            features = read;
+            return read;
+        });
+    }
+
+    /** The cluster's features, read with {@code admin} for a call already admitted when not yet known. */
+    ClusterFeatures features(Admin admin, Await await) {
+        ClusterFeatures known = features;
+        if (known == null) {
+            known = ClusterFeatures.read(admin, await);
+            features = known;
+        }
+        return known;
     }
 
     /** The bootstrap servers: the {@code kafka} endpoints of the data plane, the cluster's first. */

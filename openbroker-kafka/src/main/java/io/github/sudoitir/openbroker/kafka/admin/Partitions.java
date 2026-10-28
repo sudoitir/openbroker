@@ -123,6 +123,8 @@ final class Partitions implements Handler {
                 listing.wants(KafkaKinds.LOG_END_OFFSET) ? Offsets.latest(context, wanted) : Map.of();
         Map<TopicPartition, Long> sizes =
                 listing.wants(KafkaKinds.SIZE_BYTES) ? sizes(context, infos, wanted) : Map.of();
+        boolean eligibleLeaders =
+                context.cluster().features(context.admin(), context.await()).eligibleLeaders();
         List<Resource> out = new ArrayList<>();
         for (Candidate candidate : page) {
             TopicPartition tp = partition(candidate.id());
@@ -141,6 +143,15 @@ final class Partitions implements Handler {
                     .putRaw(
                             KafkaKinds.IN_SYNC_REPLICAS,
                             info.isr().stream().map(Node::id).toList());
+            if (eligibleLeaders) {
+                attributes
+                        .putRaw(
+                                KafkaKinds.ELIGIBLE_LEADER_REPLICAS,
+                                info.elr().stream().map(Node::id).toList())
+                        .putRaw(
+                                KafkaKinds.LAST_KNOWN_ELIGIBLE_LEADER_REPLICAS,
+                                info.lastKnownElr().stream().map(Node::id).toList());
+            }
             if (start.containsKey(tp)) {
                 attributes.putRaw(KafkaKinds.LOG_START_OFFSET, start.get(tp));
             }

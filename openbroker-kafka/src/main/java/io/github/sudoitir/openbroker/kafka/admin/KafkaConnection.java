@@ -6,10 +6,13 @@ import io.github.sudoitir.openbroker.ClusterSpec;
 import io.github.sudoitir.openbroker.ConnectionReport;
 import io.github.sudoitir.openbroker.CredentialSource;
 import io.github.sudoitir.openbroker.Deadline;
+import io.github.sudoitir.openbroker.Partial;
+import io.github.sudoitir.openbroker.Plane;
 import io.github.sudoitir.openbroker.access.Access;
 import io.github.sudoitir.openbroker.kafka.messaging.KafkaTransport;
 import io.github.sudoitir.openbroker.messaging.Messages;
 import io.github.sudoitir.openbroker.messaging.Transport;
+import io.github.sudoitir.openbroker.model.NodeDescription;
 import io.github.sudoitir.openbroker.model.Nodes;
 import io.github.sudoitir.openbroker.model.Resources;
 import io.github.sudoitir.openbroker.model.Scope;
@@ -17,6 +20,7 @@ import io.github.sudoitir.openbroker.notification.Notifications;
 import io.github.sudoitir.openbroker.operation.Operations;
 import io.github.sudoitir.openbroker.spi.DriverContext;
 import io.github.sudoitir.openbroker.support.Deadlines;
+import java.util.List;
 import java.util.Optional;
 
 /** One connection to a Kafka cluster. Thread-safe. */
@@ -49,16 +53,20 @@ public final class KafkaConnection implements ClusterConnection {
     }
 
     /**
-     * Checks that the cluster is one this driver supports, then reads its nodes and what the account
-     * may do.
+     * Checks that the cluster is one this driver supports, reads its nodes, reaches every broker on
+     * the address it advertises, and reads what the account may do.
      */
     public ConnectionReport verify() {
         Deadline deadline = Deadlines.current(cluster.options());
-        cluster.call("connection.verify", Optional.empty(), deadline, (admin, await) -> {
-            ClusterVersions.require(admin, await, system.supportedVersions());
-            return null;
-        });
-        return new ConnectionReport(nodes.describe(Scope.whole()), access.probe());
+        cluster.readFeatures().require(system.supportedVersions());
+        Partial<List<NodeDescription>> described = nodes.describe(Scope.whole());
+        Partial<List<NodeDescription>> reached = cluster.guarded(
+                "connection.reach",
+                Plane.MANAGEMENT,
+                Optional.empty(),
+                deadline,
+                () -> Reach.of(cluster, described, deadline));
+        return new ConnectionReport(reached, access.probe());
     }
 
     @Override

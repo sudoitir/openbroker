@@ -26,8 +26,9 @@ import org.apache.kafka.common.errors.UnknownMemberIdException;
 
 /**
  * A consumer group on a topic: the group's committed offsets. The group is a consumer-protocol
- * group, or a group made by committing offsets alone, which the cluster files as classic and which no
- * application owns.
+ * group or a classic group, whether made by committing offsets alone or run by an application: Kafka
+ * moves its offsets only while it is empty and settled. A classic group run by Kafka Streams is left
+ * out.
  */
 final class ConsumerSubscriptions extends Subscriptions {
 
