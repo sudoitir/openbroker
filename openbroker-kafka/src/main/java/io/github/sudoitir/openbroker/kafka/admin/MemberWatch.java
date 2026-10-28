@@ -67,7 +67,7 @@ final class MemberWatch implements AutoCloseable {
         for (int attempt = 1; attempt <= BASELINE_ATTEMPTS; attempt++) {
             try {
                 return read();
-            } catch (BrokerException e) {
+            } catch (BrokerException _) {
                 // A group deleted between the listing and its description fails one read, not the next.
             }
         }

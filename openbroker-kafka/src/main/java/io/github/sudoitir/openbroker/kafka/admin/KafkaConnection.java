@@ -22,6 +22,7 @@ import io.github.sudoitir.openbroker.spi.DriverContext;
 import io.github.sudoitir.openbroker.support.Deadlines;
 import java.util.List;
 import java.util.Optional;
+import org.apache.kafka.clients.admin.Admin;
 
 /** One connection to a Kafka cluster. Thread-safe. */
 public final class KafkaConnection implements ClusterConnection {
@@ -117,9 +118,14 @@ public final class KafkaConnection implements ClusterConnection {
         notifications.reset();
     }
 
+    /**
+     * Kafka's own {@link Admin} client, for what only Kafka has. The connection owns it: closing the
+     * returned view does nothing, it follows a {@link #reconfigure}, and its calls are not admitted by
+     * the {@code CallInterceptor}. Any other type is absent.
+     */
     @Override
     public <T> Optional<T> unwrap(Class<T> type) {
-        return Optional.empty();
+        return type.equals(Admin.class) ? Optional.of(type.cast(cluster.nativeAdmin())) : Optional.empty();
     }
 
     @Override

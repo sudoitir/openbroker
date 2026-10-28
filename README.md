@@ -85,8 +85,9 @@ try (BrokerDrivers drivers = BrokerDrivers.load();
   etag; `execute(…, Precondition.ifMatch(etag))` refuses if the resource changed in between.
 - **Results are honest.** A cluster-wide call returns a `Partial` naming each node's outcome. An
   error is a `BrokerException` with a gRPC status, a reason, and whether the request was sent.
-- **What only one system has** is reached through `cluster.unwrap(…)`, for Artemis
-  `ArtemisManagement`.
+- **What only one system has** is reached through `cluster.unwrap(…)`: for Artemis
+  `ArtemisManagement`, for Kafka its `Admin` client. The connection owns the `Admin`; closing the view
+  it hands out does nothing, and its calls bypass the `CallInterceptor`.
 
 ## Messaging
 

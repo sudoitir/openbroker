@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import org.apache.kafka.clients.admin.Admin;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -97,6 +98,18 @@ class KafkaConnectionIT {
                 assertThat(e.plane()).isEqualTo(Plane.DATA);
                 assertThat(e.protocol()).isEqualTo(KafkaOptions.PROTOCOL);
             });
+        }
+    }
+
+    @Test
+    void aConnectionUnwrapsToKafkasAdminAndNothingElse() throws Exception {
+        try (ClusterConnection connection = drivers.connect(request(kafka.spec(), ConnectOptions.defaults()))) {
+            Admin admin = connection.unwrap(Admin.class).orElseThrow();
+
+            assertThat(admin.describeCluster().clusterId().get()).isNotBlank();
+            admin.close();
+            assertThat(admin.describeCluster().nodes().get()).hasSize(3);
+            assertThat(connection.unwrap(String.class)).isEmpty();
         }
     }
 
