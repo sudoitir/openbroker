@@ -147,8 +147,9 @@ public abstract class ChaosTck {
     // Reach.
 
     /**
-     * Verifying a cluster with one node cut off returns within its deadline: the cut node is a failure,
-     * unavailable or past the deadline, and every other node is applied or skipped.
+     * Verifying a cluster with one node cut off returns within its deadline: the cut node is failed or in
+     * doubt, with a failure that is unavailable or past the deadline, and every other node is applied or
+     * skipped.
      */
     @Test
     void verifyReportsACutNodeAndTheRest() {
@@ -160,7 +161,7 @@ public abstract class ChaosTck {
         chaos.cut(cut);
         ConnectionReport report = drivers.verify(request);
         Partial<List<NodeDescription>> described = report.nodes();
-        assertThat(described.outcomes()).containsEntry(cut, NodeOutcome.FAILED);
+        assertThat(described.outcomes().get(cut)).isIn(NodeOutcome.FAILED, NodeOutcome.IN_DOUBT);
         assertThat(described.failures().get(cut).status()).isIn(Status.UNAVAILABLE, Status.DEADLINE_EXCEEDED);
         assertThat(described.outcomes().entrySet())
                 .filteredOn(e -> !e.getKey().equals(cut))

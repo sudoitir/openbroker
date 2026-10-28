@@ -9,4 +9,4 @@ Verify SHALL return a result that states, for every node of the cluster, whether
 
 #### Scenario: One node cut
 - **WHEN** a consumer verifies a connection while one node of the cluster is cut off
-- **THEN** that node's outcome is a failure with `UNAVAILABLE` or `DEADLINE_EXCEEDED`, and every other node is applied or skipped
+- **THEN** that node's outcome is failed or in doubt, with a failure of `UNAVAILABLE` or `DEADLINE_EXCEEDED`, and every other node is applied or skipped

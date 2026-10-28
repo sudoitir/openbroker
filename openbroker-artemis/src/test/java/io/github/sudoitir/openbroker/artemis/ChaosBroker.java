@@ -29,10 +29,10 @@ import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.images.builder.Transferable;
 
 /**
- * One Artemis broker of the chaos tests, behind a Toxiproxy proxy on its Core port. Clients reach
- * Core through the proxy, whose port stays the same while the broker is killed and started, and
- * reach Jolokia on a host port that is fixed for the same reason. The proxy is cut with two toxics
- * that hold all traffic, so that a client sees a silent link and not a refused one.
+ * One Artemis broker of the chaos tests, behind Toxiproxy proxies on its Core and console ports.
+ * Clients reach Core and Jolokia through the proxies, whose ports stay the same while the broker is
+ * killed and started. A cut holds all traffic of both proxies with two toxics each, so that a client
+ * sees a silent link and not a refused one, whichever port it uses.
  */
 final class ChaosBroker {
 
@@ -47,17 +47,28 @@ final class ChaosBroker {
     private final NodeId id;
     private final GenericContainer<?> container;
     private final Proxy proxy;
+    private final Proxy consoleProxy;
     private final String proxyHost;
     private final int proxyPort;
+    private final int consoleProxyPort;
     private final int consolePort;
 
     private ChaosBroker(
-            NodeId id, GenericContainer<?> container, Proxy proxy, String proxyHost, int proxyPort, int consolePort) {
+            NodeId id,
+            GenericContainer<?> container,
+            Proxy proxy,
+            Proxy consoleProxy,
+            String proxyHost,
+            int proxyPort,
+            int consoleProxyPort,
+            int consolePort) {
         this.id = id;
         this.container = container;
         this.proxy = proxy;
+        this.consoleProxy = consoleProxy;
         this.proxyHost = proxyHost;
         this.proxyPort = proxyPort;
+        this.consoleProxyPort = consoleProxyPort;
         this.consolePort = consolePort;
     }
 
@@ -67,6 +78,7 @@ final class ChaosBroker {
      * @param volume a named Docker volume to keep the journal on, or empty for the container's own
      * @param haPolicy the {@code ha-policy} element, or empty for a broker that is on its own
      * @param proxy the proxy to this broker's Core port, already created on {@code alias}
+     * @param consoleProxy the proxy to this broker's console port, already created on {@code alias}
      */
     static ChaosBroker start(
             NodeId id,
@@ -76,8 +88,10 @@ final class ChaosBroker {
             String haPolicy,
             String ready,
             Proxy proxy,
+            Proxy consoleProxy,
             String proxyHost,
-            int proxyPort) {
+            int proxyPort,
+            int consoleProxyPort) {
         int consolePort = freePort();
         String broker = read("chaos/broker.xml")
                 .replace("@HA_POLICY@", haPolicy)
@@ -99,7 +113,11 @@ final class ChaosBroker {
                 })
                 .waitingFor(Wait.forLogMessage(".*" + ready + ".*", 1).withStartupTimeout(Duration.ofMinutes(2)));
         container.start();
-        return new ChaosBroker(id, container, proxy, proxyHost, proxyPort, consolePort);
+        ChaosBroker started = new ChaosBroker(
+                id, container, proxy, consoleProxy, proxyHost, proxyPort, consoleProxyPort, consolePort);
+        // The log line says the console is up before Jolokia answers its first request.
+        started.awaitConsole();
+        return started;
     }
 
     /**
@@ -122,13 +140,15 @@ final class ChaosBroker {
         return id;
     }
 
-    /** The node as a connection names it: Jolokia direct, Core through the proxy. */
+    /** The node as a connection names it: Jolokia and Core through their proxies. */
     NodeSpec spec(String host) {
         return new NodeSpec(
                 id,
                 List.of(
                         Endpoint.of(
-                                Plane.MANAGEMENT, "jolokia", "http://" + host + ":" + consolePort + "/console/jolokia"),
+                                Plane.MANAGEMENT,
+                                "jolokia",
+                                "http://" + host + ":" + consoleProxyPort + "/console/jolokia"),
                         Endpoint.of(Plane.DATA, "core", "tcp://" + proxyHost + ":" + proxyPort)));
     }
 
@@ -156,10 +176,14 @@ final class ChaosBroker {
                 .getDockerClient()
                 .startContainerCmd(container.getContainerId())
                 .exec();
+        awaitConsole();
+    }
+
+    private void awaitConsole() {
         long deadline = System.nanoTime() + Duration.ofSeconds(90).toNanos();
         while (!consoleAnswers()) {
             if (System.nanoTime() > deadline) {
-                throw new IllegalStateException("Broker " + id + " did not come back");
+                throw new IllegalStateException("Broker " + id + " did not answer on its console");
             }
             sleep(250);
         }
@@ -167,9 +191,11 @@ final class ChaosBroker {
 
     void cut() {
         try {
-            if (proxy.toxics().getAll().isEmpty()) {
-                proxy.toxics().timeout(CUT_UP, ToxicDirection.UPSTREAM, 0);
-                proxy.toxics().timeout(CUT_DOWN, ToxicDirection.DOWNSTREAM, 0);
+            for (Proxy cut : List.of(proxy, consoleProxy)) {
+                if (cut.toxics().getAll().isEmpty()) {
+                    cut.toxics().timeout(CUT_UP, ToxicDirection.UPSTREAM, 0);
+                    cut.toxics().timeout(CUT_DOWN, ToxicDirection.DOWNSTREAM, 0);
+                }
             }
         } catch (IOException e) {
             throw new IllegalStateException("Cannot cut " + id, e);
@@ -178,8 +204,10 @@ final class ChaosBroker {
 
     void heal() {
         try {
-            for (var toxic : proxy.toxics().getAll()) {
-                toxic.remove();
+            for (Proxy healed : List.of(proxy, consoleProxy)) {
+                for (var toxic : healed.toxics().getAll()) {
+                    toxic.remove();
+                }
             }
         } catch (IOException e) {
             throw new IllegalStateException("Cannot heal " + id, e);
@@ -187,10 +215,12 @@ final class ChaosBroker {
     }
 
     void stop() {
-        try {
-            proxy.delete();
-        } catch (IOException | RuntimeException ignored) {
-            // The proxy goes with its container anyway.
+        for (Proxy gone : List.of(proxy, consoleProxy)) {
+            try {
+                gone.delete();
+            } catch (IOException | RuntimeException ignored) {
+                // The proxy goes with its container anyway.
+            }
         }
         container.stop();
     }
@@ -198,8 +228,8 @@ final class ChaosBroker {
     private boolean consoleAnswers() {
         try {
             String basic = Base64.getEncoder().encodeToString("artemis:artemis".getBytes(StandardCharsets.UTF_8));
-            HttpRequest request = HttpRequest.newBuilder(URI.create(
-                            "http://" + container.getHost() + ":" + consolePort + "/console/jolokia/version"))
+            HttpRequest request = HttpRequest.newBuilder(
+                            URI.create("http://" + proxyHost + ":" + consoleProxyPort + "/console/jolokia/version"))
                     .header("Authorization", "Basic " + basic)
                     .timeout(Duration.ofSeconds(2))
                     .build();

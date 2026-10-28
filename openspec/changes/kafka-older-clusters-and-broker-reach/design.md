@@ -102,7 +102,8 @@ controller-only nodes, and keeps every description.
 ### D5. TCK (additive)
 `OpenBrokerTck.verifyNamesEveryNodesOutcome`: on a healthy cluster every node has an outcome, each
 APPLIED or SKIPPED, and no failures. `ChaosTck.verifyReportsACutNodeAndTheRest` (skipped when
-`haRequest()` names fewer than two nodes): cut the last node, verify returns, the cut node FAILED with
+`haRequest()` names fewer than two nodes): cut the last node, verify returns, the cut node FAILED or
+IN_DOUBT (the Artemis driver reports a read that timed out as in doubt) with
 UNAVAILABLE or DEADLINE_EXCEEDED, the rest APPLIED or SKIPPED; heal in `finally`.
 
 ### D6. Fixtures and CI matrix
