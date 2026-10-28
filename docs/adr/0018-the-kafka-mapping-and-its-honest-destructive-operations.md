@@ -1,6 +1,6 @@
 # ADR-0018: The Kafka mapping and its honest destructive operations
 
-- **Status**: accepted
+- **Status**: accepted; classic-group point superseded by [ADR-0031](0031-kafka-3-0-and-later-declared-per-feature.md)
 - **Date**: 2026-10-27
 - **Deciders**: Mahdi Amirabdollahi
 
