@@ -44,10 +44,8 @@ class KafkaShareGroupsIT {
 
     @BeforeAll
     static void start() {
-        assumeTrue(
-                !KafkaTestCluster.image().startsWith("apache/kafka:4.0"),
-                "Share groups are a production feature from Kafka 4.2");
         kafka = KafkaTestCluster.shared();
+        assumeTrue(kafka.supports("share.version", 1), "Share groups are a production feature from Kafka 4.2");
         drivers = BrokerDrivers.load();
         connection = Kafka.connect(drivers, kafka);
         admin = Kafka.admin(kafka);

@@ -1,0 +1,268 @@
+package io.github.sudoitir.openbroker.kafka.admin;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import io.github.sudoitir.openbroker.BrokerException;
+import io.github.sudoitir.openbroker.ClusterSpec;
+import io.github.sudoitir.openbroker.ConnectOptions;
+import io.github.sudoitir.openbroker.CredentialSource;
+import io.github.sudoitir.openbroker.Deadline;
+import io.github.sudoitir.openbroker.Dispatch;
+import io.github.sudoitir.openbroker.Endpoint;
+import io.github.sudoitir.openbroker.ErrorReasons;
+import io.github.sudoitir.openbroker.NodeId;
+import io.github.sudoitir.openbroker.NodeOutcome;
+import io.github.sudoitir.openbroker.Partial;
+import io.github.sudoitir.openbroker.Plane;
+import io.github.sudoitir.openbroker.Status;
+import io.github.sudoitir.openbroker.Timeouts;
+import io.github.sudoitir.openbroker.kafka.KafkaOptions;
+import io.github.sudoitir.openbroker.model.Attributes;
+import io.github.sudoitir.openbroker.model.Membership;
+import io.github.sudoitir.openbroker.model.NodeDescription;
+import io.github.sudoitir.openbroker.model.NodeFunction;
+import io.github.sudoitir.openbroker.model.Serving;
+import io.github.sudoitir.openbroker.spi.DriverContext;
+import java.io.IOException;
+import java.net.ServerSocket;
+import java.time.Duration;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
+import org.junit.jupiter.api.Test;
+
+/** The checks of Reach that need no broker: names that do not resolve, closed ports, and nodes that are no broker. */
+class ReachTest {
+
+    private static DriverContext context(ConnectOptions options) {
+        return new DriverContext() {
+            @Override
+            public ConnectOptions options() {
+                return options;
+            }
+
+            @Override
+            public <T extends AutoCloseable> T shared(String key, Class<T> type, Supplier<T> factory) {
+                return factory.get();
+            }
+
+            @Override
+            public void evict(String key) {
+                // Nothing is shared in this test.
+            }
+        };
+    }
+
+    private static NodeDescription node(String id, Set<NodeFunction> functions, String address) {
+        return new NodeDescription(
+                NodeId.of(id),
+                id,
+                Membership.standalone(Serving.ACTIVE),
+                functions,
+                List.of(new Endpoint(Plane.DATA, KafkaOptions.PROTOCOL, address)),
+                Optional.empty(),
+                List.of(),
+                Attributes.empty(),
+                Optional.empty());
+    }
+
+    private static Partial<List<NodeDescription>> reach(NodeDescription... nodes) {
+        return reach(Duration.ofSeconds(10), null, nodes);
+    }
+
+    private static Partial<List<NodeDescription>> reach(Duration connect, Reach.Ask ask, NodeDescription... nodes) {
+        ClusterSpec spec = new ClusterSpec(
+                List.of(), List.of(Endpoint.of(Plane.DATA, KafkaOptions.PROTOCOL, "localhost:1")), Map.of());
+        ConnectOptions options = ConnectOptions.defaults().withTimeouts(Timeouts.fixed(connect, connect));
+        try (KafkaCluster cluster = new KafkaCluster(spec, CredentialSource.none(), context(options))) {
+            List<NodeDescription> all = List.of(nodes);
+            Partial<List<NodeDescription>> described = Partial.complete(
+                    all, all.stream().map(NodeDescription::node).toList());
+            Deadline deadline =
+                    Deadline.after(Duration.ofSeconds(10), cluster.options().clock());
+            return ask == null ? Reach.of(cluster, described, deadline) : Reach.of(cluster, described, deadline, ask);
+        }
+    }
+
+    /** Runs {@code body} on the outcome for a broker that accepts connections and is asked through {@code ask}. */
+    private static void listening(Duration connect, Reach.Ask ask, Consumer<Partial<List<NodeDescription>>> body)
+            throws IOException {
+        try (ServerSocket server = new ServerSocket(0)) {
+            NodeDescription broker = node("1", EnumSet.of(NodeFunction.BROKER), "127.0.0.1:" + server.getLocalPort());
+            body.accept(reach(connect, ask, broker));
+        }
+    }
+
+    private static BrokerException answered(Status status, String reason) {
+        return KafkaErrors.refused(status, reason, "answer");
+    }
+
+    @Test
+    void aBrokerThatAnswersEvenWithADenialWasReached() throws IOException {
+        listening(
+                Duration.ofSeconds(5),
+                (n, l) -> {
+                    throw answered(Status.PERMISSION_DENIED, ErrorReasons.NOT_AUTHORIZED);
+                },
+                result -> {
+                    assertThat(result.outcomes()).containsEntry(NodeId.of("1"), NodeOutcome.APPLIED);
+                    assertThat(result.failures()).isEmpty();
+                });
+        listening(
+                Duration.ofSeconds(5),
+                (n, l) -> {},
+                result -> assertThat(result.failures()).isEmpty());
+    }
+
+    @Test
+    void aTlsFailureAndRejectedCredentialsAreNamedWithTheirStatus() throws IOException {
+        listening(
+                Duration.ofSeconds(5),
+                (n, l) -> {
+                    throw answered(Status.UNAVAILABLE, ErrorReasons.TLS_HANDSHAKE_FAILED);
+                },
+                result -> {
+                    BrokerException failure = result.failures().get(NodeId.of("1"));
+                    assertThat(failure.reason()).isEqualTo(ErrorReasons.TLS_HANDSHAKE_FAILED);
+                    assertThat(failure.info().metadata()).containsEntry(Reach.FAILURE, "tls");
+                    assertThat(failure.dispatch()).isEqualTo(Dispatch.NOT_SENT);
+                });
+        listening(
+                Duration.ofSeconds(5),
+                (n, l) -> {
+                    throw answered(Status.UNAUTHENTICATED, ErrorReasons.CREDENTIALS_REJECTED);
+                },
+                result -> {
+                    BrokerException failure = result.failures().get(NodeId.of("1"));
+                    assertThat(failure.status()).isEqualTo(Status.UNAUTHENTICATED);
+                    assertThat(failure.info().metadata()).containsEntry(Reach.FAILURE, "authentication");
+                    assertThat(failure.getMessage()).contains("127.0.0.1:");
+                });
+    }
+
+    @Test
+    void aBrokerThatAcceptsAndDoesNotAnswerIsATimeout() throws IOException {
+        listening(
+                Duration.ofSeconds(5),
+                (n, l) -> {
+                    throw answered(Status.UNAVAILABLE, ErrorReasons.UNREACHABLE);
+                },
+                result -> {
+                    BrokerException failure = result.failures().get(NodeId.of("1"));
+                    assertThat(failure.info().metadata()).containsEntry(Reach.FAILURE, "timeout");
+                    assertThat(failure.getMessage()).contains("accepted a connection but did not answer in time");
+                });
+        listening(
+                Duration.ofSeconds(5),
+                (n, l) -> {
+                    throw answered(Status.DEADLINE_EXCEEDED, ErrorReasons.UNREACHABLE);
+                },
+                result -> assertThat(result.outcomes()).containsEntry(NodeId.of("1"), NodeOutcome.FAILED));
+    }
+
+    @Test
+    void aCheckThatOutlastsTheBudgetIsAbandonedAndNamesTheBudget() throws IOException {
+        long started = System.nanoTime();
+        listening(
+                Duration.ofMillis(300),
+                (n, l) -> {
+                    // Blocks until Reach gives up on the check and interrupts it.
+                    try {
+                        boolean released = new CountDownLatch(1).await(30, TimeUnit.SECONDS);
+                        assertThat(released).isFalse();
+                    } catch (InterruptedException _) {
+                        Thread.currentThread().interrupt();
+                    }
+                },
+                result -> {
+                    BrokerException failure = result.failures().get(NodeId.of("1"));
+                    assertThat(failure.info().metadata()).containsEntry(Reach.FAILURE, "timeout");
+                    assertThat(failure.getMessage()).contains("127.0.0.1:").contains("did not answer within 300 ms");
+                });
+        assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(5));
+    }
+
+    @Test
+    void aCheckThatBreaksIsAFailedBrokerNotAnException() throws IOException {
+        listening(
+                Duration.ofSeconds(5),
+                (n, l) -> {
+                    throw new IllegalStateException("boom");
+                },
+                result -> {
+                    assertThat(result.outcomes()).containsEntry(NodeId.of("1"), NodeOutcome.FAILED);
+                    assertThat(result.failures().get(NodeId.of("1")).getMessage())
+                            .contains("could not be checked");
+                });
+    }
+
+    @Test
+    void aNameThatDoesNotResolveIsAFailedBrokerThatSaysSo() {
+        NodeDescription unresolvable = node("2", EnumSet.of(NodeFunction.BROKER), "no-such-broker.invalid:9092");
+
+        Partial<List<NodeDescription>> result = reach(unresolvable);
+
+        assertThat(result.outcomes()).containsEntry(NodeId.of("2"), NodeOutcome.FAILED);
+        assertThat(result.value()).containsExactly(unresolvable);
+        BrokerException failure = result.failures().get(NodeId.of("2"));
+        assertThat(failure.status()).isEqualTo(Status.UNAVAILABLE);
+        assertThat(failure.dispatch()).isEqualTo(Dispatch.NOT_SENT);
+        assertThat(failure.getMessage())
+                .isEqualTo("Broker 2 advertises no-such-broker.invalid:9092, which does not resolve.");
+        assertThat(failure.info().metadata())
+                .containsEntry(Reach.ENDPOINT, "no-such-broker.invalid:9092")
+                .containsEntry(Reach.FAILURE, "dns");
+    }
+
+    @Test
+    void aPortNothingListensOnIsAFailedBrokerThatRefuses() throws IOException {
+        int closed;
+        try (ServerSocket probe = new ServerSocket(0)) {
+            closed = probe.getLocalPort();
+        }
+        NodeDescription refusing = node("1", EnumSet.of(NodeFunction.BROKER), "127.0.0.1:" + closed);
+
+        Partial<List<NodeDescription>> result = reach(refusing);
+
+        assertThat(result.outcomes()).containsEntry(NodeId.of("1"), NodeOutcome.FAILED);
+        assertThat(result.failures().get(NodeId.of("1")).info().metadata()).containsEntry(Reach.FAILURE, "refused");
+        assertThat(result.failures().get(NodeId.of("1")).getMessage()).contains("refuses connections");
+    }
+
+    @Test
+    void aControllerThatIsNoBrokerIsSkippedAndKeepsItsDescription() {
+        NodeDescription controller = node("9", EnumSet.of(NodeFunction.CONTROLLER), "controller:9093");
+
+        Partial<List<NodeDescription>> result = reach(controller);
+
+        assertThat(result.outcomes()).containsEntry(NodeId.of("9"), NodeOutcome.SKIPPED);
+        assertThat(result.failures()).isEmpty();
+        assertThat(result.value()).containsExactly(controller);
+    }
+
+    @Test
+    void oneUnreachedBrokerLeavesTheOthersDescribed() {
+        NodeDescription controller = node("9", EnumSet.of(NodeFunction.CONTROLLER), "controller:9093");
+        NodeDescription lost = node("2", EnumSet.of(NodeFunction.BROKER), "no-such-broker.invalid:9092");
+
+        Partial<List<NodeDescription>> result = reach(controller, lost);
+
+        assertThat(result.value()).containsExactly(controller, lost);
+        assertThat(result.outcomes())
+                .containsEntry(NodeId.of("9"), NodeOutcome.SKIPPED)
+                .containsEntry(NodeId.of("2"), NodeOutcome.FAILED);
+    }
+
+    @Test
+    void anIpv6LiteralLosesItsBrackets() {
+        assertThat(Reach.unbracketed("[::1]")).isEqualTo("::1");
+        assertThat(Reach.unbracketed("broker-1")).isEqualTo("broker-1");
+        assertThat(Reach.unbracketed("[")).isEqualTo("[");
+    }
+}

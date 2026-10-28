@@ -19,11 +19,15 @@ import io.github.sudoitir.openbroker.BrokerDrivers;
 import io.github.sudoitir.openbroker.BrokerException;
 import io.github.sudoitir.openbroker.ClusterConnection;
 import io.github.sudoitir.openbroker.ConnectRequest;
+import io.github.sudoitir.openbroker.ConnectionReport;
 import io.github.sudoitir.openbroker.CredentialSource;
 import io.github.sudoitir.openbroker.Credentials;
 import io.github.sudoitir.openbroker.Dispatch;
 import io.github.sudoitir.openbroker.ErrorReasons;
 import io.github.sudoitir.openbroker.NodeId;
+import io.github.sudoitir.openbroker.NodeOutcome;
+import io.github.sudoitir.openbroker.NodeSpec;
+import io.github.sudoitir.openbroker.Partial;
 import io.github.sudoitir.openbroker.Plane;
 import io.github.sudoitir.openbroker.Status;
 import io.github.sudoitir.openbroker.messaging.DeduplicationScope;
@@ -45,6 +49,7 @@ import io.github.sudoitir.openbroker.messaging.SendTarget;
 import io.github.sudoitir.openbroker.messaging.Sender;
 import io.github.sudoitir.openbroker.messaging.SenderOptions;
 import io.github.sudoitir.openbroker.messaging.Transport;
+import io.github.sudoitir.openbroker.model.NodeDescription;
 import io.github.sudoitir.openbroker.model.ResourceId;
 import io.github.sudoitir.openbroker.model.Scope;
 import io.github.sudoitir.openbroker.operation.Operation;
@@ -137,6 +142,31 @@ public abstract class ChaosTck {
         }
         connections.forEach(ClusterConnection::close);
         drivers.close();
+    }
+
+    // Reach.
+
+    /**
+     * Verifying a cluster with one node cut off returns within its deadline: the cut node is failed or in
+     * doubt, with a failure that is unavailable or past the deadline, and every other node is applied or
+     * skipped.
+     */
+    @Test
+    void verifyReportsACutNodeAndTheRest() {
+        ConnectRequest request = chaos.haRequest();
+        List<NodeSpec> nodes = request.cluster().nodes();
+        assumeTrue(nodes.size() >= 2, "The high-availability cluster names fewer than two nodes");
+        NodeId cut = nodes.get(nodes.size() - 1).id();
+        touched.add(cut);
+        chaos.cut(cut);
+        ConnectionReport report = drivers.verify(request);
+        Partial<List<NodeDescription>> described = report.nodes();
+        assertThat(described.outcomes().get(cut)).isIn(NodeOutcome.FAILED, NodeOutcome.IN_DOUBT);
+        assertThat(described.failures().get(cut).status()).isIn(Status.UNAVAILABLE, Status.DEADLINE_EXCEEDED);
+        assertThat(described.outcomes().entrySet())
+                .filteredOn(e -> !e.getKey().equals(cut))
+                .isNotEmpty()
+                .allSatisfy(e -> assertThat(e.getValue()).isIn(NodeOutcome.APPLIED, NodeOutcome.SKIPPED));
     }
 
     // Kill and restart.

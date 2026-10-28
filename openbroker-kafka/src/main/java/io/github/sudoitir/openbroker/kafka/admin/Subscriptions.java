@@ -95,11 +95,8 @@ abstract class Subscriptions implements Handler {
     }
 
     private boolean accepts(GroupListing listing) {
-        GroupType type = listing.type().orElse(GroupType.UNKNOWN);
-        return groupType.equals(type)
-                || (GroupType.CONSUMER.equals(groupType)
-                        && GroupType.CLASSIC.equals(type)
-                        && listing.isSimpleConsumerGroup());
+        GroupType type = GroupInfo.typeOf(listing);
+        return groupType.equals(type) || (GroupType.CONSUMER.equals(groupType) && GroupType.CLASSIC.equals(type));
     }
 
     private Map<String, GroupInfo> groups(Context context, Optional<String> only) {
@@ -107,7 +104,10 @@ abstract class Subscriptions implements Handler {
                 .filter(this::accepts)
                 .filter(g -> only.map(g.groupId()::equals).orElse(true))
                 .toList();
-        return GroupInfo.describe(context, listings);
+        Map<String, GroupInfo> described = GroupInfo.describe(context, listings);
+        // A classic group run by Kafka Streams is read-only: it is no subscription.
+        described.values().removeIf(g -> !g.manageable());
+        return described;
     }
 
     @Override
@@ -335,6 +335,18 @@ abstract class Subscriptions implements Handler {
         return offsets;
     }
 
+    /** An empty classic group names no assignor, so the preview says what a Kafka Streams application needs instead. */
+    private static Optional<AttributeChange> streamsNote(State s) {
+        return GroupType.CLASSIC.equals(s.group().type()) && s.group().members().isEmpty()
+                ? Optional.of(new AttributeChange(
+                        KafkaKinds.NOTE,
+                        Optional.empty(),
+                        Optional.of("If this group belongs to a Kafka Streams application, reset that application's"
+                                + " state with Kafka's application reset tool instead: moving offsets alone leaves its"
+                                + " state stores behind.")))
+                : Optional.empty();
+    }
+
     private static Optional<AttributeChange> members(State s) {
         return s.group().members().isEmpty()
                 ? Optional.empty()
@@ -360,6 +372,7 @@ abstract class Subscriptions implements Handler {
             records += before == null ? 0 : Math.abs(e.getValue() - before.offset());
         }
         members(s).ifPresent(diff::add);
+        streamsNote(s).ifPresent(diff::add);
         return new Preview(
                 diff,
                 Set.of(),
@@ -379,8 +392,8 @@ abstract class Subscriptions implements Handler {
         };
     }
 
-    /** Refuses to act on a group that has members: Kafka moves offsets only for an empty one. */
-    private static void requireEmpty(ResourceId id, GroupInfo group, String what) {
+    /** Refuses to act on a group that has members or is rebalancing: Kafka moves offsets only for an idle one. */
+    static void requireIdle(ResourceId id, GroupInfo group, String what) {
         if (!group.members().isEmpty()) {
             throw KafkaErrors.refused(
                     Status.FAILED_PRECONDITION,
@@ -391,11 +404,18 @@ abstract class Subscriptions implements Handler {
                                     .toList()
                             + ". Stop them first.");
         }
+        if (group.rebalancing()) {
+            throw KafkaErrors.refused(
+                    Status.FAILED_PRECONDITION,
+                    ErrorReasons.NOT_EMPTY,
+                    "Cannot " + what + " " + id + " while " + group.id() + " is rebalancing (" + group.state()
+                            + "). Try again once it settles.");
+        }
     }
 
     private OperationResult shift(Context context, ResourceId id, Scope scope, Position position) {
         State s = state(context, id);
-        requireEmpty(id, s.group(), "move the offsets of");
+        requireIdle(id, s.group(), "move the offsets of");
         Map<TopicPartition, Long> target = Seeks.resolve(context, Seeks.partitionsIn(scope, s.partitions()), position);
         if (target.isEmpty()) {
             return OperationResult.already();
@@ -419,7 +439,7 @@ abstract class Subscriptions implements Handler {
         if (!s.group().members().isEmpty()) {
             if (!delete.disconnectConsumers()
                     || GroupType.SHARE.equals(s.group().type())) {
-                requireEmpty(id, s.group(), "delete");
+                requireIdle(id, s.group(), "delete");
             }
             Groups.removeMembers(context, s.group().id());
         }

@@ -204,7 +204,7 @@ final class Groups implements Handler {
         return OperationResult.done();
     }
 
-    /** The group, if the driver changes its offsets; a classic or streams group is refused with why. */
+    /** The group, if the driver changes its offsets; a streams group is refused with why. */
     private GroupInfo manageable(Context context, ResourceId id) {
         GroupInfo info = info(context, id.name());
         if (!info.manageable()) {

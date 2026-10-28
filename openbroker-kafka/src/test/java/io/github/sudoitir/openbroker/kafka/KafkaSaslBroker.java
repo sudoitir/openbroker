@@ -25,7 +25,7 @@ public final class KafkaSaslBroker {
     /** The broker, started on first use and stopped when the JVM ends. */
     public static synchronized KafkaContainer broker() {
         if (broker == null) {
-            KafkaContainer container = new KafkaContainer(KafkaTestCluster.image())
+            KafkaContainer container = new KafkaContainer(KafkaTestCluster.kraftImage())
                     .withEnv(
                             "KAFKA_LISTENER_SECURITY_PROTOCOL_MAP",
                             "BROKER:PLAINTEXT,PLAINTEXT:SASL_PLAINTEXT,CONTROLLER:PLAINTEXT")

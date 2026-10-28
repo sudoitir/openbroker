@@ -8,18 +8,24 @@ import io.github.sudoitir.openbroker.Plane;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.clients.admin.FinalizedVersionRange;
+import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
+import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.kafka.KafkaContainer;
 import org.testcontainers.lifecycle.Startables;
 
 /**
- * A three-broker KRaft cluster in Docker, the one every Kafka integration test runs against. Each
- * broker is also a controller (combined roles), topics have three replicas and need two in sync,
- * and an out-of-sync replica can never become leader, so a test that stops a broker sees what a
- * production cluster would do. The image is the {@code kafka.image} system property, by default the
- * newest the driver is tested on.
+ * A three-broker cluster in Docker, the one every Kafka integration test runs against. On Apache
+ * Kafka's images it runs in KRaft mode and each broker is also a controller (combined roles); on a
+ * Confluent Platform image ({@code confluentinc/cp-kafka}) it runs in ZooKeeper mode, with one
+ * ZooKeeper server. Topics have three replicas and need two in sync, and an out-of-sync replica can
+ * never become leader, so a test that stops a broker sees what a production cluster would do. The
+ * image is the {@code kafka.image} system property, by default the newest the driver is tested on.
  */
 public final class KafkaTestCluster implements AutoCloseable {
 
@@ -28,13 +34,34 @@ public final class KafkaTestCluster implements AutoCloseable {
 
     public static final String DEFAULT_IMAGE = "apache/kafka:4.4.0";
 
+    /** The prefix of the images that run in ZooKeeper mode. */
+    private static final String ZOOKEEPER_IMAGE = "confluentinc/cp-kafka:";
+
     private static final int BROKERS = 3;
     private static final int CONTROLLER_PORT = 9094;
 
     private final Network network = Network.newNetwork();
-    private final List<KafkaContainer> brokers = new ArrayList<>();
+    private final List<GenericContainer<?>> brokers = new ArrayList<>();
+    private GenericContainer<?> zookeeper;
 
     private KafkaTestCluster(String image) {
+        if (zookeeperMode(image)) {
+            zookeeper = new GenericContainer<>(image.replace("cp-kafka", "cp-zookeeper"))
+                    .withNetwork(network)
+                    .withNetworkAliases("zookeeper")
+                    .withEnv("ZOOKEEPER_CLIENT_PORT", "2181")
+                    .withEnv("ZOOKEEPER_TICK_TIME", "2000")
+                    .waitingFor(Wait.forLogMessage(".*binding to port.*", 1));
+            for (int id = 1; id <= BROKERS; id++) {
+                String host = host(id);
+                brokers.add(new ZooKeeperKafkaBroker(image, host)
+                        .withSettings(zookeeperEnvironment(id))
+                        .withNetwork(network)
+                        .withNetworkAliases(host)
+                        .withCreateContainerCmdModifier(cmd -> cmd.withHostName(host)));
+            }
+            return;
+        }
         String voters = voters();
         for (int id = 1; id <= BROKERS; id++) {
             String host = host(id);
@@ -44,6 +71,16 @@ public final class KafkaTestCluster implements AutoCloseable {
                     .withCreateContainerCmdModifier(cmd -> cmd.withHostName(host))
                     .withEnv(environment(id, voters)));
         }
+    }
+
+    /** Whether {@code image} runs a ZooKeeper-mode cluster. */
+    static boolean zookeeperMode(String image) {
+        return image.startsWith(ZOOKEEPER_IMAGE);
+    }
+
+    /** The image of a KRaft broker: the build's, or the default where the build runs ZooKeeper mode. */
+    public static String kraftImage() {
+        return zookeeperMode(image()) ? DEFAULT_IMAGE : image();
     }
 
     /** The image the tests run on. */
@@ -74,6 +111,9 @@ public final class KafkaTestCluster implements AutoCloseable {
     public static KafkaTestCluster start(String image) {
         KafkaTestCluster cluster = new KafkaTestCluster(image);
         try {
+            if (cluster.zookeeper != null) {
+                cluster.zookeeper.start();
+            }
             Startables.deepStart(cluster.brokers).join();
         } catch (RuntimeException e) {
             cluster.close();
@@ -123,14 +163,64 @@ public final class KafkaTestCluster implements AutoCloseable {
                 Map.entry("KAFKA_HEAP_OPTS", "-Xms128m -Xmx384m"));
     }
 
+    /** The settings of a ZooKeeper-mode broker: the same durability as the KRaft brokers, with ZooKeeper's authorizer. */
+    static Map<String, String> zookeeperEnvironment(int id) {
+        return Map.ofEntries(
+                Map.entry("KAFKA_BROKER_ID", String.valueOf(id)),
+                Map.entry("KAFKA_ZOOKEEPER_CONNECT", "zookeeper:2181"),
+                Map.entry("KAFKA_DEFAULT_REPLICATION_FACTOR", String.valueOf(BROKERS)),
+                Map.entry("KAFKA_MIN_INSYNC_REPLICAS", "2"),
+                Map.entry("KAFKA_UNCLEAN_LEADER_ELECTION_ENABLE", "false"),
+                Map.entry("KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR", String.valueOf(BROKERS)),
+                Map.entry("KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR", String.valueOf(BROKERS)),
+                Map.entry("KAFKA_TRANSACTION_STATE_LOG_MIN_ISR", "2"),
+                Map.entry("KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS", "0"),
+                Map.entry("KAFKA_AUTHORIZER_CLASS_NAME", "kafka.security.authorizer.AclAuthorizer"),
+                Map.entry("KAFKA_ALLOW_EVERYONE_IF_NO_ACL_FOUND", "true"),
+                Map.entry("KAFKA_SUPER_USERS", "User:ANONYMOUS"),
+                Map.entry("KAFKA_HEAP_OPTS", "-Xms128m -Xmx384m"));
+    }
+
     /** The brokers, node ids 1 to 3 in order. */
-    public List<KafkaContainer> brokers() {
+    public List<GenericContainer<?>> brokers() {
         return List.copyOf(brokers);
+    }
+
+    /** Whether the cluster keeps its metadata in ZooKeeper. */
+    public boolean zookeeperMode() {
+        return zookeeper != null;
+    }
+
+    /** The address a client outside Docker bootstraps from for broker {@code index}, counted from 0. */
+    public String bootstrapServers(int index) {
+        GenericContainer<?> broker = brokers.get(index);
+        return broker instanceof ZooKeeperKafkaBroker zk
+                ? zk.getBootstrapServers()
+                : ((KafkaContainer) broker).getBootstrapServers();
     }
 
     /** The brokers' addresses as a client outside Docker reaches them. */
     public String bootstrapServers() {
-        return brokers.stream().map(KafkaContainer::getBootstrapServers).collect(Collectors.joining(","));
+        return IntStream.range(0, brokers.size())
+                .mapToObj(this::bootstrapServers)
+                .collect(Collectors.joining(","));
+    }
+
+    /** Whether the cluster has finalized {@code feature} at {@code level} or more, such as {@code share.version}. */
+    public boolean supports(String feature, int level) {
+        try (Admin admin = Admin.create(Map.of("bootstrap.servers", bootstrapServers()))) {
+            FinalizedVersionRange finalized = admin.describeFeatures()
+                    .featureMetadata()
+                    .get()
+                    .finalizedFeatures()
+                    .get(feature);
+            return finalized != null && finalized.maxVersionLevel() >= level;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(e);
+        } catch (ExecutionException e) {
+            throw new IllegalStateException(e.getCause());
+        }
     }
 
     /** What a caller of the driver passes to reach this cluster. */
@@ -139,15 +229,17 @@ public final class KafkaTestCluster implements AutoCloseable {
         for (int i = 0; i < brokers.size(); i++) {
             nodes.add(new NodeSpec(
                     NodeId.of(String.valueOf(i + 1)),
-                    List.of(Endpoint.of(
-                            Plane.DATA, KafkaOptions.PROTOCOL, brokers.get(i).getBootstrapServers()))));
+                    List.of(Endpoint.of(Plane.DATA, KafkaOptions.PROTOCOL, bootstrapServers(i)))));
         }
         return new ClusterSpec(nodes, List.of(), Map.of());
     }
 
     @Override
     public void close() {
-        brokers.forEach(KafkaContainer::stop);
+        brokers.forEach(GenericContainer::stop);
+        if (zookeeper != null) {
+            zookeeper.stop();
+        }
         network.close();
     }
 }

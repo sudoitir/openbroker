@@ -33,6 +33,7 @@ import javax.net.ssl.SSLEngine;
 import javax.security.auth.callback.Callback;
 import javax.security.auth.callback.NameCallback;
 import javax.security.auth.callback.PasswordCallback;
+import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.common.security.oauthbearer.OAuthBearerTokenCallback;
 import org.junit.jupiter.api.Test;
 
@@ -275,6 +276,19 @@ class KafkaClusterTest {
             assertThat(cluster.clientConfig(Plane.MANAGEMENT))
                     .containsEntry("request.timeout.ms", 10_000)
                     .containsEntry("socket.connection.setup.timeout.ms", 3_000);
+        }
+    }
+
+    @Test
+    void theNativeAdminViewIgnoresCloseAndKeepsWorking() {
+        try (KafkaCluster cluster =
+                cluster(spec(Map.of(), "localhost:9092"), CredentialSource.none(), ConnectOptions.defaults())) {
+            Admin view = cluster.nativeAdmin();
+
+            view.close();
+
+            assertThat(view.metrics()).isNotNull();
+            assertThat(cluster.nativeAdmin().metrics()).isNotNull();
         }
     }
 }

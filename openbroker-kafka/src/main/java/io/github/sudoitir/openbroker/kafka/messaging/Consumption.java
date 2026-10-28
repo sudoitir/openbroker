@@ -29,6 +29,7 @@ import org.apache.kafka.clients.consumer.ConsumerGroupMetadata;
 import org.apache.kafka.clients.consumer.ConsumerRebalanceListener;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
+import org.apache.kafka.clients.consumer.CooperativeStickyAssignor;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
@@ -143,7 +144,14 @@ final class Consumption implements Consuming {
         Map<String, Object> config = new HashMap<>(cluster.clientConfig(Plane.DATA));
         config.put(ConsumerConfig.CLIENT_ID_CONFIG, config.get(ConsumerConfig.CLIENT_ID_CONFIG) + "-" + id);
         config.put(ConsumerConfig.GROUP_ID_CONFIG, settings.group());
-        config.put(ConsumerConfig.GROUP_PROTOCOL_CONFIG, "consumer");
+        if (cluster.features().consumerProtocol()) {
+            config.put(ConsumerConfig.GROUP_PROTOCOL_CONFIG, "consumer");
+        } else {
+            // Where the cluster lacks the consumer protocol, Kafka's own classic protocol with its
+            // incremental assignor revokes partitions the same way: this is not an emulation.
+            config.put(ConsumerConfig.GROUP_PROTOCOL_CONFIG, "classic");
+            config.put(ConsumerConfig.PARTITION_ASSIGNMENT_STRATEGY_CONFIG, CooperativeStickyAssignor.class.getName());
+        }
         config.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
         config.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
         config.put(ConsumerConfig.ISOLATION_LEVEL_CONFIG, "read_committed");

@@ -33,11 +33,15 @@ public record ShareFeatures(int shareVersion, int supported, boolean production)
 
     /** Reads the features of the cluster. */
     public static ShareFeatures read(KafkaCluster cluster) {
-        FeatureMetadata metadata = cluster.call(
+        return of(cluster.call(
                 "features.read",
                 Optional.empty(),
                 Deadlines.current(cluster.options()),
-                (admin, await) -> await.get(admin.describeFeatures().featureMetadata()));
+                (admin, await) -> await.get(admin.describeFeatures().featureMetadata())));
+    }
+
+    /** What the features a cluster reported say of share groups. */
+    public static ShareFeatures of(FeatureMetadata metadata) {
         FinalizedVersionRange finalized = metadata.finalizedFeatures().get(FEATURE);
         SupportedVersionRange supported = metadata.supportedFeatures().get(FEATURE);
         SupportedVersionRange level = metadata.supportedFeatures().get(METADATA);

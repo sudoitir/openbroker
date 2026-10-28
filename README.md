@@ -17,7 +17,7 @@ Status: pre-release (`0.x`). The API may change between minor versions until 1.0
 | `openbroker-support` | Shared helpers for drivers and consumers: the portable filter dialect, polling notifications, counter rates. |
 | `openbroker-tck` | Abstract JUnit contract tests a driver extends. |
 | `openbroker-artemis` | The Apache ActiveMQ Artemis driver: management over Jolokia, messages and notifications over Core. |
-| `openbroker-kafka` | The Apache Kafka driver (4.0 and later): management over Admin, messages over the producer, consumer and share consumer. |
+| `openbroker-kafka` | The Apache Kafka driver (3.0 and later): management over Admin, messages over the producer, consumer and share consumer. |
 | `openbroker-opentelemetry` | Optional: maps the messaging observer to OpenTelemetry spans, metrics and W3C trace context. |
 | `openbroker-spring-boot-starter` | Optional: everything a Spring Boot 4 application needs; add the drivers it uses. |
 | `openbroker-spring-boot-autoconfigure` | Optional: the auto-configuration behind the starter. |
@@ -85,8 +85,9 @@ try (BrokerDrivers drivers = BrokerDrivers.load();
   etag; `execute(…, Precondition.ifMatch(etag))` refuses if the resource changed in between.
 - **Results are honest.** A cluster-wide call returns a `Partial` naming each node's outcome. An
   error is a `BrokerException` with a gRPC status, a reason, and whether the request was sent.
-- **What only one system has** is reached through `cluster.unwrap(…)`, for Artemis
-  `ArtemisManagement`.
+- **What only one system has** is reached through `cluster.unwrap(…)`: for Artemis
+  `ArtemisManagement`, for Kafka its `Admin` client. The connection owns the `Admin`; closing the view
+  it hands out does nothing, and its calls bypass the `CallInterceptor`.
 
 ## Messaging
 
@@ -149,22 +150,39 @@ resent. The dedupe window is reported by `Sender.deduplication()`.
 
 ## Kafka
 
-`openbroker-kafka` supports Apache Kafka 4.0 and later in KRaft mode, and refuses an older cluster when
-it connects. It uses `kafka-clients` alone and the consumer group protocol (KIP-848).
+`openbroker-kafka` supports Apache Kafka 3.0 and later, in ZooKeeper and KRaft mode, and refuses an older
+cluster when it connects. It uses `kafka-clients` alone. What a cluster lacks is declared per feature, with
+its reason, and never emulated:
+
+| Capability | Needs | Otherwise |
+| --- | --- | --- |
+| `kafka.quorum` | KRaft mode | The quorum is not described; node health carries no voter state |
+| `kafka.consumer-protocol-groups` | Kafka 4.0 with `group.version` 1 | Processors join with Kafka's classic protocol and its cooperative assignor |
+| `kafka.share-groups` | Kafka 4.2 with `share.version` 1 | The share-group kind is not declared |
+| `kafka.streams-groups` | `streams.version` 1 | Streams groups are not listed |
+| `kafka.fenced-brokers` | KRaft and Kafka 4.0 | A fenced broker is missing from the nodes instead of shown as fenced |
+| `kafka.eligible-leaders` | `eligible.leader.replicas.version` 1 | Partitions carry no `kafka.elr` attributes |
+
+`verify` checks every broker on the address it advertises, in parallel and within the connect timeout, and
+names each unreached broker and why (the name does not resolve, the connection is refused or times out, TLS
+or authentication fails). On a ZooKeeper cluster before Kafka 3.3 with a broker down, the check that tells
+the release fans out to every broker and fails, so `verify` fails as unreachable instead of naming the
+broker.
 
 - **Resources.** Brokers are nodes; topics, partitions, consumer groups, share groups, ACLs and
-  transactional ids are kinds. Classic and streams groups are listed read-only, because their offsets
-  belong to the applications that run them. Changes are watched by polling, every `watch.interval`
+  transactional ids are kinds. Streams groups, and classic groups run by Kafka Streams, are listed
+  read-only, because their offsets belong to the applications that run them. Changes are watched by polling, every `watch.interval`
   (ten seconds by default), including consumers joining and leaving a subscription.
 - **Lag and counts are estimates.** Offset arithmetic overcounts on compacted and transactional
   topics, so every total says so.
 - **Destructive operations are honest.** Purge and seek reset a group's committed offsets and fail
-  `FAILED_PRECONDITION` while the group has members, without removing them. Truncate deletes records
+  `FAILED_PRECONDITION` while the group has members or is rebalancing, without removing them; an empty
+  classic group can be rewound too. Truncate deletes records
   before an offset, with a preview, and is refused on a compacted topic. Moving, copying or deleting
   one message is unavailable, because a log cannot remove one record.
 - **Browsing** reads committed records without joining a group.
 - **Messaging.** Senders deduplicate within the producer session (`DeduplicationScope.SESSION`).
-  Processors on a consumer group settle by committing offsets, keep per-key order in lanes, and join
+  Processors on a consumer or classic group settle by committing offsets, keep per-key order in lanes, and join
   transactions (KIP-447). A retry that is ordered, transacted or the default happens in place; an
   explicitly managed, unordered policy uses one retry topic per backoff step (`<topic>.retry-<n>`).
   Exhausted records go to `<topic>.dlt`. The processor refuses to open when a retry or dead-letter
@@ -290,6 +308,7 @@ The design is recorded in [`docs/adr/`](docs/adr/).
 - [0015](docs/adr/0015-telemetry-goes-through-a-hook-with-opentelemetry-in-an-optional-module.md) Telemetry goes through a hook, with OpenTelemetry in an optional module
 - [0016](docs/adr/0016-performance-budgets-are-enforced-in-ci.md) Performance budgets are enforced in CI
 - [0017](docs/adr/0017-chaos-is-part-of-the-tck.md) Chaos is part of the TCK
+- [0031](docs/adr/0031-kafka-3-0-and-later-declared-per-feature.md) Kafka 3.0 and later, declared per feature
 - [0019](docs/adr/0019-kafka-settles-by-offset-and-runs-keys-in-lanes.md) Kafka settles by offset and runs keys in lanes
 - [0018](docs/adr/0018-the-kafka-mapping-and-its-honest-destructive-operations.md) The Kafka mapping and its honest destructive operations
 - [0020](docs/adr/0020-deduplication-is-declared-as-a-scope.md) Deduplication is declared as a scope

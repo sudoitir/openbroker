@@ -90,7 +90,7 @@ class KafkaResourcesIT {
         boolean declared =
                 connection.resources().kinds().stream().anyMatch(k -> k.id().equals(KafkaKinds.SHARE_GROUP_TOPIC));
 
-        assertThat(declared).isEqualTo(!KafkaTestCluster.image().startsWith("apache/kafka:4.0"));
+        assertThat(declared).isEqualTo(kafka.supports("share.version", 1));
     }
 
     @Test

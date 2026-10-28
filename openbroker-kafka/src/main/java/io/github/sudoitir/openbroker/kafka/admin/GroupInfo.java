@@ -29,7 +29,6 @@ import org.apache.kafka.common.Node;
 record GroupInfo(
         String id,
         GroupType type,
-        boolean simple,
         GroupState state,
         OptionalInt epoch,
         List<Member> members,
@@ -39,6 +38,13 @@ record GroupInfo(
 
     static final String OWNED_BY_APPLICATION =
             "Its offsets belong to the application that runs it, so this driver reads them and does not change them.";
+
+    static final String OWNED_BY_STREAMS_APPLICATION =
+            "It is run by a Kafka Streams application, which owns its offsets and state, so this driver reads them and"
+                    + " does not change them.";
+
+    /** The assignor a Kafka Streams application's classic group names. */
+    private static final String STREAMS_ASSIGNOR = "stream";
 
     /** A running member of a group, as an operator names it. */
     record Member(String id, String clientId, String host, Set<String> topics) {
@@ -61,16 +67,34 @@ record GroupInfo(
         return new ResourceId(KafkaKinds.GROUP, ResourcePath.of(group));
     }
 
-    /** Whether the driver manages this group's offsets: consumer groups, groups made by an offset commit alone, and share groups. */
+    /**
+     * Whether the driver manages this group's offsets: consumer, classic and share groups. A streams group, and
+     * a classic group whose assignor is Kafka Streams', belong to their application.
+     */
     boolean manageable() {
-        return GroupType.CONSUMER.equals(type)
-                || GroupType.SHARE.equals(type)
-                || (GroupType.CLASSIC.equals(type) && simple);
+        return (GroupType.CONSUMER.equals(type) || GroupType.SHARE.equals(type) || GroupType.CLASSIC.equals(type))
+                && !STREAMS_ASSIGNOR.equals(assignor);
     }
 
     /** Why the driver does not change this group's offsets; empty when it does. */
     String readOnlyReason() {
-        return manageable() ? "" : OWNED_BY_APPLICATION;
+        if (manageable()) {
+            return "";
+        }
+        return GroupType.STREAMS.equals(type) ? OWNED_BY_APPLICATION : OWNED_BY_STREAMS_APPLICATION;
+    }
+
+    /** A group's type; a cluster before Kafka 3.7 does not list one, and its groups are classic. */
+    static GroupType typeOf(GroupListing listing) {
+        return listing.type().orElse(GroupType.CLASSIC);
+    }
+
+    /** Whether the group is rebalancing: its membership is about to change. */
+    boolean rebalancing() {
+        return switch (state) {
+            case PREPARING_REBALANCE, COMPLETING_REBALANCE, ASSIGNING, RECONCILING -> true;
+            default -> false;
+        };
     }
 
     static List<GroupListing> list(Context context) {
@@ -89,7 +113,7 @@ record GroupInfo(
         Map<String, GroupListing> byId = new HashMap<>();
         for (GroupListing listing : listings) {
             byId.put(listing.groupId(), listing);
-            switch (listing.type().orElse(GroupType.UNKNOWN).toString()) {
+            switch (typeOf(listing).toString()) {
                 case "Share" -> shares.add(listing.groupId());
                 case "Streams" -> streams.add(listing.groupId());
                 case "Unknown" -> {}
@@ -134,7 +158,6 @@ record GroupInfo(
         return new GroupInfo(
                 d.groupId(),
                 d.type(),
-                d.isSimpleConsumerGroup(),
                 d.groupState(),
                 d.groupEpoch().map(OptionalInt::of).orElse(OptionalInt.empty()),
                 members,
@@ -155,7 +178,6 @@ record GroupInfo(
         return new GroupInfo(
                 d.groupId(),
                 GroupType.SHARE,
-                false,
                 d.groupState(),
                 OptionalInt.of(d.groupEpoch()),
                 members,
@@ -172,7 +194,6 @@ record GroupInfo(
         return new GroupInfo(
                 d.groupId(),
                 GroupType.STREAMS,
-                false,
                 d.groupState(),
                 OptionalInt.of(d.groupEpoch()),
                 members,

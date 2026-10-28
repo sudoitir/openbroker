@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import org.apache.kafka.clients.admin.Admin;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -101,6 +102,18 @@ class KafkaConnectionIT {
     }
 
     @Test
+    void aConnectionUnwrapsToKafkasAdminAndNothingElse() throws Exception {
+        try (ClusterConnection connection = drivers.connect(request(kafka.spec(), ConnectOptions.defaults()))) {
+            Admin admin = connection.unwrap(Admin.class).orElseThrow();
+
+            assertThat(admin.describeCluster().clusterId().get()).isNotBlank();
+            admin.close();
+            assertThat(admin.describeCluster().nodes().get()).hasSize(3);
+            assertThat(connection.unwrap(String.class)).isEmpty();
+        }
+    }
+
+    @Test
     void aScopeNamesNodesAndAnUnknownNodeFailsAlone() {
         try (ClusterConnection connection = drivers.connect(request(kafka.spec(), ConnectOptions.defaults()))) {
             var result = connection
@@ -119,10 +132,7 @@ class KafkaConnectionIT {
     void anyOneBrokerIsEnoughToReachTheCluster() {
         ClusterSpec one = new ClusterSpec(
                 List.of(),
-                List.of(Endpoint.of(
-                        Plane.DATA,
-                        KafkaOptions.PROTOCOL,
-                        kafka.brokers().get(2).getBootstrapServers())),
+                List.of(Endpoint.of(Plane.DATA, KafkaOptions.PROTOCOL, kafka.bootstrapServers(2))),
                 Map.of(KafkaOptions.CLIENT_ID, "openbroker-it"));
 
         assertThat(drivers.verify(request(one, ConnectOptions.defaults()))

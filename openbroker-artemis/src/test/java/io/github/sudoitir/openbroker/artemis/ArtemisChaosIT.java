@@ -45,8 +45,9 @@ class ArtemisChaosIT extends ChaosTck {
     private static final NodeId PRIMARY = NodeId.of("primary");
     private static final NodeId BACKUP = NodeId.of("backup");
     private static final int FIRST_PROXY_PORT = 8666;
-    private static final int PROXY_PORTS = 32;
+    private static final int PROXY_PORTS = 64;
     private static final int CORE = 61616;
+    private static final int CONSOLE = 8161;
 
     private static final String PRIMARY_POLICY = policy("primary", "");
     private static final String BACKUP_POLICY = policy("backup", "<allow-failback>true</allow-failback>");
@@ -240,11 +241,14 @@ class ArtemisChaosIT extends ChaosTck {
 
     private static ChaosBroker broker(NodeId id, String alias, Optional<String> volume, String haPolicy, String ready) {
         int listen = nextProxyPort++;
-        if (listen >= FIRST_PROXY_PORT + PROXY_PORTS) {
+        int consoleListen = nextProxyPort++;
+        if (consoleListen >= FIRST_PROXY_PORT + PROXY_PORTS) {
             throw new IllegalStateException("The Toxiproxy container exposes no more ports");
         }
         try {
             Proxy proxy = proxies.createProxy(alias, "0.0.0.0:" + listen, alias + ":" + CORE);
+            Proxy consoleProxy =
+                    proxies.createProxy(alias + "-console", "0.0.0.0:" + consoleListen, alias + ":" + CONSOLE);
             return ChaosBroker.start(
                     id,
                     alias,
@@ -253,8 +257,10 @@ class ArtemisChaosIT extends ChaosTck {
                     haPolicy,
                     ready,
                     proxy,
+                    consoleProxy,
                     toxiproxy.getHost(),
-                    toxiproxy.getMappedPort(listen));
+                    toxiproxy.getMappedPort(listen),
+                    toxiproxy.getMappedPort(consoleListen));
         } catch (IOException e) {
             throw new IllegalStateException("Cannot proxy " + alias, e);
         }

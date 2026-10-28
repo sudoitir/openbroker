@@ -56,8 +56,7 @@ final class SaslKafka implements AutoCloseable {
         String jaas = "org.apache.kafka.common.security.plain.PlainLoginModule required user_" + ADMIN + "=\""
                 + ADMIN_PASSWORD + "\" user_" + APP + "=\"" + APP_PASSWORD + "\" user_" + LIMITED + "=\""
                 + LIMITED_PASSWORD + "\" user_" + LOCKED + "=\"" + LOCKED_PASSWORD + "\";";
-        this.container = new GenericContainer<>(
-                        System.getProperty(KafkaTestCluster.IMAGE_PROPERTY, KafkaTestCluster.DEFAULT_IMAGE))
+        this.container = new GenericContainer<>(KafkaTestCluster.kraftImage())
                 .withEnv(Map.ofEntries(
                         Map.entry("KAFKA_NODE_ID", "1"),
                         Map.entry("KAFKA_PROCESS_ROLES", "broker,controller"),
