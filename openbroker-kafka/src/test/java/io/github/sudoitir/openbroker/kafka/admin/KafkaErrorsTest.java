@@ -8,6 +8,7 @@ import io.github.sudoitir.openbroker.ErrorReasons;
 import io.github.sudoitir.openbroker.Status;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.errors.GroupAuthorizationException;
+import org.apache.kafka.common.errors.NotLeaderOrFollowerException;
 import org.apache.kafka.common.errors.SaslAuthenticationException;
 import org.apache.kafka.common.errors.SslAuthenticationException;
 import org.apache.kafka.common.errors.TimeoutException;
@@ -16,6 +17,15 @@ import org.apache.kafka.common.errors.UnknownTopicOrPartitionException;
 import org.junit.jupiter.api.Test;
 
 class KafkaErrorsTest {
+
+    @Test
+    void aWriteTheClusterCouldNotTakeIsUnavailableAndInDoubt() {
+        BrokerException e = KafkaErrors.of(new NotLeaderOrFollowerException("moved"), null);
+
+        assertThat(e.status()).isEqualTo(Status.UNAVAILABLE);
+        assertThat(e.reason()).isEqualTo(ErrorReasons.UNREACHABLE);
+        assertThat(e.dispatch()).isEqualTo(Dispatch.IN_DOUBT);
+    }
 
     @Test
     void rejectedCredentialsAreUnauthenticatedAndNeverSent() {

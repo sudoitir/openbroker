@@ -19,27 +19,15 @@ final class Producers {
 
     private Producers() {}
 
-    /**
-     * A producer for a guarantee.
-     *
-     * <ul>
-     *   <li>{@code AT_MOST_ONCE}: {@code acks=1}, no idempotence.
-     *   <li>{@code AT_LEAST_ONCE}: {@code acks=all} with idempotence, so the client's own retries
-     *       neither duplicate nor reorder.
-     *   <li>{@code TRANSACTED}: as at least once, with {@code transactionalId}.
-     * </ul>
-     */
-    static KafkaProducer<byte[], byte[]> create(
-            KafkaCluster cluster, Guarantee guarantee, @Nullable String transactionalId) {
-        Map<String, Object> config = new HashMap<>(cluster.clientConfig(Plane.DATA));
-        config.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class);
-        config.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class);
-        config.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, (int)
-                Math.min(cluster.options().timeouts().call().toMillis(), Integer.MAX_VALUE));
+    /** Sets the producer settings a guarantee needs. */
+    static void guarantee(Map<String, Object> config, Guarantee guarantee, @Nullable String transactionalId) {
         switch (guarantee) {
             case AT_MOST_ONCE -> {
                 config.put(ProducerConfig.ACKS_CONFIG, "1");
                 config.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, false);
+                // Without idempotence the client's own retries write a batch again when its acknowledgement
+                // was lost, so a message that was not confirmed would be stored twice.
+                config.put(ProducerConfig.RETRIES_CONFIG, 0);
             }
             case AT_LEAST_ONCE -> {
                 config.put(ProducerConfig.ACKS_CONFIG, "all");
@@ -54,6 +42,26 @@ final class Producers {
                 config.put(ProducerConfig.TRANSACTION_TIMEOUT_CONFIG, TRANSACTION_TIMEOUT_MS);
             }
         }
+    }
+
+    /**
+     * A producer for a guarantee.
+     *
+     * <ul>
+     *   <li>{@code AT_MOST_ONCE}: {@code acks=1}, no idempotence and no client retries.
+     *   <li>{@code AT_LEAST_ONCE}: {@code acks=all} with idempotence, so the client's own retries
+     *       neither duplicate nor reorder.
+     *   <li>{@code TRANSACTED}: as at least once, with {@code transactionalId}.
+     * </ul>
+     */
+    static KafkaProducer<byte[], byte[]> create(
+            KafkaCluster cluster, Guarantee guarantee, @Nullable String transactionalId) {
+        Map<String, Object> config = new HashMap<>(cluster.clientConfig(Plane.DATA));
+        config.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class);
+        config.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class);
+        config.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, (int)
+                Math.min(cluster.options().timeouts().call().toMillis(), Integer.MAX_VALUE));
+        guarantee(config, guarantee, transactionalId);
         return new KafkaProducer<>(config);
     }
 }

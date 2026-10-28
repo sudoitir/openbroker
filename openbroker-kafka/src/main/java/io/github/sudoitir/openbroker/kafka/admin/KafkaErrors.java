@@ -17,6 +17,7 @@ import org.apache.kafka.common.errors.InvalidConfigurationException;
 import org.apache.kafka.common.errors.InvalidPartitionsException;
 import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.errors.NetworkException;
+import org.apache.kafka.common.errors.RetriableException;
 import org.apache.kafka.common.errors.SslAuthenticationException;
 import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.errors.TopicExistsException;
@@ -134,6 +135,9 @@ public final class KafkaErrors {
             case TimeoutException e -> unreachable();
             case DisconnectException e -> unreachable();
             case NetworkException e -> unreachable();
+            // A leader that moved or is not yet elected, too few replicas in sync: the cluster could not take the
+            // write.
+            case RetriableException e -> unreachable();
             default ->
                 new Mapped(
                         Status.INTERNAL,
