@@ -164,9 +164,8 @@ public final class KafkaNodes implements Nodes {
                             .quorumInfo()),
                     null);
         } catch (BrokerException e) {
-            if (e.status() == Status.DEADLINE_EXCEEDED) {
-                throw e;
-            }
+            // The quorum is answered by its leader, which may be the broker that cannot be reached: the
+            // nodes are still described, without the quorum, and a call out of time fails at its next read.
             return new Quorum(null, e.getMessage());
         }
     }
@@ -207,7 +206,7 @@ public final class KafkaNodes implements Nodes {
             Attributes.Builder attributes = Attributes.builder()
                     .putRaw(CLUSTER_ID, clusterId)
                     .putRaw(CLUSTER_VERSION, features.release())
-                    .putRaw(CLUSTER_MODE, features.kraft() ? "kraft" : "zookeeper");
+                    .putRaw(CLUSTER_MODE, features.mode().attribute());
             if (broker.hasRack()) {
                 attributes.putRaw(RACK, broker.rack());
             }

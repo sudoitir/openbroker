@@ -12,9 +12,17 @@ import java.util.Set;
  * @param pullSettlement what a release on a pull receiver covers
  * @param joinedTransactions whether a sender can join a processor's transaction
  * @param retry what the system enforces under {@code RetryMode.SYSTEM}
+ * @param releaseCountsDelivery whether a release that is not a failed delivery ({@code
+ *     Disposition.Release} with {@code deliveryFailed} false) still counts as a delivery attempt, so that
+ *     the message moves towards the system's delivery limit; true where the system counts every
+ *     redelivery itself, false where only a failed delivery counts
  */
 public record SubscriptionCapabilities(
-        Set<OrderingScope> orderings, SettlementScope pullSettlement, boolean joinedTransactions, SystemRetry retry) {
+        Set<OrderingScope> orderings,
+        SettlementScope pullSettlement,
+        boolean joinedTransactions,
+        SystemRetry retry,
+        boolean releaseCountsDelivery) {
 
     public SubscriptionCapabilities {
         orderings = Set.copyOf(orderings);

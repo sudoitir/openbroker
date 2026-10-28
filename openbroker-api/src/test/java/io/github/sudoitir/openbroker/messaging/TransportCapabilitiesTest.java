@@ -14,7 +14,7 @@ class TransportCapabilitiesTest {
     private static final KindId OTHER = KindId.of("x.other");
 
     private static final SubscriptionCapabilities GROUP_CAPS = new SubscriptionCapabilities(
-            Set.of(OrderingScope.PARTITION), SettlementScope.MESSAGE, false, SystemRetry.NONE);
+            Set.of(OrderingScope.PARTITION), SettlementScope.MESSAGE, false, SystemRetry.NONE, false);
 
     private static final TransportCapabilities CAPS = new TransportCapabilities(
             Set.of(Guarantee.AT_LEAST_ONCE),
@@ -28,6 +28,7 @@ class TransportCapabilitiesTest {
     void aKindTheTransportOffersHasItsOwnCapabilities() {
         assertThat(CAPS.subscription(GROUP)).isSameAs(GROUP_CAPS);
         assertThat(CAPS.subscription(GROUP).retry()).isEqualTo(SystemRetry.NONE);
+        assertThat(CAPS.subscription(GROUP).releaseCountsDelivery()).isFalse();
     }
 
     @Test

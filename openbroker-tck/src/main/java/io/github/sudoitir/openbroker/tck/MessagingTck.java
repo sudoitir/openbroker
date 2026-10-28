@@ -730,6 +730,34 @@ public abstract class MessagingTck {
     }
 
     /**
+     * A release that is not a failed delivery counts as a delivery attempt exactly where the kind declares
+     * it: the redelivered message's delivery count rises, or it does not.
+     */
+    @Test
+    void anUncountedReleaseCountsAsADeliveryOnlyWhereDeclared() {
+        boolean counts = subscription().releaseCountsDelivery();
+        ResourceId id = newSubscription("release-counts");
+        sendDirect(id, 1);
+        try (Receiver receiver = transport.receiver(id, Scope.whole(), ReceiverOptions.consume())) {
+            Message first = receiveN(receiver, 1, SECONDS_15).getFirst();
+            int before = first.headers().deliveryCount().orElse(1);
+            receiver.settle(first, new Disposition.Release(Optional.empty(), false));
+            Message again = receiveN(receiver, 1, SECONDS_15).getFirst();
+            int after = again.headers().deliveryCount().orElse(before);
+            if (counts) {
+                assertThat(after)
+                        .as("a counted release raises the delivery count")
+                        .isGreaterThan(before);
+            } else {
+                assertThat(after)
+                        .as("an uncounted release leaves the delivery count")
+                        .isLessThanOrEqualTo(before);
+            }
+            receiver.settle(again, Disposition.accept());
+        }
+    }
+
+    /**
      * Under a managed policy a failing handler is called {@code maxAttempts} times, at least the
      * backoff apart, and the message is then dead-lettered with the reason.
      */

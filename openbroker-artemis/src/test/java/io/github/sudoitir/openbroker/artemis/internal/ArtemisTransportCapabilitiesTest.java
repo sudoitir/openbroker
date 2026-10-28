@@ -46,6 +46,11 @@ class ArtemisTransportCapabilitiesTest {
     }
 
     @Test
+    void aReleaseThatIsNotAFailedDeliveryIsNotCounted() {
+        assertThat(QUEUE.releaseCountsDelivery()).isFalse();
+    }
+
+    @Test
     void itOffersOneSubscriptionKindAndRefusesAskingAboutAnother() {
         assertThat(CAPABILITIES.subscriptions()).containsOnlyKeys(ArtemisKinds.QUEUE);
         assertThatThrownBy(() -> CAPABILITIES.subscription(ArtemisKinds.ADDRESS))
