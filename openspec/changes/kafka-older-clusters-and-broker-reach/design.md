@@ -115,6 +115,13 @@ gates tests instead of image prefixes. Failsafe excludes `*ZooKeeperIT` by defau
 sets `kafka.image=confluentinc/cp-kafka:7.0.16` and runs the TCKs and ZooKeeper ITs. CI's Kafka matrix:
 `cp-kafka:7.0.16` (`-Pzookeeper`), `apache/kafka:3.9.2`, `4.0.2`, `4.4.0`; chaos on the newest only.
 
+## Findings while applying
+- `MetadataVersion` at 4.4.0 lists levels from 3.3-IV3 (level 7) up; Kafka before 3.3 reports no `metadata.version`, so 3.0 to 3.2 are told apart only as "at least 3.0" by the `listTransactions` probe. `KafkaBefore30ZooKeeperIT` (cp-kafka 6.2.15, Kafka 2.8) proves the probe refuses a cluster before 3.0; cp-kafka 7.0.16 (Kafka 3.0) is accepted.
+- `ClusterFeatures` carries each feature as `Level(finalized, supported)`; the supported level decides whether a remedy is offered. `ClusterFeatures.unsupported` holds what a refusal names.
+- A preview of an empty classic group adds a `kafka.note` diff entry, because `Preview` has no field for a note.
+- The Artemis chaos fixture cut only Core, so a cut backup still answered Jolokia and `verify` reported it applied. Its console now goes through a proxy that is cut with Core, which `TckChaos.cut` always required ("drops all traffic"). The Artemis driver reports a timed-out read as in doubt, so the chaos case accepts failed or in doubt.
+- The poms moved to `0.5.0-SNAPSHOT` and `openbroker.previous.version` to `0.4.0`: the next release is `0.5.0`.
+
 ## Risks / Trade-offs
 - [The 3.0 marker is unproven] → `KafkaBefore30ZooKeeperIT` (cp-kafka 6.2.15, Kafka 2.8) proves it.
 - [ZooKeeper clusters below 3.3 with a broker down] → `listTransactions` fans out and fails; verify
