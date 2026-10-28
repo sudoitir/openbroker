@@ -61,7 +61,23 @@ final class Handlers {
                         topology,
                         admin,
                         await,
-                        cluster.options().clock().instant())));
+                        cluster.options().clock().instant(),
+                        null)));
+    }
+
+    /** Like {@link #call}, for a call that reads several queries, which share what they ask of the cluster. */
+    <T> T callReading(String operation, Deadline deadline, Function<Context, T> work) {
+        return cluster.call(
+                operation,
+                Optional.empty(),
+                deadline,
+                (admin, await) -> work.apply(new Context(
+                        cluster,
+                        topology,
+                        admin,
+                        await,
+                        cluster.options().clock().instant(),
+                        new Reads())));
     }
 
     /** Like {@link #call}, on another plane's credentials and permission. */
@@ -79,7 +95,8 @@ final class Handlers {
                                 topology,
                                 admin,
                                 await,
-                                cluster.options().clock().instant()))));
+                                cluster.options().clock().instant(),
+                                null))));
     }
 
     private boolean sharesInProduction(Context context) {

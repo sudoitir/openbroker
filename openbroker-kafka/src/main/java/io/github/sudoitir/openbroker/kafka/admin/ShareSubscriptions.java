@@ -28,7 +28,7 @@ final class ShareSubscriptions extends Subscriptions {
     }
 
     @Override
-    Map<String, Map<TopicPartition, Standing>> positions(Context context, Collection<String> groups) {
+    Map<String, Map<TopicPartition, Standing>> ask(Context context, Collection<String> groups) {
         if (groups.isEmpty()) {
             return Map.of();
         }

@@ -17,6 +17,7 @@ import org.apache.kafka.common.errors.InvalidConfigurationException;
 import org.apache.kafka.common.errors.InvalidPartitionsException;
 import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.errors.NetworkException;
+import org.apache.kafka.common.errors.RetriableException;
 import org.apache.kafka.common.errors.SslAuthenticationException;
 import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.errors.TopicExistsException;
@@ -131,9 +132,12 @@ public final class KafkaErrors {
                         ErrorReasons.INVALID_ARGUMENT,
                         Dispatch.REJECTED,
                         "The partition count is invalid");
-            case TimeoutException e -> unreachable();
-            case DisconnectException e -> unreachable();
-            case NetworkException e -> unreachable();
+            case TimeoutException _ -> unreachable();
+            case DisconnectException _ -> unreachable();
+            case NetworkException _ -> unreachable();
+            // A leader that moved or is not yet elected, too few replicas in sync: the cluster could not take the
+            // write.
+            case RetriableException _ -> unreachable();
             default ->
                 new Mapped(
                         Status.INTERNAL,

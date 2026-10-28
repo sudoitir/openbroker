@@ -36,6 +36,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import org.apache.kafka.clients.admin.DescribeConfigsOptions;
+import org.apache.kafka.clients.admin.DescribeFeaturesOptions;
 import org.apache.kafka.common.config.ConfigResource;
 
 /**
@@ -84,7 +85,7 @@ final class Reach {
     static Partial<List<NodeDescription>> of(
             KafkaCluster cluster, Partial<List<NodeDescription>> described, Deadline deadline) {
         Reach reach = new Reach(cluster, null);
-        return new Reach(cluster, reach::describeConfigs).check(described, deadline);
+        return new Reach(cluster, reach::askBroker).check(described, deadline);
     }
 
     /** Like {@link #of}, asking each broker through {@code ask}. */
@@ -142,9 +143,7 @@ final class Reach {
 
     /** Checks one broker; empty when it was reached. */
     private Optional<BrokerException> reach(NodeDescription node, Deadline limit) {
-        Optional<Endpoint> advertised = node.endpoints().stream()
-                .filter(e -> e.plane() == Plane.DATA && e.protocol().equals(KafkaOptions.PROTOCOL))
-                .findFirst();
+        Optional<Endpoint> advertised = advertised(node);
         if (advertised.isEmpty()) {
             return Optional.empty();
         }
@@ -212,13 +211,31 @@ final class Reach {
         }
     }
 
-    private void describeConfigs(NodeDescription node, Deadline limit) {
-        ConfigResource broker = new ConfigResource(ConfigResource.Type.BROKER, node.nativeId());
-        cluster.withAdmin(
-                limit,
-                (admin, await) -> await.get(admin.describeConfigs(
+    /**
+     * Asks the broker for its own configuration, on a client that bootstraps from that broker alone, so
+     * that the client's first request cannot be held up by another broker. The request is addressed to
+     * the broker by its id, and no answer from it is no answer. A node with no broker id (one named only
+     * by its address) is asked what it supports instead.
+     */
+    private void askBroker(NodeDescription node, Deadline limit) {
+        String address = advertised(node).orElseThrow().address();
+        cluster.withAdminAt(address, limit, (admin, await) -> {
+            if (node.nativeId().chars().allMatch(Character::isDigit)
+                    && !node.nativeId().isEmpty()) {
+                ConfigResource broker = new ConfigResource(ConfigResource.Type.BROKER, node.nativeId());
+                return await.get(admin.describeConfigs(
                                 List.of(broker), new DescribeConfigsOptions().timeoutMs(await.timeoutMs()))
-                        .all()));
+                        .all());
+            }
+            return await.get(admin.describeFeatures(new DescribeFeaturesOptions().timeoutMs(await.timeoutMs()))
+                    .featureMetadata());
+        });
+    }
+
+    private static Optional<Endpoint> advertised(NodeDescription node) {
+        return node.endpoints().stream()
+                .filter(e -> e.plane() == Plane.DATA && e.protocol().equals(KafkaOptions.PROTOCOL))
+                .findFirst();
     }
 
     private static BrokerException named(NodeDescription node, String failure, BrokerException cause) {

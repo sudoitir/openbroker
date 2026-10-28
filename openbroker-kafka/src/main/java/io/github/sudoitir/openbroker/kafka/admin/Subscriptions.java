@@ -1,6 +1,5 @@
 package io.github.sudoitir.openbroker.kafka.admin;
 
-import io.github.sudoitir.openbroker.BrokerException;
 import io.github.sudoitir.openbroker.ErrorReasons;
 import io.github.sudoitir.openbroker.Status;
 import io.github.sudoitir.openbroker.messaging.Count;
@@ -79,7 +78,13 @@ abstract class Subscriptions implements Handler {
     }
 
     /** Where each group stands on each partition it has a place on. */
-    abstract Map<String, Map<TopicPartition, Standing>> positions(Context context, Collection<String> groups);
+    abstract Map<String, Map<TopicPartition, Standing>> ask(Context context, Collection<String> groups);
+
+    /** Where each group stands, in one round for the groups not read yet in this call. */
+    final Map<String, Map<TopicPartition, Standing>> positions(Context context, Collection<String> groups) {
+        Reads reads = context.reads();
+        return reads != null ? reads.positions(context, this, groups) : ask(context, groups);
+    }
 
     /** Moves where the group stands. Fails when the cluster refuses, for instance because the group has members. */
     abstract void move(Context context, String group, Map<TopicPartition, Long> offsets);
@@ -149,20 +154,9 @@ abstract class Subscriptions implements Handler {
                 .toList();
         Map<String, GroupInfo> groups = GroupInfo.describe(context, listings);
         Map<String, Map<TopicPartition, Standing>> positions = positions(context, groupIds);
-        Map<String, List<TopicPartition>> partitions = new HashMap<>();
-        List<TopicPartition> all = new ArrayList<>();
-        for (String topic : topics) {
-            try {
-                List<TopicPartition> ps = Offsets.partitions(context, topic);
-                partitions.put(topic, ps);
-                all.addAll(ps);
-            } catch (BrokerException e) {
-                if (e.status() != Status.NOT_FOUND) {
-                    throw e;
-                }
-                partitions.put(topic, List.of());
-            }
-        }
+        Map<String, List<TopicPartition>> partitions = Offsets.partitions(context, topics);
+        List<TopicPartition> all =
+                partitions.values().stream().flatMap(List::stream).toList();
         Map<TopicPartition, Long> start = Offsets.earliest(context, all);
         Map<TopicPartition, Long> end = Offsets.latest(context, all);
         List<Resource> out = new ArrayList<>();

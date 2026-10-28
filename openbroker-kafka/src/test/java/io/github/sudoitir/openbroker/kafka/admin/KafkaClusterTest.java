@@ -291,4 +291,22 @@ class KafkaClusterTest {
             assertThat(cluster.nativeAdmin().metrics()).isNotNull();
         }
     }
+
+    @Test
+    void theDeclaredNodesAreTheSpecsNodesElseOneForEachBootstrapServer() {
+        ClusterSpec named = new ClusterSpec(
+                List.of(new NodeSpec(
+                        NodeId.of("7"), List.of(Endpoint.of(Plane.DATA, KafkaOptions.PROTOCOL, "a:9092")))),
+                List.of(),
+                Map.of());
+        try (KafkaCluster cluster = cluster(named, CredentialSource.none(), ConnectOptions.defaults())) {
+            assertThat(cluster.declaredNodes()).extracting(NodeSpec::id).containsExactly(NodeId.of("7"));
+        }
+        try (KafkaCluster cluster =
+                cluster(spec(Map.of(), "x:9092", "y:9092"), CredentialSource.none(), ConnectOptions.defaults())) {
+            assertThat(cluster.declaredNodes())
+                    .extracting(n -> n.id().value())
+                    .containsExactly("bootstrap-1", "bootstrap-2");
+        }
+    }
 }

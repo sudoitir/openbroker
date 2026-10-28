@@ -72,7 +72,11 @@ public final class KafkaAccess implements Access {
         out.put(COPY_MESSAGES, appendOnly);
         out.put(DELETE_MESSAGES, appendOnly);
         if (read.status() == Assessment.Status.AVAILABLE) {
-            out.putAll(cluster.features().assessments());
+            try {
+                out.putAll(cluster.features().assessments());
+            } catch (BrokerException _) {
+                // A cluster that would not say what it offers leaves those capabilities out.
+            }
         }
         return new AccessSnapshot(out, cluster.options().clock().instant());
     }

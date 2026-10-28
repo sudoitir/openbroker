@@ -164,6 +164,7 @@ public abstract class ChaosTck {
         assertThat(described.outcomes().get(cut)).isIn(NodeOutcome.FAILED, NodeOutcome.IN_DOUBT);
         assertThat(described.failures().get(cut).status()).isIn(Status.UNAVAILABLE, Status.DEADLINE_EXCEEDED);
         assertThat(described.outcomes().entrySet())
+                .as("failures: " + described.failures())
                 .filteredOn(e -> !e.getKey().equals(cut))
                 .isNotEmpty()
                 .allSatisfy(e -> assertThat(e.getValue()).isIn(NodeOutcome.APPLIED, NodeOutcome.SKIPPED));
