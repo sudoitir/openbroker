@@ -104,11 +104,8 @@ final class Partitions implements Handler {
         return out;
     }
 
-    @Override
-    public List<Resource> resources(Context context, List<Candidate> page, Listing listing) {
-        if (page.isEmpty()) {
-            return List.of();
-        }
+    /** Every partition of the shared topic description, by topic and number. */
+    private static Map<TopicPartition, TopicPartitionInfo> infos(Context context) {
         Map<TopicPartition, TopicPartitionInfo> infos = new HashMap<>();
         for (TopicDescription description :
                 context.topology().read(context.admin(), context.await()).topics()) {
@@ -116,6 +113,40 @@ final class Partitions implements Handler {
                 infos.put(new TopicPartition(description.name(), info.partition()), info);
             }
         }
+        return infos;
+    }
+
+    /** The leader and replicas of a partition, and its eligible leaders where the cluster keeps them. */
+    private static Attributes.Builder placementAttributes(TopicPartitionInfo info, boolean eligibleLeaders) {
+        Attributes.Builder attributes = Attributes.builder();
+        if (info.leader() != null) {
+            attributes.putRaw(KafkaKinds.LEADER, (long) info.leader().id());
+        }
+        attributes
+                .putRaw(
+                        KafkaKinds.REPLICAS,
+                        info.replicas().stream().map(Node::id).toList())
+                .putRaw(
+                        KafkaKinds.IN_SYNC_REPLICAS,
+                        info.isr().stream().map(Node::id).toList());
+        if (eligibleLeaders) {
+            attributes
+                    .putRaw(
+                            KafkaKinds.ELIGIBLE_LEADER_REPLICAS,
+                            info.elr().stream().map(Node::id).toList())
+                    .putRaw(
+                            KafkaKinds.LAST_KNOWN_ELIGIBLE_LEADER_REPLICAS,
+                            info.lastKnownElr().stream().map(Node::id).toList());
+        }
+        return attributes;
+    }
+
+    @Override
+    public List<Resource> resources(Context context, List<Candidate> page, Listing listing) {
+        if (page.isEmpty()) {
+            return List.of();
+        }
+        Map<TopicPartition, TopicPartitionInfo> infos = infos(context);
         List<TopicPartition> wanted = page.stream().map(c -> partition(c.id())).toList();
         Map<TopicPartition, Long> start =
                 listing.wants(KafkaKinds.LOG_START_OFFSET) ? Offsets.earliest(context, wanted) : Map.of();
@@ -132,26 +163,7 @@ final class Partitions implements Handler {
             if (info == null) {
                 continue;
             }
-            Attributes.Builder attributes = Attributes.builder();
-            if (info.leader() != null) {
-                attributes.putRaw(KafkaKinds.LEADER, (long) info.leader().id());
-            }
-            attributes
-                    .putRaw(
-                            KafkaKinds.REPLICAS,
-                            info.replicas().stream().map(Node::id).toList())
-                    .putRaw(
-                            KafkaKinds.IN_SYNC_REPLICAS,
-                            info.isr().stream().map(Node::id).toList());
-            if (eligibleLeaders) {
-                attributes
-                        .putRaw(
-                                KafkaKinds.ELIGIBLE_LEADER_REPLICAS,
-                                info.elr().stream().map(Node::id).toList())
-                        .putRaw(
-                                KafkaKinds.LAST_KNOWN_ELIGIBLE_LEADER_REPLICAS,
-                                info.lastKnownElr().stream().map(Node::id).toList());
-            }
+            Attributes.Builder attributes = placementAttributes(info, eligibleLeaders);
             if (start.containsKey(tp)) {
                 attributes.putRaw(KafkaKinds.LOG_START_OFFSET, start.get(tp));
             }

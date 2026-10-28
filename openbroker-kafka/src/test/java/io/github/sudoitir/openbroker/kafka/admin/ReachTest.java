@@ -48,7 +48,9 @@ class ReachTest {
             }
 
             @Override
-            public void evict(String key) {}
+            public void evict(String key) {
+                // Nothing is shared in this test.
+            }
         };
     }
 

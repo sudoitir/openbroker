@@ -20,7 +20,6 @@ import java.net.ConnectException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
-import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
 import java.time.Clock;
 import java.time.Duration;
@@ -55,6 +54,8 @@ final class Reach {
 
     /** The metadata key of the step that failed: {@code dns}, {@code refused}, {@code timeout}, {@code tls} or {@code authentication}. */
     static final String FAILURE = "kafka.reach_failure";
+
+    private static final String TIMEOUT = "timeout";
 
     /** What the checks may overrun the budget by before they are abandoned. */
     private static final Duration GRACE = Duration.ofMillis(250);
@@ -112,11 +113,11 @@ final class Reach {
             NodeDescription node, Future<Optional<BrokerException>> future, long nanos, Duration budget) {
         try {
             return future.get(nanos, TimeUnit.NANOSECONDS);
-        } catch (TimeoutException e) {
+        } catch (TimeoutException _) {
             future.cancel(true);
-            return Optional.of(unreached(node, "timeout", "did not answer within " + seconds(budget)));
+            return Optional.of(unreached(node, TIMEOUT, "did not answer within " + seconds(budget)));
         } catch (ExecutionException | CancellationException e) {
-            return Optional.of(unreached(node, "timeout", "could not be checked: " + e));
+            return Optional.of(unreached(node, TIMEOUT, "could not be checked: " + e));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return Optional.of(Deadlines.cancelled(node.node(), e));
@@ -133,12 +134,12 @@ final class Reach {
         }
         String address = advertised.get().address();
         int colon = address.lastIndexOf(':');
-        String host = address.substring(0, colon).replaceAll("^\\[|]$", "");
+        String host = address.substring(0, colon).replaceAll("(?:^\\[)|(?:\\]$)", "");
         int port = Integer.parseInt(address.substring(colon + 1));
         InetAddress[] resolved;
         try {
             resolved = InetAddress.getAllByName(host);
-        } catch (UnknownHostException e) {
+        } catch (UnknownHostException _) {
             return Optional.of(unreached(node, "dns", "does not resolve"));
         }
         Optional<BrokerException> connect = connect(node, resolved, port, limit);
@@ -151,21 +152,20 @@ final class Reach {
     private Optional<BrokerException> connect(NodeDescription node, InetAddress[] resolved, int port, Deadline limit) {
         boolean timedOut = false;
         for (InetAddress address : resolved) {
-            int millis = (int) Math.clamp(limit.remaining(clock).toMillis(), 1, Integer.MAX_VALUE);
+            int millis = Math.clamp(limit.remaining(clock).toMillis(), 1, Integer.MAX_VALUE);
             try (Socket socket = new Socket()) {
                 socket.connect(new InetSocketAddress(address, port), millis);
                 return Optional.empty();
-            } catch (SocketTimeoutException e) {
-                timedOut = true;
-            } catch (ConnectException e) {
+            } catch (ConnectException _) {
                 // Refused; the next address may answer.
-            } catch (IOException e) {
+            } catch (IOException _) {
+                // A timeout or any other failure to open the connection.
                 timedOut = true;
             }
         }
         return Optional.of(
                 timedOut
-                        ? unreached(node, "timeout", "did not accept a connection in time")
+                        ? unreached(node, TIMEOUT, "did not accept a connection in time")
                         : unreached(node, "refused", "refuses connections"));
     }
 
@@ -187,7 +187,7 @@ final class Reach {
                 return Optional.of(named(node, "authentication", e));
             }
             if (e.reason().equals(ErrorReasons.UNREACHABLE) || e.status() == Status.DEADLINE_EXCEEDED) {
-                return Optional.of(unreached(node, "timeout", "accepted a connection but did not answer in time"));
+                return Optional.of(unreached(node, TIMEOUT, "accepted a connection but did not answer in time"));
             }
             // Any other answer, a denial included, is a broker that was reached.
             return Optional.empty();

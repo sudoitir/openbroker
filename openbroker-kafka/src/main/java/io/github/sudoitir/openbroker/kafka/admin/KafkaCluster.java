@@ -28,6 +28,7 @@ import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.Admin;
@@ -56,7 +57,7 @@ public final class KafkaCluster implements AutoCloseable {
     private final DriverContext context;
     private volatile ClusterSpec spec;
     private @Nullable Admin admin;
-    private volatile @Nullable ClusterFeatures features;
+    private final AtomicReference<@Nullable ClusterFeatures> features = new AtomicReference<>();
     private boolean closed;
 
     public KafkaCluster(ClusterSpec spec, CredentialSource credentials, DriverContext context) {
@@ -89,13 +90,13 @@ public final class KafkaCluster implements AutoCloseable {
     /** Points the connection at a new cluster description; the next call uses a new Admin client. */
     public void reconfigure(ClusterSpec spec) {
         this.spec = spec;
-        features = null;
+        features.set(null);
         closeAdmin();
     }
 
     /** What the cluster is and offers, read on first use and kept until the connection is pointed elsewhere. */
     public ClusterFeatures features() {
-        ClusterFeatures known = features;
+        ClusterFeatures known = features.get();
         return known != null ? known : readFeatures();
     }
 
@@ -103,17 +104,17 @@ public final class KafkaCluster implements AutoCloseable {
     public ClusterFeatures readFeatures() {
         return call("features.read", Optional.empty(), Deadlines.current(options()), (admin, await) -> {
             ClusterFeatures read = ClusterFeatures.read(admin, await);
-            features = read;
+            features.set(read);
             return read;
         });
     }
 
     /** The cluster's features, read with {@code admin} for a call already admitted when not yet known. */
     ClusterFeatures features(Admin admin, Await await) {
-        ClusterFeatures known = features;
+        ClusterFeatures known = features.get();
         if (known == null) {
             known = ClusterFeatures.read(admin, await);
-            features = known;
+            features.set(known);
         }
         return known;
     }
