@@ -1,13 +1,17 @@
 package io.github.sudoitir.openbroker.kafka.admin;
 
+import io.github.sudoitir.openbroker.BrokerException;
 import io.github.sudoitir.openbroker.BrokerSystem;
+import io.github.sudoitir.openbroker.CallScope;
 import io.github.sudoitir.openbroker.ClusterConnection;
 import io.github.sudoitir.openbroker.ClusterSpec;
+import io.github.sudoitir.openbroker.ConnectOptions;
 import io.github.sudoitir.openbroker.ConnectionReport;
 import io.github.sudoitir.openbroker.CredentialSource;
 import io.github.sudoitir.openbroker.Deadline;
 import io.github.sudoitir.openbroker.Partial;
 import io.github.sudoitir.openbroker.Plane;
+import io.github.sudoitir.openbroker.Status;
 import io.github.sudoitir.openbroker.access.Access;
 import io.github.sudoitir.openbroker.kafka.messaging.KafkaTransport;
 import io.github.sudoitir.openbroker.messaging.Messages;
@@ -20,8 +24,10 @@ import io.github.sudoitir.openbroker.notification.Notifications;
 import io.github.sudoitir.openbroker.operation.Operations;
 import io.github.sudoitir.openbroker.spi.DriverContext;
 import io.github.sudoitir.openbroker.support.Deadlines;
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Supplier;
 import org.apache.kafka.clients.admin.Admin;
 
 /** One connection to a Kafka cluster. Thread-safe. */
@@ -59,8 +65,8 @@ public final class KafkaConnection implements ClusterConnection {
      */
     public ConnectionReport verify() {
         Deadline deadline = Deadlines.current(cluster.options());
-        cluster.readFeatures().require(system.supportedVersions());
-        Partial<List<NodeDescription>> described = nodes.describe(Scope.whole());
+        degrading(deadline, cluster::readFeatures).require(system.supportedVersions());
+        Partial<List<NodeDescription>> described = degrading(deadline, () -> nodes.describe(Scope.whole()));
         Partial<List<NodeDescription>> reached = cluster.guarded(
                 "connection.reach",
                 Plane.MANAGEMENT,
@@ -68,6 +74,29 @@ public final class KafkaConnection implements ClusterConnection {
                 deadline,
                 () -> Reach.of(cluster, described, deadline));
         return new ConnectionReport(reached, access.probe());
+    }
+
+    /**
+     * Runs a read of the whole cluster. The Admin client sends it to one broker of its choosing, which
+     * may be the one that cannot be reached, so the first try gets a quarter of the time left (at most the
+     * connect timeout), after which the client's pick falls on another broker and the second try gets
+     * what remains, leaving the rest of the call to reach each broker. A cluster whose every broker is gone fails as before.
+     */
+    private <T> T degrading(Deadline deadline, Supplier<T> read) {
+        ConnectOptions options = cluster.options();
+        Duration half = deadline.remaining(options.clock()).dividedBy(2);
+        Duration first = half.compareTo(options.timeouts().connect()) < 0
+                ? half
+                : options.timeouts().connect();
+        try {
+            return ScopedValue.where(CallScope.DEADLINE, Deadline.after(first, options.clock()))
+                    .call(read::get);
+        } catch (BrokerException e) {
+            if (e.status() != Status.UNAVAILABLE && e.status() != Status.DEADLINE_EXCEEDED) {
+                throw e;
+            }
+        }
+        return ScopedValue.where(CallScope.DEADLINE, deadline).call(read::get);
     }
 
     @Override

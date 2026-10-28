@@ -14,8 +14,11 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.TreeMap;
 import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.clients.admin.DescribeFeaturesOptions;
+import org.apache.kafka.clients.admin.DescribeMetadataQuorumOptions;
 import org.apache.kafka.clients.admin.FeatureMetadata;
 import org.apache.kafka.clients.admin.FinalizedVersionRange;
+import org.apache.kafka.clients.admin.ListTransactionsOptions;
 import org.apache.kafka.clients.admin.SupportedVersionRange;
 import org.jspecify.annotations.Nullable;
 
@@ -88,10 +91,12 @@ public record ClusterFeatures(
 
     /** Reads the cluster's features. */
     public static ClusterFeatures read(Admin admin, Await await) {
-        FeatureMetadata metadata = await.get(admin.describeFeatures().featureMetadata());
+        FeatureMetadata metadata =
+                await.get(admin.describeFeatures(new DescribeFeaturesOptions().timeoutMs(await.timeoutMs()))
+                        .featureMetadata());
         SupportedVersionRange software = metadata.supportedFeatures().get(METADATA);
         OptionalInt level = software == null ? OptionalInt.empty() : OptionalInt.of(software.maxVersion());
-        boolean kraft = kraft(admin, await);
+        boolean kraft = kraft(admin, await, level.isPresent());
         String release = null;
         String unsupported = null;
         if (level.isPresent()) {
@@ -116,7 +121,6 @@ public record ClusterFeatures(
                 ShareFeatures.of(metadata));
     }
 
-    /** KRaft clusters answer a quorum description; ZooKeeper brokers do not know the request. */
     /** The release whose software supports {@code level} as its newest, or null before the table starts. */
     static @Nullable String releaseOf(int level) {
         Map.Entry<Integer, String> found = RELEASES.floorEntry(level);
@@ -126,9 +130,16 @@ public record ClusterFeatures(
         return found.getKey().equals(RELEASES.lastKey()) ? "at least " + found.getValue() : found.getValue();
     }
 
-    private static boolean kraft(Admin admin, Await await) {
+    /**
+     * KRaft clusters answer a quorum description; ZooKeeper brokers do not know the request. The quorum is
+     * answered by its leader, which may be the broker that cannot be reached: no answer then says nothing
+     * of the mode, and a cluster that reports a {@code metadata.version} (Kafka 3.3 and later) is taken to
+     * be KRaft, the mode a reader of the quorum depends on.
+     */
+    private static boolean kraft(Admin admin, Await await, boolean reportsMetadataVersion) {
         try {
-            await.get(admin.describeMetadataQuorum().quorumInfo());
+            await.get(admin.describeMetadataQuorum(new DescribeMetadataQuorumOptions().timeoutMs(await.timeoutMs()))
+                    .quorumInfo());
             return true;
         } catch (BrokerException e) {
             if (e.reason().equals(ErrorReasons.UNSUPPORTED_VERSION)) {
@@ -137,13 +148,17 @@ public record ClusterFeatures(
             if (e.status() == Status.PERMISSION_DENIED) {
                 return true;
             }
+            if (e.status() == Status.DEADLINE_EXCEEDED || e.status() == Status.UNAVAILABLE) {
+                return reportsMetadataVersion;
+            }
             throw e;
         }
     }
 
     private static boolean listsTransactions(Admin admin, Await await) {
         try {
-            await.get(admin.listTransactions().all());
+            await.get(admin.listTransactions(new ListTransactionsOptions().timeoutMs(await.timeoutMs()))
+                    .all());
             return true;
         } catch (BrokerException e) {
             if (e.reason().equals(ErrorReasons.UNSUPPORTED_VERSION)) {

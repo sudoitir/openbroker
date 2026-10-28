@@ -164,9 +164,8 @@ public final class KafkaNodes implements Nodes {
                             .quorumInfo()),
                     null);
         } catch (BrokerException e) {
-            if (e.status() == Status.DEADLINE_EXCEEDED) {
-                throw e;
-            }
+            // The quorum is answered by its leader, which may be the broker that cannot be reached: the
+            // nodes are still described, without the quorum, and a call out of time fails at its next read.
             return new Quorum(null, e.getMessage());
         }
     }

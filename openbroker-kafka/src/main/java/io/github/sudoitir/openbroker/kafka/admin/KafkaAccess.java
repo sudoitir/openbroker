@@ -11,6 +11,7 @@ import io.github.sudoitir.openbroker.support.Deadlines;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
+import org.apache.kafka.clients.admin.DescribeClusterOptions;
 
 /**
  * What the account may do, without ever changing the cluster. A read is tried; a write is never
@@ -82,7 +83,9 @@ public final class KafkaAccess implements Access {
                     "access.probe",
                     Optional.empty(),
                     deadline,
-                    (admin, await) -> await.get(admin.describeCluster().clusterId()));
+                    (admin, await) ->
+                            await.get(admin.describeCluster(new DescribeClusterOptions().timeoutMs(await.timeoutMs()))
+                                    .clusterId()));
             return Assessment.available("The account can describe the cluster.");
         } catch (BrokerException e) {
             return switch (e.status()) {

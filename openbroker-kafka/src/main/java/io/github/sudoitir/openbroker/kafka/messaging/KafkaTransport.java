@@ -91,9 +91,7 @@ public final class KafkaTransport implements Transport, AutoCloseable {
         Set<OrderingScope> orderings =
                 Set.of(OrderingScope.NONE, OrderingScope.GROUP, OrderingScope.PARTITION, OrderingScope.SUBSCRIPTION);
         Map<KindId, SubscriptionCapabilities> subscriptions = new HashMap<>();
-        subscriptions.put(
-                Subscriptions.GROUP_TOPIC,
-                new SubscriptionCapabilities(orderings, SettlementScope.MESSAGE, true, SystemRetry.NONE, false));
+        subscriptions.put(Subscriptions.GROUP_TOPIC, consumerGroup(orderings));
         ShareFeatures share = ShareFeatures.read(cluster);
         if (share.available()) {
             subscriptions.put(Subscriptions.SHARE_GROUP_TOPIC, shareGroup(share));
@@ -107,12 +105,17 @@ public final class KafkaTransport implements Transport, AutoCloseable {
                 true);
     }
 
+    /** A consumer group settles by offset, joins transactions, and counts only failed deliveries. */
+    static SubscriptionCapabilities consumerGroup(Set<OrderingScope> orderings) {
+        return new SubscriptionCapabilities(orderings, SettlementScope.MESSAGE, true, SystemRetry.NONE, false);
+    }
+
     /**
      * A share group is unordered, settles each message, cannot join a transaction, and has the broker
      * count attempts, a release included; the broker dead-letters only where {@code share.version} is 2 or
      * more.
      */
-    private static SubscriptionCapabilities shareGroup(ShareFeatures features) {
+    static SubscriptionCapabilities shareGroup(ShareFeatures features) {
         return new SubscriptionCapabilities(
                 Set.of(OrderingScope.NONE),
                 SettlementScope.MESSAGE,
