@@ -132,12 +132,12 @@ public final class KafkaErrors {
                         ErrorReasons.INVALID_ARGUMENT,
                         Dispatch.REJECTED,
                         "The partition count is invalid");
-            case TimeoutException e -> unreachable();
-            case DisconnectException e -> unreachable();
-            case NetworkException e -> unreachable();
+            case TimeoutException _ -> unreachable();
+            case DisconnectException _ -> unreachable();
+            case NetworkException _ -> unreachable();
             // A leader that moved or is not yet elected, too few replicas in sync: the cluster could not take the
             // write.
-            case RetriableException e -> unreachable();
+            case RetriableException _ -> unreachable();
             default ->
                 new Mapped(
                         Status.INTERNAL,
