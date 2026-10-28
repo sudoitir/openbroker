@@ -31,6 +31,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
@@ -170,9 +172,11 @@ class ReachTest {
         listening(
                 Duration.ofMillis(300),
                 (n, l) -> {
+                    // Blocks until Reach gives up on the check and interrupts it.
                     try {
-                        Thread.sleep(Duration.ofSeconds(30));
-                    } catch (InterruptedException e) {
+                        boolean released = new CountDownLatch(1).await(30, TimeUnit.SECONDS);
+                        assertThat(released).isFalse();
+                    } catch (InterruptedException _) {
                         Thread.currentThread().interrupt();
                     }
                 },
