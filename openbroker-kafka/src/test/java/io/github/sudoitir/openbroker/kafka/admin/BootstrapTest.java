@@ -12,6 +12,7 @@ import java.net.ServerSocket;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class BootstrapTest {
@@ -75,5 +76,12 @@ class BootstrapTest {
                     assertThat(e.getMessage())
                             .isEqualTo("kafka-x.invalid:9092 does not resolve; " + closed + " refuses connections.");
                 });
+    }
+
+    @Test
+    void aServerThatDidNotAcceptInTimeIsNamedAsSuch() {
+        assertThat(Bootstrap.unreachable(Map.of("slow:9092", Sockets.Failure.TIMEOUT))
+                        .getMessage())
+                .isEqualTo("slow:9092 did not accept a connection in time.");
     }
 }

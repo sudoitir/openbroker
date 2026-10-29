@@ -45,6 +45,7 @@
         <module>openbroker-spring-boot-autoconfigure</module>
         <module>openbroker-spring-boot-starter</module>
         <module>openbroker-benchmarks</module>
+        <module>openbroker-coverage</module>
     </modules>
 
     <properties>
@@ -68,6 +69,8 @@
         <jackson-bom.version>3.1.7</jackson-bom.version>
         <junit.version>6.0.3</junit.version>
         <assertj.version>3.27.7</assertj.version>
+        <mockito.version>5.23.0</mockito.version>
+        <byte-buddy.version>1.18.15</byte-buddy.version>
         <testcontainers.version>2.0.5</testcontainers.version>
         <opentelemetry.version>1.67.0</opentelemetry.version>
         <jmh.version>1.37</jmh.version>
@@ -99,7 +102,7 @@
         <sonar.projectKey>sudoitir_openbroker</sonar.projectKey>
         <sonar.host.url>https://sonarcloud.io</sonar.host.url>
         <!-- The Artemis and Kafka drivers' aggregates, and the Spring module's, one for each broker its integration tests ran against. -->
-        <sonar.coverage.jacoco.xmlReportPaths>${maven.multiModuleProjectDirectory}/openbroker-artemis/target/site/jacoco-aggregate/jacoco.xml,${maven.multiModuleProjectDirectory}/openbroker-kafka/target/site/jacoco-aggregate/jacoco.xml,${maven.multiModuleProjectDirectory}/openbroker-spring-boot-autoconfigure/target/site/jacoco-aggregate-artemis/jacoco.xml,${maven.multiModuleProjectDirectory}/openbroker-spring-boot-autoconfigure/target/site/jacoco-aggregate-kafka/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
+        <sonar.coverage.jacoco.xmlReportPaths>${maven.multiModuleProjectDirectory}/openbroker-artemis/target/site/jacoco-aggregate/jacoco.xml,${maven.multiModuleProjectDirectory}/openbroker-coverage/target/site/jacoco-aggregate/jacoco.xml,${maven.multiModuleProjectDirectory}/openbroker-spring-boot-autoconfigure/target/site/jacoco-aggregate-artemis/jacoco.xml,${maven.multiModuleProjectDirectory}/openbroker-spring-boot-autoconfigure/target/site/jacoco-aggregate-kafka/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
 
         <!--
             The TCK is a library of assertions that ships in src/main for drivers' tests to extend, so
@@ -212,6 +215,22 @@
                 <groupId>org.assertj</groupId>
                 <artifactId>assertj-core</artifactId>
                 <version>${assertj.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.mockito</groupId>
+                <artifactId>mockito-core</artifactId>
+                <version>${mockito.version}</version>
+            </dependency>
+            <!-- Mockito's own tree asks for an older ByteBuddy than the JDK it runs on supports. -->
+            <dependency>
+                <groupId>net.bytebuddy</groupId>
+                <artifactId>byte-buddy</artifactId>
+                <version>${byte-buddy.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>net.bytebuddy</groupId>
+                <artifactId>byte-buddy-agent</artifactId>
+                <version>${byte-buddy.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.testcontainers</groupId>
