@@ -17,4 +17,4 @@ None.
 - `broker-sdk-kafka`: unreachable bootstrap servers are classified before a client is made; hanging transactions are found and aborted.
 
 ## Impact
-`openbroker-kafka` (`Bootstrap`, `Sockets`, `KafkaCluster`, `KafkaErrors`, `Reach`), `openbroker-tck` (`OpenBrokerTck`, `TckEnvironment.requestToAddress`), the Artemis TCK environment. Released as `0.6.2`.
+`openbroker-kafka` (`Bootstrap`, `Sockets`, `KafkaCluster`, `KafkaErrors`, `Reach`), `openbroker-tck` (`OpenBrokerTck`, `TckEnvironment.requestToAddress`), the Artemis TCK environment. Released as `0.7.0`: a new TCK hook and hanging-transaction discovery make it a minor release.

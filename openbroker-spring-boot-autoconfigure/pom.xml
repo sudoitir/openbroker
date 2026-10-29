@@ -7,7 +7,7 @@
     <parent>
         <groupId>io.github.sudoitir</groupId>
         <artifactId>openbroker-parent</artifactId>
-        <version>0.6.2-SNAPSHOT</version>
+        <version>0.7.0-SNAPSHOT</version>
     </parent>
 
     <artifactId>openbroker-spring-boot-autoconfigure</artifactId>
