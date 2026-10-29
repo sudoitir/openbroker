@@ -1,9 +1,12 @@
 package io.github.sudoitir.openbroker.kafka;
 
+import io.github.sudoitir.openbroker.ClusterSpec;
 import io.github.sudoitir.openbroker.ConnectOptions;
 import io.github.sudoitir.openbroker.ConnectRequest;
 import io.github.sudoitir.openbroker.CredentialSource;
 import io.github.sudoitir.openbroker.Credentials;
+import io.github.sudoitir.openbroker.Endpoint;
+import io.github.sudoitir.openbroker.Plane;
 import io.github.sudoitir.openbroker.kafka.admin.KafkaKinds;
 import io.github.sudoitir.openbroker.messaging.MessageFilter;
 import io.github.sudoitir.openbroker.model.Attributes;
@@ -14,6 +17,9 @@ import io.github.sudoitir.openbroker.model.ResourcePath;
 import io.github.sudoitir.openbroker.model.Shard;
 import io.github.sudoitir.openbroker.spi.BrokerDriver;
 import io.github.sudoitir.openbroker.tck.TckEnvironment;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.function.Supplier;
 
 /**
@@ -46,6 +52,18 @@ final class KafkaTckEnvironment implements TckEnvironment {
                 KafkaSaslBroker.spec(),
                 CredentialSource.of(Credentials.usernamePassword(KafkaSaslBroker.USER, wrongPassword)),
                 ConnectOptions.defaults());
+    }
+
+    @Override
+    public Optional<ConnectRequest> requestToAddress(String host, int port) {
+        return Optional.of(new ConnectRequest(
+                KafkaDriver.SYSTEM,
+                new ClusterSpec(
+                        List.of(),
+                        List.of(Endpoint.of(Plane.DATA, KafkaOptions.PROTOCOL, host + ":" + port)),
+                        Map.of()),
+                CredentialSource.none(),
+                ConnectOptions.defaults()));
     }
 
     @Override

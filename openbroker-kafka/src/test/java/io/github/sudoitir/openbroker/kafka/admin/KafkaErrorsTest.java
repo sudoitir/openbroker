@@ -6,6 +6,7 @@ import io.github.sudoitir.openbroker.BrokerException;
 import io.github.sudoitir.openbroker.Dispatch;
 import io.github.sudoitir.openbroker.ErrorReasons;
 import io.github.sudoitir.openbroker.Status;
+import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.errors.GroupAuthorizationException;
 import org.apache.kafka.common.errors.NotLeaderOrFollowerException;
@@ -75,5 +76,19 @@ class KafkaErrorsTest {
         assertThat(e.getMessage()).doesNotContain("hunter2");
         assertThat(e.getCause()).isNull();
         assertThat(e.info().metadata()).isEmpty();
+    }
+
+    @Test
+    void aClientThatCouldNotBeBuiltForWantOfAResolvableServerIsUnreachableByName() {
+        KafkaException built = new KafkaException(
+                "Failed to create new KafkaAdminClient",
+                new ConfigException("No resolvable bootstrap urls given in bootstrap.servers"));
+
+        BrokerException e = KafkaErrors.of(built, null);
+
+        assertThat(e.status()).isEqualTo(Status.UNAVAILABLE);
+        assertThat(e.reason()).isEqualTo(ErrorReasons.UNREACHABLE);
+        assertThat(e.dispatch()).isEqualTo(Dispatch.NOT_SENT);
+        assertThat(e.info().metadata()).containsEntry("kafka.reach_failure", "dns");
     }
 }

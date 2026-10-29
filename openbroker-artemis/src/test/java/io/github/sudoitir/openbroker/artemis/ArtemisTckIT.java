@@ -85,6 +85,23 @@ class ArtemisTckIT extends OpenBrokerTck {
             }
 
             @Override
+            public Optional<ConnectRequest> requestToAddress(String host, int port) {
+                NodeSpec node = new NodeSpec(
+                        NodeId.of("primary"),
+                        List.of(
+                                Endpoint.of(
+                                        Plane.MANAGEMENT,
+                                        "jolokia",
+                                        "http://" + host + ":" + port + "/console/jolokia"),
+                                Endpoint.of(Plane.DATA, "core", "tcp://" + host + ":" + port)));
+                return Optional.of(new ConnectRequest(
+                        "artemis",
+                        ClusterSpec.ofNodes(List.of(node)),
+                        CredentialSource.of(Credentials.usernamePassword(USER, PASSWORD)),
+                        ConnectOptions.defaults()));
+            }
+
+            @Override
             public KindId subscriptionKind() {
                 return ArtemisKinds.QUEUE;
             }

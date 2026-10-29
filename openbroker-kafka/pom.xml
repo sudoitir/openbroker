@@ -7,7 +7,7 @@
     <parent>
         <groupId>io.github.sudoitir</groupId>
         <artifactId>openbroker-parent</artifactId>
-        <version>0.6.1-SNAPSHOT</version>
+        <version>0.7.0-SNAPSHOT</version>
     </parent>
 
     <artifactId>openbroker-kafka</artifactId>
@@ -44,6 +44,11 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>testcontainers-kafka</artifactId>
             <scope>test</scope>
@@ -62,6 +67,26 @@
 
     <build>
         <plugins>
+            <!-- Mockito's inline mock maker is registered as an agent, not left to attach itself (a JDK that forbids that). -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>properties</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- @{argLine} is JaCoCo's agent, set when its prepare-agent has run. -->
+                    <argLine>@{argLine} -javaagent:${org.mockito:mockito-core:jar}</argLine>
+                </configuration>
+            </plugin>
             <!-- The TCK and the broker integration tests (*IT) run against Testcontainers clusters. -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -78,20 +103,6 @@
                         <exclude>**/*ZooKeeperIT.java</exclude>
                     </excludes>
                 </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.jacoco</groupId>
-                <artifactId>jacoco-maven-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <id>report-aggregate</id>
-                        <phase>verify</phase>
-                        <goals><goal>report-aggregate</goal></goals>
-                        <configuration>
-                            <includeCurrentProject>true</includeCurrentProject>
-                        </configuration>
-                    </execution>
-                </executions>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

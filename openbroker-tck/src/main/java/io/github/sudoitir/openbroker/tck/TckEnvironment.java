@@ -97,6 +97,15 @@ public interface TckEnvironment {
     }
 
     /**
+     * A request whose only address is {@code host:port}, with the account of {@link #request()}. The
+     * address is one nothing answers on, so the case that classifies an unreachable address can use it.
+     * Empty (the default) when the driver cannot give one; the case is then skipped.
+     */
+    default Optional<ConnectRequest> requestToAddress(String host, int port) {
+        return Optional.empty();
+    }
+
+    /**
      * A request that reaches the cluster through an endpoint that requires a client certificate, and
      * authenticates with one. Empty (the default) when the driver cannot give one; the mutual TLS
      * case is then skipped.

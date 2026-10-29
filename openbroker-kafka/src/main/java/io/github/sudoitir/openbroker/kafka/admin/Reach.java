@@ -15,12 +15,6 @@ import io.github.sudoitir.openbroker.kafka.KafkaOptions;
 import io.github.sudoitir.openbroker.model.NodeDescription;
 import io.github.sudoitir.openbroker.model.NodeFunction;
 import io.github.sudoitir.openbroker.support.Deadlines;
-import java.io.IOException;
-import java.net.ConnectException;
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
-import java.net.Socket;
-import java.net.UnknownHostException;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -147,48 +141,21 @@ final class Reach {
         if (advertised.isEmpty()) {
             return Optional.empty();
         }
-        String address = advertised.get().address();
-        int colon = address.lastIndexOf(':');
-        String host = unbracketed(address.substring(0, colon));
-        int port = Integer.parseInt(address.substring(colon + 1));
-        InetAddress[] resolved;
-        try {
-            resolved = InetAddress.getAllByName(host);
-        } catch (UnknownHostException _) {
-            return Optional.of(unreached(node, "dns", "does not resolve"));
-        }
-        Optional<BrokerException> connect = connect(node, resolved, port, limit);
-        if (connect.isPresent()) {
-            return connect;
+        Optional<Sockets.Failure> failure = Sockets.open(advertised.get().address(), limit, clock);
+        if (failure.isPresent()) {
+            return Optional.of(
+                    switch (failure.get()) {
+                        case DNS -> unreached(node, "dns", "does not resolve");
+                        case REFUSED -> unreached(node, "refused", "refuses connections");
+                        case TIMEOUT -> unreached(node, TIMEOUT, "did not accept a connection in time");
+                    });
         }
         return answers(node, limit);
     }
 
     /** An IPv6 literal without the brackets an address writes it in. */
     static String unbracketed(String host) {
-        return host.length() > 1 && host.startsWith("[") && host.endsWith("]")
-                ? host.substring(1, host.length() - 1)
-                : host;
-    }
-
-    private Optional<BrokerException> connect(NodeDescription node, InetAddress[] resolved, int port, Deadline limit) {
-        boolean timedOut = false;
-        for (InetAddress address : resolved) {
-            int millis = Math.clamp(limit.remaining(clock).toMillis(), 1, Integer.MAX_VALUE);
-            try (Socket socket = new Socket()) {
-                socket.connect(new InetSocketAddress(address, port), millis);
-                return Optional.empty();
-            } catch (ConnectException _) {
-                // Refused; the next address may answer.
-            } catch (IOException _) {
-                // A timeout or any other failure to open the connection.
-                timedOut = true;
-            }
-        }
-        return Optional.of(
-                timedOut
-                        ? unreached(node, TIMEOUT, "did not accept a connection in time")
-                        : unreached(node, "refused", "refuses connections"));
+        return Sockets.host(host + ":0");
     }
 
     /** Sends the broker a request addressed to it, which a half-open connection does not answer. */
