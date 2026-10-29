@@ -23,6 +23,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.locks.LockSupport;
 import java.util.function.Supplier;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.NewTopic;
@@ -127,8 +128,31 @@ class HangingTransactionsIT {
             producer.send(new ProducerRecord<>(topic, 0, null, ("v" + i).getBytes()))
                     .get();
         }
-        Thread.sleep(6000);
-        return new TopicPartition(topic, 0);
+        TopicPartition partition = new TopicPartition(topic, 0);
+        awaitAged(partition);
+        return partition;
+    }
+
+    /** Waits until the producer's last write is older than the broker's longest transaction. */
+    private static void awaitAged(TopicPartition partition) throws Exception {
+        long until = System.nanoTime() + Duration.ofSeconds(30).toNanos();
+        while (System.nanoTime() < until) {
+            long newest =
+                    admin
+                            .describeProducers(List.of(partition))
+                            .partitionResult(partition)
+                            .get()
+                            .activeProducers()
+                            .stream()
+                            .mapToLong(p -> p.lastTimestamp())
+                            .max()
+                            .orElse(Long.MAX_VALUE);
+            if (System.currentTimeMillis() - newest > 5000) {
+                return;
+            }
+            LockSupport.parkNanos(Duration.ofMillis(200).toNanos());
+        }
+        throw new AssertionError("The transaction never aged past the broker's longest");
     }
 
     private static long readableByAReadCommittedConsumer(TopicPartition partition) {

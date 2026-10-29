@@ -53,7 +53,7 @@ import org.apache.kafka.common.config.ConfigResource;
  * {@code transaction.max.timeout.ms}, less those the coordinator still lists as ongoing. Listing reads
  * every partition of the topics in scope, so it is made on demand and never on a watch.
  */
-final class HangingTransactions implements Handler {
+record HangingTransactions(Kind kind) implements Handler {
 
     /** The longest a transaction may last where the broker does not say, Kafka's default. */
     static final long DEFAULT_MAX_TIMEOUT_MS = 900_000;
@@ -62,17 +62,6 @@ final class HangingTransactions implements Handler {
     static final int DEFAULT_LIMIT = 1000;
 
     private static final String MAX_TIMEOUT = "transaction.max.timeout.ms";
-
-    private final Kind kind;
-
-    HangingTransactions(Kind kind) {
-        this.kind = kind;
-    }
-
-    @Override
-    public Kind kind() {
-        return kind;
-    }
 
     @Override
     public Set<String> selectors() {
@@ -106,7 +95,7 @@ final class HangingTransactions implements Handler {
         try {
             Long.parseLong(parts.get(2));
             return new TopicPartition(parts.get(0), Integer.parseInt(parts.get(1)));
-        } catch (NumberFormatException e) {
+        } catch (NumberFormatException _) {
             throw Attrs.invalid("A partition and a producer id are whole numbers: " + id);
         }
     }
@@ -188,7 +177,7 @@ final class HangingTransactions implements Handler {
                     .get(broker);
             var entry = config == null ? null : config.get(MAX_TIMEOUT);
             return entry == null || entry.value() == null ? DEFAULT_MAX_TIMEOUT_MS : Long.parseLong(entry.value());
-        } catch (BrokerException | NumberFormatException e) {
+        } catch (BrokerException | NumberFormatException _) {
             return DEFAULT_MAX_TIMEOUT_MS;
         }
     }
@@ -214,7 +203,7 @@ final class HangingTransactions implements Handler {
                 .toList();
     }
 
-    private static Attributes attributes(Context context, Open o) {
+    static Attributes attributes(Context context, Open o) {
         ProducerState p = o.producer();
         return Attributes.builder()
                 .putRaw(KafkaKinds.HANGING_TOPIC, o.partition().topic())

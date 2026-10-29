@@ -142,7 +142,7 @@ public abstract class OpenBrokerTck {
     }
 
     @Test
-    void verifyClassifiesAnUnreachableAddress() throws Exception {
+    void verifyClassifiesAnUnreachableAddress() throws IOException {
         int closed;
         try (ServerSocket probe = new ServerSocket(0)) {
             closed = probe.getLocalPort();
