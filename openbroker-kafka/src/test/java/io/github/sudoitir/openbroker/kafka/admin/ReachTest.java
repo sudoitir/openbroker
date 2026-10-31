@@ -84,8 +84,9 @@ class ReachTest {
             List<NodeDescription> all = List.of(nodes);
             Partial<List<NodeDescription>> described = Partial.complete(
                     all, all.stream().map(NodeDescription::node).toList());
+            // The deadline must not be what bounds the check, or the broker's own budget is never the one tested.
             Deadline deadline =
-                    Deadline.after(Duration.ofSeconds(10), cluster.options().clock());
+                    Deadline.after(connect.plusSeconds(30), cluster.options().clock());
             return ask == null ? Reach.of(cluster, described, deadline) : Reach.of(cluster, described, deadline, ask);
         }
     }
@@ -166,15 +167,19 @@ class ReachTest {
                 result -> assertThat(result.outcomes()).containsEntry(NodeId.of("1"), NodeOutcome.FAILED));
     }
 
+    /**
+     * A broker gets its whole connection setup, so a budget below Kafka's own floor is raised to it rather than
+     * cutting a socket off mid-login, and a check that outlasts the budget it was given is still abandoned.
+     */
     @Test
     void aCheckThatOutlastsTheBudgetIsAbandonedAndNamesTheBudget() throws IOException {
         long started = System.nanoTime();
         listening(
-                Duration.ofMillis(300),
+                Duration.ofSeconds(1),
                 (n, l) -> {
                     // Blocks until Reach gives up on the check and interrupts it.
                     try {
-                        boolean released = new CountDownLatch(1).await(30, TimeUnit.SECONDS);
+                        boolean released = new CountDownLatch(1).await(60, TimeUnit.SECONDS);
                         assertThat(released).isFalse();
                     } catch (InterruptedException _) {
                         Thread.currentThread().interrupt();
@@ -183,9 +188,26 @@ class ReachTest {
                 result -> {
                     BrokerException failure = result.failures().get(NodeId.of("1"));
                     assertThat(failure.info().metadata()).containsEntry(Reach.FAILURE, "timeout");
-                    assertThat(failure.getMessage()).contains("127.0.0.1:").contains("did not answer within 300 ms");
+                    // The budget is connection setup's, which never falls below Kafka's 10 s default.
+                    assertThat(failure.getMessage()).contains("127.0.0.1:").contains("did not answer within 10 s");
                 });
-        assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(5));
+        assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(20));
+    }
+
+    /** A budget longer than the floor is the one used, and named when the check overruns it. */
+    @Test
+    void aBudgetAboveTheFloorIsTheOneTheCheckUses() throws IOException {
+        listening(
+                Duration.ofSeconds(15),
+                (n, l) -> {
+                    try {
+                        new CountDownLatch(1).await(60, TimeUnit.SECONDS);
+                    } catch (InterruptedException _) {
+                        Thread.currentThread().interrupt();
+                    }
+                },
+                result -> assertThat(result.failures().get(NodeId.of("1")).getMessage())
+                        .contains("did not answer within 15 s"));
     }
 
     @Test

@@ -14,6 +14,7 @@ import io.github.sudoitir.openbroker.NodeId;
 import io.github.sudoitir.openbroker.NodeSpec;
 import io.github.sudoitir.openbroker.Plane;
 import io.github.sudoitir.openbroker.Status;
+import io.github.sudoitir.openbroker.Timeouts;
 import io.github.sudoitir.openbroker.TlsMaterial;
 import io.github.sudoitir.openbroker.TlsProvider;
 import io.github.sudoitir.openbroker.kafka.KafkaOptions;
@@ -22,6 +23,7 @@ import io.github.sudoitir.openbroker.kafka.security.TlsEngineFactory;
 import io.github.sudoitir.openbroker.spi.DriverContext;
 import java.io.IOException;
 import java.net.ServerSocket;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
@@ -277,7 +279,63 @@ class KafkaClusterTest {
                 cluster(spec(Map.of(), "one:9092"), CredentialSource.none(), ConnectOptions.defaults())) {
             assertThat(cluster.clientConfig(Plane.MANAGEMENT))
                     .containsEntry("request.timeout.ms", 10_000)
+                    .containsEntry("default.api.timeout.ms", 10_000);
+        }
+    }
+
+    /**
+     * A three-second connect timeout is a TCP budget. Kafka also charges naming the broker and logging in to the
+     * socket's setup, so a client given three seconds closes the socket in the middle of a slow reverse DNS or a
+     * login that waits on a policy server, and then never reads an API version.
+     */
+    @Test
+    void connectionSetupKeepsKafkasOwnFloorRatherThanTheTcpConnectBudget() {
+        try (KafkaCluster cluster =
+                cluster(spec(Map.of(), "one:9092"), CredentialSource.none(), ConnectOptions.defaults())) {
+            assertThat(cluster.clientConfig(Plane.MANAGEMENT))
+                    .containsEntry("socket.connection.setup.timeout.ms", 10_000);
+            assertThat(cluster.connectionSetupTimeout()).isEqualTo(Duration.ofSeconds(10));
+        }
+    }
+
+    @Test
+    void aConnectTimeoutAboveTheFloorIsTheSetupBudget() {
+        ConnectOptions patient =
+                ConnectOptions.defaults().withTimeouts(Timeouts.fixed(Duration.ofSeconds(25), Duration.ofSeconds(30)));
+        try (KafkaCluster cluster = cluster(spec(Map.of(), "one:9092"), CredentialSource.none(), patient)) {
+            assertThat(cluster.clientConfig(Plane.MANAGEMENT))
+                    .containsEntry("socket.connection.setup.timeout.ms", 25_000);
+        }
+    }
+
+    @Test
+    void theSetupFloorFollowsTheConnectionsOption() {
+        try (KafkaCluster raised = cluster(
+                        spec(Map.of(KafkaOptions.SETUP_GRACE, "PT30S"), "one:9092"),
+                        CredentialSource.none(),
+                        ConnectOptions.defaults());
+                KafkaCluster lowered = cluster(
+                        spec(Map.of(KafkaOptions.SETUP_GRACE, "PT1S"), "one:9092"),
+                        CredentialSource.none(),
+                        ConnectOptions.defaults())) {
+            assertThat(raised.clientConfig(Plane.MANAGEMENT))
+                    .containsEntry("socket.connection.setup.timeout.ms", 30_000);
+            assertThat(lowered.clientConfig(Plane.MANAGEMENT))
                     .containsEntry("socket.connection.setup.timeout.ms", 3_000);
+        }
+    }
+
+    @Test
+    void aSetupFloorThatIsNotADurationIsRefused() {
+        try (KafkaCluster cluster = cluster(
+                spec(Map.of(KafkaOptions.SETUP_GRACE, "ten seconds"), "one:9092"),
+                CredentialSource.none(),
+                ConnectOptions.defaults())) {
+            assertThatThrownBy(() -> cluster.clientConfig(Plane.MANAGEMENT))
+                    .isInstanceOfSatisfying(BrokerException.class, e -> {
+                        assertThat(e.reason()).isEqualTo(ErrorReasons.INVALID_ARGUMENT);
+                        assertThat(e.getMessage()).contains(KafkaOptions.SETUP_GRACE);
+                    });
         }
     }
 
