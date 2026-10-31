@@ -196,8 +196,13 @@ public final class KafkaCluster implements AutoCloseable {
         // A broker that cannot be connected to is tried again after a growing pause, not in a tight loop.
         config.put(CommonClientConfigs.RECONNECT_BACKOFF_MS_CONFIG, RECONNECT_BACKOFF_MS);
         config.put(CommonClientConfigs.RECONNECT_BACKOFF_MAX_MS_CONFIG, RECONNECT_BACKOFF_MAX_MS);
+        // Kafka charges a broker's name lookup and SASL login to its connection setup: the socket is open but the
+        // channel is not built, so the node stays CONNECTING and this timeout closes it. A reverse DNS with no
+        // zone behind it, or a login that reaches a policy server, is therefore a setup timeout unless the budget
+        // covers it, and the client then never reads a single API version. The caller's connect timeout is the TCP
+        // budget; the setup budget is that or Kafka's own 10 s default, whichever is longer.
         config.put(CommonClientConfigs.SOCKET_CONNECTION_SETUP_TIMEOUT_MS_CONFIG, (int)
-                Math.min(options().timeouts().connect().toMillis(), Integer.MAX_VALUE));
+                Math.min(setupTimeout(options().timeouts().connect()).toMillis(), Integer.MAX_VALUE));
         String protocol = current.option(KafkaOptions.SECURITY_PROTOCOL, KafkaOptions.PLAINTEXT);
         config.put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, protocol);
         if (protocol.equals(KafkaOptions.SSL) || protocol.equals(KafkaOptions.SASL_SSL)) {
@@ -220,6 +225,32 @@ public final class KafkaCluster implements AutoCloseable {
             }
         }
         return config;
+    }
+
+    /**
+     * The connection setup budget: the caller's TCP connect timeout, or {@link KafkaOptions#SETUP_GRACE} (Kafka's
+     * own 10 s default) when that is longer, so a slow name lookup or login does not close a socket that is about
+     * to answer. A cluster may raise or lower the floor with that option.
+     */
+    Duration connectionSetupTimeout() {
+        return setupTimeout(options().timeouts().connect());
+    }
+
+    private Duration setupTimeout(Duration connect) {
+        String configured = spec.option(KafkaOptions.SETUP_GRACE, KafkaOptions.DEFAULT_SETUP_GRACE);
+        Duration grace;
+        try {
+            grace = Duration.parse(configured);
+            if (grace.isNegative() || grace.isZero()) {
+                throw new IllegalArgumentException(configured);
+            }
+        } catch (RuntimeException e) {
+            throw KafkaErrors.refused(
+                    Status.INVALID_ARGUMENT,
+                    ErrorReasons.INVALID_ARGUMENT,
+                    KafkaOptions.SETUP_GRACE + " is an ISO-8601 duration above zero, such as PT10S.");
+        }
+        return connect.compareTo(grace) > 0 ? connect : grace;
     }
 
     /**

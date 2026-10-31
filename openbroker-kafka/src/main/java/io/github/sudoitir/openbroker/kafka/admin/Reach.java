@@ -89,7 +89,8 @@ final class Reach {
     }
 
     private Partial<List<NodeDescription>> check(Partial<List<NodeDescription>> described, Deadline deadline) {
-        Duration budget = min(cluster.options().timeouts().connect(), deadline.remaining(clock));
+        // A broker needs its whole connection setup: the socket, then the name lookup and login Kafka charges to it.
+        Duration budget = min(cluster.connectionSetupTimeout(), deadline.remaining(clock));
         Deadline limit = Deadline.after(budget, clock);
         Map<NodeId, NodeOutcome> outcomes = new LinkedHashMap<>(described.outcomes());
         Map<NodeId, BrokerException> failures = new LinkedHashMap<>(described.failures());

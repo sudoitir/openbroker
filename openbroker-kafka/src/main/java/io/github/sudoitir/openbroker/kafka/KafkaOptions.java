@@ -19,6 +19,12 @@ public final class KafkaOptions {
     public static final String CLIENT_ID = "client.id";
     /** How often the watch reads the cluster, as an ISO-8601 duration such as {@code PT10S}. */
     public static final String WATCH_INTERVAL = "watch.interval";
+    /**
+     * How long building a SASL channel may take once the socket is open, as an ISO-8601 duration. Kafka charges a
+     * broker's name lookup and login to its connection setup, so its own 10 s default is kept when the caller's
+     * connect timeout is shorter; this option raises or lowers that floor.
+     */
+    public static final String SETUP_GRACE = "setup.grace";
 
     public static final String PLAINTEXT = "PLAINTEXT";
     public static final String SSL = "SSL";
@@ -32,6 +38,13 @@ public final class KafkaOptions {
 
     public static final String DEFAULT_CLIENT_ID = "openbroker";
     public static final String DEFAULT_WATCH_INTERVAL = "PT10S";
+
+    /**
+     * Kafka's own default for {@code socket.connection.setup.timeout.ms}. A client built with less than this
+     * abandons a socket that is still naming its broker or logging in, which a slow reverse DNS or a stopped
+     * policy server makes ordinary; Kafka then disconnects before it reads a single API version.
+     */
+    public static final String DEFAULT_SETUP_GRACE = "PT10S";
 
     public static final ConnectionSchema SCHEMA = new ConnectionSchema(List.of(
             new OptionSpec(
@@ -70,6 +83,16 @@ public final class KafkaOptions {
                     List.of(),
                     "How often the watch reads the cluster, as an ISO-8601 duration of one second or more."
                             + " Kafka sends no events, so changes show up this late at most.",
+                    Optional.empty()),
+            new OptionSpec(
+                    SETUP_GRACE,
+                    OptionSpec.Type.DURATION,
+                    false,
+                    false,
+                    Optional.of(DEFAULT_SETUP_GRACE),
+                    List.of(),
+                    "How long building a connection may take once its socket is open. Kafka counts naming the"
+                            + " broker and logging in against it, so a slow reverse DNS ends the connection instead.",
                     Optional.empty())));
 
     private KafkaOptions() {}
