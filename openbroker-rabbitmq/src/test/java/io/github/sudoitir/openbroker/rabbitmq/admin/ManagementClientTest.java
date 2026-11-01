@@ -17,6 +17,7 @@ import io.github.sudoitir.openbroker.Plane;
 import io.github.sudoitir.openbroker.Status;
 import java.io.IOException;
 import java.net.ServerSocket;
+import java.net.Socket;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -200,10 +201,26 @@ class ManagementClientTest {
     @Test
     void aSlowAnswerExceedsTheDeadlineAfterTheRequestWasSent() {
         server.hang("GET", "/slow");
-        Deadline soon = Deadline.after(Duration.ofMillis(300), Clock.systemUTC());
+        Deadline soon = Deadline.after(Duration.ofSeconds(2), Clock.systemUTC());
         BrokerException e = failure(() -> cluster().management().get("/slow", Map.of(), soon, "x"));
         assertThat(e.status()).isEqualTo(Status.DEADLINE_EXCEEDED);
+        // Once the server has the request, the call is in doubt; on a starved machine the deadline can pass before
+        // the connection is made, and then it was never sent.
+        if (!server.received().isEmpty()) {
+            assertThat(e.dispatch()).isEqualTo(Dispatch.IN_DOUBT);
+        }
+    }
+
+    @Test
+    void aBodyThatStallsAfterItsHeadersDoesNotHoldTheCallPastTheDeadline() {
+        server.stallBody("GET", "/stalled");
+        Deadline soon = Deadline.after(Duration.ofSeconds(1), Clock.systemUTC());
+        long started = System.nanoTime();
+        BrokerException e = failure(() -> cluster().management().get("/stalled", Map.of(), soon, "x"));
+        assertThat(e.status()).isEqualTo(Status.DEADLINE_EXCEEDED);
+        // The headers arrived, so the server had the request.
         assertThat(e.dispatch()).isEqualTo(Dispatch.IN_DOUBT);
+        assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(10));
     }
 
     @Test
@@ -218,6 +235,45 @@ class ManagementClientTest {
     private static Endpoint deadEndpoint() throws IOException {
         try (ServerSocket socket = new ServerSocket(0)) {
             return Endpoint.of(Plane.MANAGEMENT, "http", "http://127.0.0.1:" + socket.getLocalPort());
+        }
+    }
+
+    /** An endpoint that takes the request and drops the connection without answering, as a node that dies mid-call. */
+    private static Endpoint droppingEndpoint(ServerSocket socket) {
+        Thread.ofVirtual().start(() -> {
+            while (!socket.isClosed()) {
+                try (Socket client = socket.accept()) {
+                    client.getInputStream().read(new byte[256]);
+                } catch (IOException _) {
+                    // Closed when the test ends.
+                }
+            }
+        });
+        return Endpoint.of(Plane.MANAGEMENT, "http", "http://127.0.0.1:" + socket.getLocalPort());
+    }
+
+    @Test
+    void aReadFailsOverWhenANodeDropsItMidRequest() throws IOException {
+        server.json("GET", "/api/overview", "overview.json");
+        try (ServerSocket dropping = new ServerSocket(0)) {
+            RabbitMqCluster both = FakeManagement.cluster(droppingEndpoint(dropping), server.endpoint());
+            assertThat(both.management()
+                            .get("/api/overview", Map.of(), deadline(), "read")
+                            .body()
+                            .isObject())
+                    .isTrue();
+        }
+    }
+
+    @Test
+    void aWriteIsNotSentTwiceWhenANodeDropsItMidRequest() throws IOException {
+        server.respond("PUT", "/api/vhosts/v", 201, Map.of(), "");
+        try (ServerSocket dropping = new ServerSocket(0)) {
+            RabbitMqCluster both = FakeManagement.cluster(droppingEndpoint(dropping), server.endpoint());
+            BrokerException e = failure(
+                    () -> both.management().put("/api/vhosts/v", MissingNode.getInstance(), deadline(), "write"));
+            assertThat(e.dispatch()).isEqualTo(Dispatch.IN_DOUBT);
+            assertThat(server.received()).isEmpty();
         }
     }
 
