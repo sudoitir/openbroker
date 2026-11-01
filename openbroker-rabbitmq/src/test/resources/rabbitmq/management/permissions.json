@@ -1,0 +1,5 @@
+[
+  {"user": "ops", "vhost": "/", "configure": ".*", "write": ".*", "read": ".*"},
+  {"user": "app", "vhost": "/", "configure": "", "write": "^orders", "read": "^orders"},
+  {"user": "app", "vhost": "sales", "configure": "", "write": ".*", "read": ".*"}
+]

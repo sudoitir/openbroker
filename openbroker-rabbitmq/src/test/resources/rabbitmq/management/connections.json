@@ -1,0 +1,7 @@
+{
+  "items": [
+    {"name": "10.0.0.5:52114 -> 10.0.0.1:5672", "user": "app", "vhost": "/", "protocol": "AMQP 0-9-1", "node": "rabbit@alpha", "connected_at": 1761990000000, "peer_host": "10.0.0.5", "peer_port": 52114, "channels": 2, "state": "running", "client_properties": {"connection_name": "order-service"}},
+    {"name": "10.0.0.6:40001 -> 10.0.0.2:5672", "user": "ops", "vhost": "sales", "protocol": "AMQP 0-9-1", "node": "rabbit@beta", "connected_at": 1761990100000, "peer_host": "10.0.0.6", "peer_port": 40001, "channels": 1, "state": "running", "client_properties": {}}
+  ],
+  "page": 1, "page_count": 1, "page_size": 500, "total_count": 2
+}

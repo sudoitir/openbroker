@@ -1,0 +1,3 @@
+[
+  {"user": "app", "vhost": "/", "exchange": "amq.topic", "write": "^orders\\.", "read": "^orders\\."}
+]

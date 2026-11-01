@@ -1,0 +1,5 @@
+[
+  {"name": "/", "description": "Default virtual host", "tags": [], "default_queue_type": "classic", "metadata": {"description": "Default virtual host", "tags": [], "default_queue_type": "classic"}},
+  {"name": "sales", "description": "Orders and payments", "tags": ["production", "eu"], "default_queue_type": "quorum", "metadata": {"description": "Orders and payments", "tags": ["production", "eu"], "default_queue_type": "quorum"}},
+  {"name": "old", "tags": "legacy", "metadata": {"description": "Older layout", "default_queue_type": "classic"}}
+]
