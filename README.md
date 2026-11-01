@@ -231,6 +231,9 @@ event-exchange queue lives in).
   condition the broker does not enforce for it. Shovels, federation upstreams and users carry secrets the SDK
   cannot yet accept write-only, so they are read and deleted, never created.
 - **Counts are estimates** where the management statistics are sampled, and say so.
+- **A crash right after a queue is declared.** RabbitMQ writes a new quorum queue's membership to disk about every
+  half second, so a whole-cluster crash within that window can lose the queue's members and the messages it had
+  confirmed. That is the broker's behaviour, not the driver's; a queue that has been in use is not affected.
 - **Events** come from the event exchange (`rabbitmq_event_exchange`) when it is enabled and the account may bind
   to it, and from a polling watch otherwise; the `notifications` capability says which.
 - **Messaging.** Receivers consume with manual acknowledgements and `basic.qos`; settlement is by acknowledgement,
