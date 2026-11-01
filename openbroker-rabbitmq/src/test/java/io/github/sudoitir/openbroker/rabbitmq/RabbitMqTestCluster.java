@@ -260,15 +260,15 @@ public final class RabbitMqTestCluster implements AutoCloseable {
         return RabbitMqOptions.HTTPS + "://" + address(index, MANAGEMENT_TLS_PORT);
     }
 
-    /** The AMQP address of node {@code index} (from 0) in the clear, such as {@code amqp://localhost:32769}. */
-    public String amqpUrl(int index) {
-        return RabbitMqOptions.AMQP + "://" + address(index, AMQP_PORT);
+    /** The AMQP address of node {@code index} (from 0) in the clear, as {@code host:port}, such as {@code localhost:32769}. */
+    public String amqpAddress(int index) {
+        return address(index, AMQP_PORT);
     }
 
     /** The AMQP address of node {@code index} (from 0) over TLS; the TLS variant only. */
-    public String amqpTlsUrl(int index) {
+    public String amqpTlsAddress(int index) {
         requireTls();
-        return RabbitMqOptions.AMQPS + "://" + address(index, AMQP_TLS_PORT);
+        return address(index, AMQP_TLS_PORT);
     }
 
     /** The management addresses of every node, in the clear. */
@@ -277,8 +277,8 @@ public final class RabbitMqTestCluster implements AutoCloseable {
     }
 
     /** The AMQP addresses of every node, in the clear. */
-    public List<String> amqpUrls() {
-        return IntStream.range(0, nodes.size()).mapToObj(this::amqpUrl).toList();
+    public List<String> amqpAddresses() {
+        return IntStream.range(0, nodes.size()).mapToObj(this::amqpAddress).toList();
     }
 
     private void requireTls() {
@@ -308,7 +308,9 @@ public final class RabbitMqTestCluster implements AutoCloseable {
                     tls ? RabbitMqOptions.HTTPS : RabbitMqOptions.HTTP,
                     tls ? managementTlsUrl(i) : managementUrl(i));
             Endpoint data = Endpoint.of(
-                    Plane.DATA, tls ? RabbitMqOptions.AMQPS : RabbitMqOptions.AMQP, tls ? amqpTlsUrl(i) : amqpUrl(i));
+                    Plane.DATA,
+                    tls ? RabbitMqOptions.AMQPS : RabbitMqOptions.AMQP,
+                    tls ? amqpTlsAddress(i) : amqpAddress(i));
             specs.add(new NodeSpec(NodeId.of(nodeName(i + 1)), List.of(management, data)));
         }
         return new ClusterSpec(specs, List.of(), Map.of());
