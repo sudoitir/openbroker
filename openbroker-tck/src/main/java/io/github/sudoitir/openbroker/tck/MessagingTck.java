@@ -579,14 +579,14 @@ public abstract class MessagingTck {
         List<Message> rest = drain(transport, id, 4, SECONDS_15, QUIET);
         assertThat(rest).hasSize(4);
         assertThat(seqs(rest)).doesNotContainAnyElementsOf(finished);
-        // The hand-back is a release that is not a failed delivery: it leaves the count only where the kind declares so.
+        // The hand-back is a release that is not a failed delivery: it leaves the count only where the kind declares
+        // so.
         int allowed = subscription().releaseCountsDelivery() ? 2 : 1;
         assertThat(rest)
                 .allSatisfy(m -> m.headers()
                         .deliveryCount()
-                        .ifPresent(count -> assertThat(count)
-                                .as("handed back as a release")
-                                .isLessThanOrEqualTo(allowed)));
+                        .ifPresent(count ->
+                                assertThat(count).as("handed back as a release").isLessThanOrEqualTo(allowed)));
     }
 
     /** A sender that is not transacted is safe to use from several threads at once. */
@@ -975,6 +975,9 @@ public abstract class MessagingTck {
         Path file = Files.createTempFile("tck-pinning", ".jfr");
         try {
             AtomicInteger handled = new AtomicInteger();
+            // The JDK initialises its throwable tracing on the first exception made; do that here, so a lane
+            // that is interrupted first does not wait for it on a carrier thread and look like a pin.
+            new InterruptedException().getMessage();
             try (Recording recording = new Recording()) {
                 recording
                         .enable("jdk.VirtualThreadPinned")
