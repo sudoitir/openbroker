@@ -127,6 +127,11 @@ class RabbitMqChaosIT extends ChaosTck {
                 return cluster.follower(queue(subscription));
             }
 
+            /**
+             * A link names the node its connection is on, which is any node: a quorum queue is served through every
+             * node, and its leader is not the node a client reaches it by. So no link names the node that serves its
+             * subscription (the leader or the successor), nor the cluster.
+             */
             @Override
             public boolean linksNameTheirServingNode() {
                 return false;
