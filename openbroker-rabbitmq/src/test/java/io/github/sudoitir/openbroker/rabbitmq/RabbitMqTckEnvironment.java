@@ -10,6 +10,7 @@ import io.github.sudoitir.openbroker.Plane;
 import io.github.sudoitir.openbroker.messaging.MessageFilter;
 import io.github.sudoitir.openbroker.model.Attributes;
 import io.github.sudoitir.openbroker.model.KindId;
+import io.github.sudoitir.openbroker.model.PartitionId;
 import io.github.sudoitir.openbroker.model.ResourceId;
 import io.github.sudoitir.openbroker.model.ResourcePath;
 import io.github.sudoitir.openbroker.model.Shard;
@@ -91,7 +92,8 @@ public final class RabbitMqTckEnvironment implements TckEnvironment {
 
     @Override
     public Shard browseShard(ResourceId subscription) {
-        return Shard.node(request().cluster().nodes().getFirst().id());
+        // A stream is read as one partition 0; a queue is not browsed, so its shard is never used.
+        return Shard.partition(PartitionId.of("0"));
     }
 
     @Override
