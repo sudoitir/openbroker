@@ -56,6 +56,7 @@ final class Queues {
         attributes.put(StandardAttributes.DURABLE, ReadSupport.flag(json, "durable"));
         attributes.putRaw(RabbitMqKinds.AUTO_DELETE, ReadSupport.flag(json, "auto_delete"));
         attributes.put(StandardAttributes.TEMPORARY, ReadSupport.flag(json, "exclusive"));
+        ReadSupport.put(attributes, RabbitMqKinds.EFFECTIVE_POLICY, ReadSupport.text(json, "policy"));
         metric(attributes, MetricKeys.BACKLOG, json, "messages_ready");
         metric(attributes, MetricKeys.BACKLOG_SIZE, json, "message_bytes");
         metric(attributes, MetricKeys.IN_FLIGHT, json, "messages_unacknowledged");

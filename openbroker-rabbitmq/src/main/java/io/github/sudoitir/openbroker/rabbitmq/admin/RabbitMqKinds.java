@@ -58,6 +58,9 @@ public final class RabbitMqKinds {
     public static final String INTERNAL = "rabbitmq.internal";
     public static final String DELIVERY_LIMIT = "rabbitmq.delivery_limit";
     public static final String LEADER = "rabbitmq.leader";
+    /** The name of the policy that applies to a queue, if one does. */
+    public static final String EFFECTIVE_POLICY = "rabbitmq.policy";
+
     public static final String MAX_AGE = "rabbitmq.max_age";
     public static final String MAX_LENGTH_BYTES = "rabbitmq.max_length_bytes";
     public static final String COMMITTED_OFFSET = "rabbitmq.committed_offset";
@@ -254,6 +257,7 @@ public final class RabbitMqKinds {
         return new AttributeSpec[] {
             AttributeSpec.config("openbroker.durable", false, true),
             AttributeSpec.config(AUTO_DELETE, false, true),
+            AttributeSpec.status(EFFECTIVE_POLICY),
             AttributeSpec.metric(MetricKeys.BACKLOG.name(), Instrument.GAUGE, MESSAGE),
             AttributeSpec.metric(MetricKeys.BACKLOG_SIZE.name(), Instrument.GAUGE, BYTES),
             AttributeSpec.metric(MetricKeys.IN_FLIGHT.name(), Instrument.GAUGE, MESSAGE),

@@ -157,7 +157,8 @@ class RabbitMqResourcesTest {
         assertThat(payments.id().format()).isEqualTo("rabbitmq.quorum-queue/%2F/payments");
         assertThat(payments.attributes().asMap())
                 .containsEntry(RabbitMqKinds.LEADER, "rabbit@alpha")
-                .containsEntry(RabbitMqKinds.DELIVERY_LIMIT, 7L);
+                .containsEntry(RabbitMqKinds.DELIVERY_LIMIT, 7L)
+                .containsEntry(RabbitMqKinds.EFFECTIVE_POLICY, "payments-limits");
         assertThat(payments.attributes().get(MetricKeys.BACKLOG).orElseThrow().asLong())
                 .isEqualTo(40);
         assertThat(payments.placements()).hasSize(3);
