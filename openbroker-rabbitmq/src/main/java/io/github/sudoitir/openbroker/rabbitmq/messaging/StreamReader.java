@@ -186,8 +186,8 @@ final class StreamReader implements Receiver {
     private BrowsePage page(
             BrowseRequest request, Object argument, Optional<PortableFilter> filter, Deadline deadline) {
         Stats stats = stats(deadline);
-        if (request.position() instanceof Position.After after) {
-            long issued = StreamOffsets.cursorFirstTimestamp(after.cursor()).toEpochMilli();
+        if (request.position() instanceof Position.After(Cursor cursor)) {
+            long issued = StreamOffsets.cursorFirstTimestamp(cursor).toEpochMilli();
             // Management reports 0 until the stream's statistics are first emitted: then nothing can be compared.
             if (issued != 0 && stats.firstTimestamp() != 0 && issued != stats.firstTimestamp()) {
                 throw new BrokerException(
@@ -385,7 +385,7 @@ final class StreamReader implements Receiver {
             if (channel.isOpen()) {
                 channel.basicCancel(tag);
             }
-        } catch (IOException | ShutdownSignalException e) {
+        } catch (IOException | ShutdownSignalException _) {
             // The channel is closed next either way.
         }
     }
@@ -395,7 +395,7 @@ final class StreamReader implements Receiver {
             if (channel.isOpen()) {
                 channel.close();
             }
-        } catch (IOException | TimeoutException | ShutdownSignalException e) {
+        } catch (IOException | TimeoutException | ShutdownSignalException _) {
             // The channel is gone either way.
         }
     }

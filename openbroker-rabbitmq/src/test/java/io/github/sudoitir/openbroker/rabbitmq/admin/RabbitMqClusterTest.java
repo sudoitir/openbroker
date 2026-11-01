@@ -99,6 +99,14 @@ class RabbitMqClusterTest {
     }
 
     @Test
+    void trailingSlashesOfAManagementPathAreDroppedHoweverMany() {
+        String slashes = "/".repeat(200_000);
+        RabbitMqCluster cluster =
+                cluster(List.of(Endpoint.of(Plane.MANAGEMENT, "http", "http://a:1/rabbit" + slashes)), List.of());
+        assertThat(cluster.managementTargets().getFirst().base().toString()).isEqualTo("http://a:1/rabbit");
+    }
+
+    @Test
     void reconfigureRevalidatesDropsCachesAndNotifies() {
         RabbitMqCluster cluster = cluster(List.of(Endpoint.of(Plane.MANAGEMENT, "http", "http://a:1")), List.of());
         AtomicInteger changed = new AtomicInteger();

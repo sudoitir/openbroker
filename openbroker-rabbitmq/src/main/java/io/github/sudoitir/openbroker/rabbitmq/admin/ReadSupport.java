@@ -120,7 +120,7 @@ final class ReadSupport {
         if (parts.matches()) {
             try {
                 return new URI(parts.group(1) + "://" + parts.group(2));
-            } catch (URISyntaxException e) {
+            } catch (URISyntaxException _) {
                 // Falls through to the placeholder below: nothing of a malformed address is worth keeping.
             }
         }

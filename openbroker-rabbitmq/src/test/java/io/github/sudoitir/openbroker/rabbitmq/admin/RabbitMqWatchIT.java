@@ -106,10 +106,14 @@ class RabbitMqWatchIT {
         }
 
         @Override
-        public void reconfigure() {}
+        public void reconfigure() {
+            // This fixture holds no connection that a new specification could change.
+        }
 
         @Override
-        public void close() {}
+        public void close() {
+            // This fixture holds nothing to release.
+        }
     }
 
     @Test

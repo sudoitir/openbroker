@@ -359,7 +359,7 @@ public final class RabbitMqTestCluster implements AutoCloseable {
     private static void deleteQuietly(TestPki pki) {
         try (var files = Files.list(pki.file("."))) {
             files.forEach(path -> path.toFile().delete());
-        } catch (IOException e) {
+        } catch (IOException _) {
             // The certificates are in the temporary directory, which the system clears.
         }
     }

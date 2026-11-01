@@ -30,23 +30,7 @@ final class Placements {
         if (replicated(kind)) {
             List<String> members = ReadSupport.names(queue.path("members"));
             if (!members.isEmpty()) {
-                Optional<PartitionId> partition =
-                        RabbitMqKinds.STREAM.equals(kind) ? Optional.of(PartitionId.of("0")) : Optional.empty();
-                String leader = queue.path("leader").asString();
-                boolean known = queue.has("online");
-                Set<String> online = new HashSet<>(ReadSupport.names(queue.path("online")));
-                List<Placement> out = new ArrayList<>();
-                for (String member : members) {
-                    PlacementRole role = member.equals(leader) ? PlacementRole.LEADER : PlacementRole.FOLLOWER;
-                    Optional<Boolean> inSync = known ? Optional.of(online.contains(member)) : Optional.empty();
-                    Placement placement = new Placement(NodeId.of(member), partition, role, inSync, Attributes.empty());
-                    if (role == PlacementRole.LEADER) {
-                        out.addFirst(placement);
-                    } else {
-                        out.add(placement);
-                    }
-                }
-                return out;
+                return members(kind, queue, members);
             }
         }
         Optional<String> node = ReadSupport.text(queue, "node");
@@ -57,10 +41,36 @@ final class Placements {
         if (replicated(kind) || mirrors.isEmpty()) {
             return List.of(Placement.instance(NodeId.of(node.get()), Attributes.empty()));
         }
+        return mirrored(node.get(), mirrors, queue);
+    }
+
+    /** The leader first, then the followers, each in sync when {@code online} lists it (unknown when it is absent). */
+    private static List<Placement> members(KindId kind, JsonNode queue, List<String> members) {
+        Optional<PartitionId> partition =
+                RabbitMqKinds.STREAM.equals(kind) ? Optional.of(PartitionId.of("0")) : Optional.empty();
+        String leader = queue.path("leader").asString();
+        boolean known = queue.has("online");
+        Set<String> online = new HashSet<>(ReadSupport.names(queue.path("online")));
+        List<Placement> out = new ArrayList<>();
+        for (String member : members) {
+            PlacementRole role = member.equals(leader) ? PlacementRole.LEADER : PlacementRole.FOLLOWER;
+            Optional<Boolean> inSync = known ? Optional.of(online.contains(member)) : Optional.empty();
+            Placement placement = new Placement(NodeId.of(member), partition, role, inSync, Attributes.empty());
+            if (role == PlacementRole.LEADER) {
+                out.addFirst(placement);
+            } else {
+                out.add(placement);
+            }
+        }
+        return out;
+    }
+
+    /** A classic queue's node as leader and its mirrors as followers, each in sync when it is synchronised. */
+    private static List<Placement> mirrored(String node, List<String> mirrors, JsonNode queue) {
         Set<String> synchronised = new HashSet<>(ReadSupport.names(queue.path("synchronised_slave_nodes")));
         List<Placement> out = new ArrayList<>();
         out.add(new Placement(
-                NodeId.of(node.get()), Optional.empty(), PlacementRole.LEADER, Optional.of(true), Attributes.empty()));
+                NodeId.of(node), Optional.empty(), PlacementRole.LEADER, Optional.of(true), Attributes.empty()));
         for (String mirror : mirrors) {
             out.add(new Placement(
                     NodeId.of(mirror),

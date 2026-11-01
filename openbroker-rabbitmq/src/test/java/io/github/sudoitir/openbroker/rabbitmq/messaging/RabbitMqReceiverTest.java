@@ -298,8 +298,8 @@ class RabbitMqReceiverTest {
         open(ReceiverOptions.consume());
         assertThatThrownBy(receiver::commit).isInstanceOf(BrokerException.class);
         assertThatThrownBy(receiver::rollback).isInstanceOf(BrokerException.class);
-        assertThatThrownBy(() -> receiver.sender(SendTarget.subscription(QUEUE)))
-                .isInstanceOf(BrokerException.class);
+        SendTarget reply = SendTarget.subscription(QUEUE);
+        assertThatThrownBy(() -> receiver.sender(reply)).isInstanceOf(BrokerException.class);
         receiver.close();
         receiver.close();
         assertThat(receiver.state()).isEqualTo(LinkState.CLOSED);

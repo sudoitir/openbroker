@@ -46,7 +46,7 @@ class RabbitMqConnectionIT {
 
     private static ConnectRequest request(ClusterSpec spec, Credentials credentials) {
         return new ConnectRequest(
-                RabbitMqDriver.SYSTEM, spec, CredentialSource.of(credentials), ConnectOptions.defaults());
+                RabbitMqDriver.SYSTEM_ID, spec, CredentialSource.of(credentials), ConnectOptions.defaults());
     }
 
     @Test

@@ -15,6 +15,8 @@ import tools.jackson.databind.JsonNode;
 /** Reads connections, channels and consumers from the management API's JSON, and writes them back where the verbs allow. */
 final class Clients {
 
+    private static final String VHOST = "vhost";
+
     private final RabbitMqCluster cluster;
 
     Clients(RabbitMqCluster cluster) {
@@ -42,7 +44,7 @@ final class Clients {
         Attributes.Builder attributes = Attributes.builder();
         ReadSupport.put(attributes, StandardAttributes.PROTOCOL.name(), ReadSupport.text(json, "protocol"));
         ReadSupport.put(attributes, StandardAttributes.PRINCIPAL.name(), ReadSupport.text(json, "user"));
-        ReadSupport.put(attributes, RabbitMqKinds.VHOST_NAME, ReadSupport.text(json, "vhost"));
+        ReadSupport.put(attributes, RabbitMqKinds.VHOST_NAME, ReadSupport.text(json, VHOST));
         ReadSupport.put(
                 attributes,
                 StandardAttributes.CLIENT_ID.name(),
@@ -82,7 +84,7 @@ final class Clients {
         if (consumers.isNumber()) {
             attributes.put(StandardAttributes.CONSUMER_COUNT, consumers.asLong());
         }
-        ReadSupport.put(attributes, RabbitMqKinds.VHOST_NAME, ReadSupport.text(json, "vhost"));
+        ReadSupport.put(attributes, RabbitMqKinds.VHOST_NAME, ReadSupport.text(json, VHOST));
         ReadSupport.put(attributes, StandardAttributes.PRINCIPAL.name(), ReadSupport.text(json, "user"));
         Optional<String> node = ReadSupport.text(json, "node");
         node.ifPresent(n -> attributes.put(StandardAttributes.PLACEMENT_NODE, n));

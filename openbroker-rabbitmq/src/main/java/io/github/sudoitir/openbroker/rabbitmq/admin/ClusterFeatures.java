@@ -7,9 +7,11 @@ import io.github.sudoitir.openbroker.Status;
 import io.github.sudoitir.openbroker.support.Deadlines;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import tools.jackson.databind.JsonNode;
@@ -31,7 +33,6 @@ final class ClusterFeatures {
     static final String PLUGIN_STREAM = "rabbitmq_stream";
 
     private static final Pattern NUMBERS = Pattern.compile("^(\\d+)(?:\\.(\\d+))?(?:\\.(\\d+))?");
-    private static final Pattern RANGE = Pattern.compile("^([\\[(])\\s*([^,\\s]*)\\s*,\\s*([^\\])\\s]*)\\s*([\\])])$");
 
     /** A release as three numbers, the text it came from kept for messages. */
     record Version(int major, int minor, int patch, String text) implements Comparable<Version> {
@@ -61,9 +62,9 @@ final class ClusterFeatures {
     private record Snapshot(Version version, String product, String productVersion, String clusterName) {}
 
     private final RabbitMqCluster cluster;
-    private volatile Snapshot snapshot;
-    private volatile Optional<Set<String>> pluginsRead;
-    private volatile Set<String> tagsRead;
+    private final AtomicReference<Snapshot> snapshot = new AtomicReference<>();
+    private final AtomicReference<Optional<Set<String>>> pluginsRead = new AtomicReference<>();
+    private final AtomicReference<Set<String>> tagsRead = new AtomicReference<>();
 
     ClusterFeatures(RabbitMqCluster cluster) {
         this.cluster = cluster;
@@ -100,13 +101,14 @@ final class ClusterFeatures {
 
     /** The plugins enabled on every node; empty when the account may not read the nodes. */
     Set<String> plugins() {
-        Optional<Set<String>> known = pluginsRead;
+        Optional<Set<String>> known = pluginsRead.get();
         if (known == null) {
             synchronized (this) {
-                if (pluginsRead == null) {
-                    pluginsRead = readPlugins(cluster.management(), Deadlines.current(cluster.options()));
+                known = pluginsRead.get();
+                if (known == null) {
+                    known = readPlugins(cluster.management(), Deadlines.current(cluster.options()));
+                    pluginsRead.set(known);
                 }
-                known = pluginsRead;
             }
         }
         return known.orElse(Set.of());
@@ -134,13 +136,14 @@ final class ClusterFeatures {
 
     /** The account's tags, such as {@code administrator}. */
     Set<String> tags() {
-        Set<String> known = tagsRead;
+        Set<String> known = tagsRead.get();
         if (known == null) {
             synchronized (this) {
-                if (tagsRead == null) {
-                    tagsRead = readTags(cluster.management(), Deadlines.current(cluster.options()));
+                known = tagsRead.get();
+                if (known == null) {
+                    known = readTags(cluster.management(), Deadlines.current(cluster.options()));
+                    tagsRead.set(known);
                 }
-                known = tagsRead;
             }
         }
         return known;
@@ -154,22 +157,24 @@ final class ClusterFeatures {
     /** Forgets what was read, so the next question reads again. */
     void reset() {
         synchronized (this) {
-            snapshot = null;
-            pluginsRead = null;
-            tagsRead = null;
+            snapshot.set(null);
+            pluginsRead.set(null);
+            tagsRead.set(null);
         }
     }
 
     private Snapshot load() {
-        Snapshot known = snapshot;
+        Snapshot known = snapshot.get();
         if (known != null) {
             return known;
         }
         synchronized (this) {
-            if (snapshot == null) {
-                snapshot = read();
+            known = snapshot.get();
+            if (known == null) {
+                known = read();
+                snapshot.set(known);
             }
-            return snapshot;
+            return known;
         }
     }
 
@@ -265,14 +270,15 @@ final class ClusterFeatures {
     }
 
     private static boolean inRange(String range, Version version) {
-        Matcher m = RANGE.matcher(range.trim());
-        if (!m.matches()) {
+        String text = range.trim();
+        List<String> bounds = rangeBounds(text);
+        if (bounds.isEmpty()) {
             return Version.parse(range).map(min -> version.compareTo(min) >= 0).orElse(true);
         }
-        boolean lowerInclusive = "[".equals(m.group(1));
-        boolean upperInclusive = "]".equals(m.group(4));
-        Optional<Version> lower = Version.parse(m.group(2));
-        Optional<Version> upper = Version.parse(m.group(3));
+        boolean lowerInclusive = text.charAt(0) == '[';
+        boolean upperInclusive = text.charAt(text.length() - 1) == ']';
+        Optional<Version> lower = Version.parse(bounds.get(0));
+        Optional<Version> upper = Version.parse(bounds.get(1));
         if (lower.isPresent()) {
             int c = version.compareTo(lower.get());
             if (c < 0 || (c == 0 && !lowerInclusive)) {
@@ -284,6 +290,25 @@ final class ClusterFeatures {
             return c < 0 || (c == 0 && upperInclusive);
         }
         return true;
+    }
+
+    /** The two bounds of an interval such as {@code [3.13.0,4.0)}, or none when {@code text} is not one. */
+    private static List<String> rangeBounds(String text) {
+        int length = text.length();
+        if (length < 3 || "[(".indexOf(text.charAt(0)) < 0 || "])".indexOf(text.charAt(length - 1)) < 0) {
+            return List.of();
+        }
+        int comma = text.indexOf(',');
+        if (comma < 0 || text.indexOf(',', comma + 1) >= 0) {
+            return List.of();
+        }
+        String lower = text.substring(1, comma).strip();
+        String upper = text.substring(comma + 1, length - 1).strip();
+        return isBound(lower) && isBound(upper) ? List.of(lower, upper) : List.of();
+    }
+
+    private static boolean isBound(String bound) {
+        return bound.chars().noneMatch(c -> Character.isWhitespace(c) || c == ']' || c == ')' || c == '[' || c == '(');
     }
 
     private static String text(JsonNode node, String field) {

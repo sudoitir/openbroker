@@ -62,6 +62,7 @@ import tools.jackson.databind.JsonNode;
  */
 public final class RabbitMqMessages implements Messages, AutoCloseable {
 
+    private static final String MESSAGES_COUNT = "messages.count";
     private static final String DEFAULT_EXCHANGE_ID = "amq.default";
 
     private static final String NO_FIELD_COUNT =
@@ -114,7 +115,7 @@ public final class RabbitMqMessages implements Messages, AutoCloseable {
         }
         Deadline deadline = Deadlines.current(cluster.options());
         Total total = cluster.call(
-                "messages.count",
+                MESSAGES_COUNT,
                 Optional.of(subscription),
                 deadline,
                 () -> queue
@@ -131,7 +132,7 @@ public final class RabbitMqMessages implements Messages, AutoCloseable {
         String vhost = queue.path().segments().get(0);
         String name = queue.name();
         if (!hasDataEndpoint(cluster.spec())) {
-            JsonNode info = queueInfo(cluster, vhost, name, deadline, "messages.count");
+            JsonNode info = queueInfo(cluster, vhost, name, deadline, MESSAGES_COUNT);
             return new Total(
                     Denominator.ALL, Count.estimate(info.path("messages").asLong(0)));
         }
@@ -140,10 +141,10 @@ public final class RabbitMqMessages implements Messages, AutoCloseable {
                 .getMessageCount();
         long unacknowledged;
         try {
-            unacknowledged = queueInfo(cluster, vhost, name, deadline, "messages.count")
+            unacknowledged = queueInfo(cluster, vhost, name, deadline, MESSAGES_COUNT)
                     .path("messages_unacknowledged")
                     .asLong(0);
-        } catch (BrokerException e) {
+        } catch (BrokerException _) {
             // Management cannot say what is unacknowledged, so the ready count is only an estimate.
             return new Total(Denominator.ALL, Count.estimate(ready));
         }
@@ -265,7 +266,7 @@ public final class RabbitMqMessages implements Messages, AutoCloseable {
             }
         } catch (IOException e) {
             throw RabbitMqErrors.fromIo(e, true);
-        } catch (TimeoutException e) {
+        } catch (TimeoutException _) {
             throw Deadlines.exceeded(RabbitMqCluster.CLUSTER, Dispatch.IN_DOUBT);
         } catch (InterruptedException e) {
             throw Deadlines.cancelled(RabbitMqCluster.CLUSTER, e);
@@ -287,7 +288,7 @@ public final class RabbitMqMessages implements Messages, AutoCloseable {
             if (channel.isOpen()) {
                 channel.close();
             }
-        } catch (IOException | TimeoutException | ShutdownSignalException e) {
+        } catch (IOException | TimeoutException | ShutdownSignalException _) {
             // The channel is gone either way.
         }
     }

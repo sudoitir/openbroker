@@ -18,6 +18,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -37,7 +38,7 @@ final class RabbitMqNotifications implements Notifications, AutoCloseable {
     private final RabbitMqResources resources;
     private final Optional<AmqpConnections> connections;
     private final Set<Subscription> open = ConcurrentHashMap.newKeySet();
-    private volatile Notifications polling;
+    private final AtomicReference<Notifications> polling = new AtomicReference<>();
 
     /** Notifications that poll only, for a connection with no data endpoint. */
     RabbitMqNotifications(RabbitMqCluster cluster, RabbitMqResources resources) {
@@ -49,10 +50,10 @@ final class RabbitMqNotifications implements Notifications, AutoCloseable {
         this.cluster = cluster;
         this.resources = resources;
         this.connections = connections;
-        this.polling = polling();
+        this.polling.set(newPolling());
     }
 
-    private Notifications polling() {
+    private Notifications newPolling() {
         return new PollingNotifications(
                 resources,
                 List.of(
@@ -109,7 +110,7 @@ final class RabbitMqNotifications implements Notifications, AutoCloseable {
         } else {
             ConsumerWatch watch = new ConsumerWatch(cluster, listener);
             watch.start();
-            AutoCloseable resourcesWatch = polling.subscribe(scope, listener);
+            AutoCloseable resourcesWatch = polling.get().subscribe(scope, listener);
             subscription = new Subscription(null, resourcesWatch, watch);
         }
         open.add(subscription);
@@ -140,7 +141,7 @@ final class RabbitMqNotifications implements Notifications, AutoCloseable {
                 states.add(subscription.stream.state());
             }
         }
-        states.addAll(polling.state().values());
+        states.addAll(polling.get().state().values());
         return states.stream()
                 .max(Comparator.comparing(state -> severity(state.phase())))
                 .map(worst -> Map.of(RabbitMqCluster.CLUSTER, worst))
@@ -159,7 +160,7 @@ final class RabbitMqNotifications implements Notifications, AutoCloseable {
     /** Stops every subscription; a new interval, after a reconfiguration, applies to the ones made after. */
     void reset() {
         closeAll();
-        polling = polling();
+        polling.set(newPolling());
     }
 
     private void closeAll() {

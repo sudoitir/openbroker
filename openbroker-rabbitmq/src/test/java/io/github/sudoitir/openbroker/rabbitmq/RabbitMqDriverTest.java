@@ -57,8 +57,8 @@ class RabbitMqDriverTest {
                     assertThat(e.status()).isEqualTo(Status.INVALID_ARGUMENT);
                     assertThat(e.getMessage()).contains("management endpoint");
                 });
-        assertThatThrownBy(() -> RabbitMqDriver.requireShape(spec(List.of(), Map.of())))
-                .isInstanceOf(BrokerException.class);
+        ClusterSpec empty = spec(List.of(), Map.of());
+        assertThatThrownBy(() -> RabbitMqDriver.requireShape(empty)).isInstanceOf(BrokerException.class);
     }
 
     @Test
@@ -81,10 +81,11 @@ class RabbitMqDriverTest {
 
     @Test
     void anEndpointWithAnotherProtocolIsRefused() {
-        assertThatThrownBy(() -> RabbitMqDriver.requireShape(spec(List.of(management("ftp")), Map.of())))
-                .isInstanceOf(BrokerException.class);
-        assertThatThrownBy(() -> RabbitMqDriver.requireShape(spec(
-                        List.of(management("http"), Endpoint.of(Plane.DATA, "stream", "localhost:5552")), Map.of())))
+        ClusterSpec ftp = spec(List.of(management("ftp")), Map.of());
+        assertThatThrownBy(() -> RabbitMqDriver.requireShape(ftp)).isInstanceOf(BrokerException.class);
+        ClusterSpec streamPlane =
+                spec(List.of(management("http"), Endpoint.of(Plane.DATA, "stream", "localhost:5552")), Map.of());
+        assertThatThrownBy(() -> RabbitMqDriver.requireShape(streamPlane))
                 .isInstanceOfSatisfying(
                         BrokerException.class, e -> assertThat(e.status()).isEqualTo(Status.INVALID_ARGUMENT));
     }
@@ -114,7 +115,9 @@ class RabbitMqDriverTest {
 
     @Test
     void connectingChecksTheShapeBeforeAnythingElse() {
-        assertThatThrownBy(() -> new RabbitMqDriver().connect(spec(List.of(), Map.of()), null, null))
+        ClusterSpec none = spec(List.of(), Map.of());
+        RabbitMqDriver driver = new RabbitMqDriver();
+        assertThatThrownBy(() -> driver.connect(none, null, null))
                 .isInstanceOfSatisfying(
                         BrokerException.class, e -> assertThat(e.status()).isEqualTo(Status.INVALID_ARGUMENT));
     }

@@ -430,18 +430,22 @@ final class RabbitMqResources implements Resources {
     static String regex(String glob) {
         StringBuilder out = new StringBuilder("^");
         glob.codePoints().forEach(c -> {
-            if (c == '*') {
-                out.append(".*");
-            } else if (c == '?') {
-                out.append('.');
-            } else {
-                if (!Character.isLetterOrDigit(c)) {
-                    out.append('\\');
+            switch (c) {
+                case '*' -> out.append(".*");
+                case '?' -> out.append('.');
+                default -> {
+                    if (!Character.isLetterOrDigit(c)) {
+                        out.append('\\');
+                    }
+                    out.appendCodePoint(c);
                 }
-                out.appendCodePoint(c);
             }
         });
         return out.append('$').toString();
+    }
+
+    private static Function<String, String> underVhost(String collection) {
+        return vhost -> "/api/vhosts/" + vhost + "/" + collection;
     }
 
     private static Map<KindId, Feed> feeds() {
@@ -467,19 +471,13 @@ final class RabbitMqResources implements Resources {
                 RabbitMqKinds.OPERATOR_POLICY,
                 new Feed("/api/operator-policies", v -> "/api/operator-policies/" + v, false, vhostOnly));
         Map<String, String> byUser = Map.of(VHOST, VHOST, "user", "user");
-        out.put(
-                RabbitMqKinds.PERMISSION,
-                new Feed("/api/permissions", v -> "/api/vhosts/" + v + "/permissions", false, byUser));
+        out.put(RabbitMqKinds.PERMISSION, new Feed("/api/permissions", underVhost("permissions"), false, byUser));
         out.put(
                 RabbitMqKinds.TOPIC_PERMISSION,
-                new Feed("/api/topic-permissions", v -> "/api/vhosts/" + v + "/topic-permissions", false, byUser));
+                new Feed("/api/topic-permissions", underVhost("topic-permissions"), false, byUser));
         out.put(RabbitMqKinds.USER, new Feed("/api/users", null, false, Map.of()));
-        out.put(
-                RabbitMqKinds.CONNECTION,
-                new Feed("/api/connections", v -> "/api/vhosts/" + v + "/connections", true, vhostOnly));
-        out.put(
-                RabbitMqKinds.CHANNEL,
-                new Feed("/api/channels", v -> "/api/vhosts/" + v + "/channels", true, vhostOnly));
+        out.put(RabbitMqKinds.CONNECTION, new Feed("/api/connections", underVhost("connections"), true, vhostOnly));
+        out.put(RabbitMqKinds.CHANNEL, new Feed("/api/channels", underVhost("channels"), true, vhostOnly));
         out.put(
                 RabbitMqKinds.CONSUMER,
                 new Feed(

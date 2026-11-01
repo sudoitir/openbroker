@@ -47,12 +47,12 @@ public final class StreamOffsets {
      */
     public static Object argument(Position position) {
         return switch (position) {
-            case Position.Earliest earliest -> FIRST;
-            case Position.Latest latest -> NEXT;
+            case Position.Earliest _ -> FIRST;
+            case Position.Latest _ -> NEXT;
             case Position.AtOffsets at -> atOffset(at);
-            case Position.AtTime at -> Date.from(at.time());
-            case Position.After after -> cursorOffset(after.cursor()) + 1L;
-            case Position.AtSnapshot snapshot ->
+            case Position.AtTime(Instant time) -> Date.from(time);
+            case Position.After(Cursor cursor) -> cursorOffset(cursor) + 1L;
+            case Position.AtSnapshot _ ->
                 throw RabbitMqErrors.invalid("A RabbitMQ stream has no snapshots to read from.");
         };
     }
@@ -105,7 +105,7 @@ public final class StreamOffsets {
             if (split > 0) {
                 return new long[] {Long.parseLong(text.substring(0, split)), Long.parseLong(text.substring(split + 1))};
             }
-        } catch (IllegalArgumentException e) {
+        } catch (IllegalArgumentException _) {
             // Not base64 or not numbers: reported below.
         }
         throw RabbitMqErrors.invalid("The cursor is not one this driver issued for a stream.");

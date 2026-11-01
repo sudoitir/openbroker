@@ -105,7 +105,7 @@ class RabbitMqLanesTest {
         dead.close();
     }
 
-    private static com.rabbitmq.client.ConfirmCallback confirm(Channel channel) throws Exception {
+    private static com.rabbitmq.client.ConfirmCallback confirm(Channel channel) {
         ArgumentCaptor<com.rabbitmq.client.ConfirmCallback> ack =
                 ArgumentCaptor.forClass(com.rabbitmq.client.ConfirmCallback.class);
         verify(channel).addConfirmListener(ack.capture(), any(com.rabbitmq.client.ConfirmCallback.class));

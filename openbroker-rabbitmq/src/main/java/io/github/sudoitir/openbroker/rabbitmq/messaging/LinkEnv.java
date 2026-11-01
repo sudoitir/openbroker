@@ -180,12 +180,12 @@ final class LinkEnv implements AutoCloseable {
         if (colon > 0) {
             try {
                 port = OptionalInt.of(Integer.parseInt(first.substring(colon + 1)));
-            } catch (NumberFormatException e) {
+            } catch (NumberFormatException _) {
                 // an address without a numeric port is reported without one
             }
         }
         return new OperationInfo(
-                RabbitMqDriver.SYSTEM,
+                RabbitMqDriver.SYSTEM_ID,
                 type,
                 type.name().toLowerCase(Locale.ROOT),
                 destination,
@@ -279,7 +279,7 @@ final class LinkEnv implements AutoCloseable {
             if (name != null && !name.toString().isBlank()) {
                 return NodeId.of(name.toString());
             }
-        } catch (RuntimeException e) {
+        } catch (RuntimeException _) {
             // an unreadable server property leaves the cluster as the serving node
         }
         return RabbitMqCluster.CLUSTER;

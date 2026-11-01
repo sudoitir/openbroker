@@ -11,7 +11,6 @@ import io.github.sudoitir.openbroker.model.PartitionId;
 import io.github.sudoitir.openbroker.model.Placement;
 import io.github.sudoitir.openbroker.model.PlacementRole;
 import java.util.List;
-import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -106,7 +105,7 @@ class PlacementsTest {
         assertThat(Placements.of(RabbitMqKinds.QUORUM_QUEUE, reduced))
                 .allSatisfy(p -> assertThat(p.inSync()).isEmpty());
         assertThat(Placements.underReplicated(RabbitMqKinds.QUORUM_QUEUE, reduced))
-                .isEqualTo(Optional.empty());
+                .isEmpty();
     }
 
     @Test

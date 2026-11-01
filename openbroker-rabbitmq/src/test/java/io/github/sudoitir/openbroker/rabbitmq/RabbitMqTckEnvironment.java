@@ -46,7 +46,7 @@ public final class RabbitMqTckEnvironment implements TckEnvironment {
     public ConnectRequest request() {
         RabbitMqTestCluster cluster = RabbitMqTestCluster.shared();
         return new ConnectRequest(
-                RabbitMqDriver.SYSTEM,
+                RabbitMqDriver.SYSTEM_ID,
                 cluster.spec(),
                 CredentialSource.of(cluster.credentials()),
                 ConnectOptions.defaults());
@@ -55,7 +55,7 @@ public final class RabbitMqTckEnvironment implements TckEnvironment {
     @Override
     public ConnectRequest requestWithWrongPassword(String wrongPassword) {
         return new ConnectRequest(
-                RabbitMqDriver.SYSTEM,
+                RabbitMqDriver.SYSTEM_ID,
                 RabbitMqTestCluster.shared().spec(),
                 CredentialSource.of(Credentials.usernamePassword(RabbitMqTestCluster.ADMIN_USER, wrongPassword)),
                 ConnectOptions.defaults());
@@ -64,7 +64,7 @@ public final class RabbitMqTckEnvironment implements TckEnvironment {
     @Override
     public Optional<ConnectRequest> requestToAddress(String host, int port) {
         return Optional.of(new ConnectRequest(
-                RabbitMqDriver.SYSTEM,
+                RabbitMqDriver.SYSTEM_ID,
                 new ClusterSpec(
                         List.of(),
                         List.of(

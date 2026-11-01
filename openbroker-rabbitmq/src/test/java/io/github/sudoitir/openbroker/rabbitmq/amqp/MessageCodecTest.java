@@ -140,10 +140,10 @@ class MessageCodecTest {
         assertThat(headers).containsEntry("s", "text").containsEntry("b", true).containsEntry("i", 3);
         assertThat((byte[]) headers.get("bytes")).containsExactly('z');
         assertThat((byte[]) headers.get("blob")).containsExactly('x');
-        assertThat(headers.get("when")).isEqualTo(Date.from(NOW));
+        assertThat(headers).containsEntry("when", Date.from(NOW));
         @SuppressWarnings("unchecked")
         Map<String, Object> nested = (Map<String, Object>) headers.get("nested");
-        assertThat(nested.get("at")).isEqualTo(Date.from(NOW));
+        assertThat(nested).containsEntry("at", Date.from(NOW));
         assertThat(((List<?>) nested.get("list")).get(0)).isInstanceOf(byte[].class);
     }
 
@@ -156,9 +156,8 @@ class MessageCodecTest {
         MessageBody broken = MessageBody.streamed(1, () -> {
             throw new IOException("gone");
         });
-        assertThatThrownBy(() ->
-                        MessageCodec.body(new OutboundMessage(MessageHeaders.empty(), Map.of(), broken, Map.of())))
-                .isInstanceOf(BrokerException.class);
+        OutboundMessage unreadable = new OutboundMessage(MessageHeaders.empty(), Map.of(), broken, Map.of());
+        assertThatThrownBy(() -> MessageCodec.body(unreadable)).isInstanceOf(BrokerException.class);
         assertThatThrownBy(() -> MessageCodec.body(
                         new OutboundMessage(MessageHeaders.empty(), Map.of(), MessageBody.tombstone(), Map.of())))
                 .isInstanceOfSatisfying(

@@ -36,6 +36,20 @@ public final class PooledAmqpConnections implements AmqpConnections {
     /** A virtual host's connection and the lock that serialises opening it. */
     private static final class Slot {
         private @Nullable Connection connection;
+
+        /** Forgets {@code lost} unless a newer connection has replaced it. */
+        synchronized void forget(Connection lost) {
+            if (connection == lost) {
+                connection = null;
+            }
+        }
+
+        /** Hands over the connection, leaving the slot empty. */
+        synchronized @Nullable Connection take() {
+            Connection taken = connection;
+            connection = null;
+            return taken;
+        }
     }
 
     private final RabbitMqCluster cluster;
@@ -114,11 +128,7 @@ public final class PooledAmqpConnections implements AmqpConnections {
     }
 
     private void lost(String vhost, Slot slot, Connection connection, ShutdownSignalException cause) {
-        synchronized (slot) {
-            if (slot.connection == connection) {
-                slot.connection = null;
-            }
-        }
+        slot.forget(connection);
         if (!cause.isInitiatedByApplication()) {
             for (Runnable listener : listeners.getOrDefault(vhost, List.of())) {
                 listener.run();
@@ -128,11 +138,7 @@ public final class PooledAmqpConnections implements AmqpConnections {
 
     private void closeAll() {
         for (Slot slot : List.copyOf(slots.values())) {
-            Connection connection;
-            synchronized (slot) {
-                connection = slot.connection;
-                slot.connection = null;
-            }
+            Connection connection = slot.take();
             if (connection != null) {
                 closeQuietly(connection);
             }
@@ -143,7 +149,7 @@ public final class PooledAmqpConnections implements AmqpConnections {
     private static void closeQuietly(Connection connection) {
         try {
             connection.close(CLOSE_OK, "closed by the application", CLOSE_TIMEOUT_MILLIS);
-        } catch (IOException | ShutdownSignalException e) {
+        } catch (IOException | ShutdownSignalException _) {
             // Already closed or unreachable: nothing is left to release.
         }
     }

@@ -133,11 +133,11 @@ final class RabbitMqNodes implements Nodes {
 
     private static boolean selected(Scope scope, String name) {
         return switch (scope) {
-            case Scope.Whole w -> true;
+            case Scope.Whole _ -> true;
             case Scope.Shards s ->
                 s.shards().stream()
-                        .anyMatch(shard -> shard instanceof Shard.NodeInstance n
-                                && n.node().value().equals(name));
+                        .anyMatch(shard -> shard instanceof Shard.NodeInstance(NodeId node)
+                                && node.value().equals(name));
         };
     }
 
@@ -146,16 +146,16 @@ final class RabbitMqNodes implements Nodes {
             return;
         }
         for (Shard shard : shards.shards()) {
-            if (!(shard instanceof Shard.NodeInstance n)) {
+            if (!(shard instanceof Shard.NodeInstance(NodeId node))) {
                 throw RabbitMqErrors.invalid("RabbitMQ has no partitions; scope work to nodes.");
             }
-            if (found.stream().noneMatch(d -> d.node().equals(n.node()))) {
+            if (found.stream().noneMatch(d -> d.node().equals(node))) {
                 throw new BrokerException(
                         Status.NOT_FOUND,
                         ErrorInfo.of(ErrorReasons.INVALID_ARGUMENT),
                         Dispatch.NOT_SENT,
-                        n.node(),
-                        "The cluster has no node " + n.node().value() + ".");
+                        node,
+                        "The cluster has no node " + node.value() + ".");
             }
         }
     }
@@ -186,25 +186,7 @@ final class RabbitMqNodes implements Nodes {
         boolean disk = node.path("disk_free_alarm").asBoolean(false);
         List<String> partitions = new ArrayList<>();
         node.path("partitions").forEach(p -> partitions.add(p.asString()));
-        List<Condition> conditions = new ArrayList<>();
-        conditions.add(new Condition(
-                ConditionTypes.FULL,
-                memory || disk ? ConditionStatus.TRUE : ConditionStatus.FALSE,
-                memory ? "mem_alarm" : disk ? "disk_free_alarm" : "",
-                memory || disk ? "The node raised a " + (memory ? "memory" : "disk space") + " alarm." : "",
-                Optional.empty()));
-        conditions.add(new Condition(
-                ConditionTypes.SERVING,
-                running ? ConditionStatus.TRUE : ConditionStatus.FALSE,
-                running ? "" : "not_running",
-                running ? "" : "The node is not running.",
-                Optional.empty()));
-        conditions.add(new Condition(
-                ConditionTypes.OUT_OF_SYNC,
-                partitions.isEmpty() ? ConditionStatus.FALSE : ConditionStatus.TRUE,
-                partitions.isEmpty() ? "" : "network_partition",
-                partitions.isEmpty() ? "" : "The node is partitioned from " + String.join(", ", partitions) + ".",
-                Optional.empty()));
+        List<Condition> conditions = conditions(memory, disk, running, partitions);
         Attributes.Builder attributes = Attributes.builder();
         text(overview, "product_name").ifPresent(v -> attributes.putRaw(PRODUCT_NAME, v));
         text(overview, "product_version").ifPresent(v -> attributes.putRaw(PRODUCT_VERSION, v));
@@ -220,6 +202,37 @@ final class RabbitMqNodes implements Nodes {
                 conditions,
                 attributes.build(),
                 Optional.empty());
+    }
+
+    private static List<Condition> conditions(boolean memory, boolean disk, boolean running, List<String> partitions) {
+        boolean alarm = memory || disk;
+        boolean partitioned = !partitions.isEmpty();
+        return List.of(
+                new Condition(
+                        ConditionTypes.FULL,
+                        alarm ? ConditionStatus.TRUE : ConditionStatus.FALSE,
+                        alarmReason(memory, disk),
+                        alarm ? "The node raised a " + (memory ? "memory" : "disk space") + " alarm." : "",
+                        Optional.empty()),
+                new Condition(
+                        ConditionTypes.SERVING,
+                        running ? ConditionStatus.TRUE : ConditionStatus.FALSE,
+                        running ? "" : "not_running",
+                        running ? "" : "The node is not running.",
+                        Optional.empty()),
+                new Condition(
+                        ConditionTypes.OUT_OF_SYNC,
+                        partitioned ? ConditionStatus.TRUE : ConditionStatus.FALSE,
+                        partitioned ? "network_partition" : "",
+                        partitioned ? "The node is partitioned from " + String.join(", ", partitions) + "." : "",
+                        Optional.empty()));
+    }
+
+    private static String alarmReason(boolean memory, boolean disk) {
+        if (memory) {
+            return "mem_alarm";
+        }
+        return disk ? "disk_free_alarm" : "";
     }
 
     private static Optional<String> version(JsonNode node) {

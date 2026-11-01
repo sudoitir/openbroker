@@ -34,6 +34,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -62,11 +63,10 @@ final class RabbitMqSender implements Sender {
         /** The destination a send target names. */
         static Destination of(SendTarget target) {
             return switch (target) {
-                case SendTarget.ToDestination to -> {
-                    if (to.partition().isPresent()) {
+                case SendTarget.ToDestination(var resource, var routingKey, var partition) -> {
+                    if (partition.isPresent()) {
                         throw RabbitMqErrors.invalid("A RabbitMQ destination has no partitions.");
                     }
-                    ResourceId resource = to.destination();
                     if (QUEUES.contains(resource.kind())) {
                         yield viaDefaultExchange(resource);
                     }
@@ -79,7 +79,7 @@ final class RabbitMqSender implements Sender {
                     yield new Destination(
                             segments.get(0),
                             DEFAULT_EXCHANGE.equals(name) ? "" : name,
-                            to.routingKey().orElse(""),
+                            routingKey.orElse(""),
                             resource,
                             false);
                 }
@@ -119,7 +119,7 @@ final class RabbitMqSender implements Sender {
     private final SendPipeline pipeline;
     private final LinkSupervisor supervisor;
     private final Object reopening = new Object();
-    private volatile Open current;
+    private final AtomicReference<Open> current = new AtomicReference<>();
     private volatile boolean closed;
 
     /** A sender over connections of its own, for a caller that has no transport. */
@@ -132,7 +132,7 @@ final class RabbitMqSender implements Sender {
         this.destination = Destination.of(target);
         this.options = options;
         this.confirms = options.guarantee() == Guarantee.AT_LEAST_ONCE;
-        this.current = open(0);
+        this.current.set(open(0));
         this.supervisor = new LinkSupervisor(
                 id, RabbitMqCluster.CLUSTER, env.endpoint(), options.recovery(), new Recover(), env.engine());
         this.supervisor.listen(env::fire);
@@ -147,7 +147,7 @@ final class RabbitMqSender implements Sender {
                     supervisor::lost);
         } catch (RuntimeException e) {
             supervisor.close();
-            closeQuietly(current.channel());
+            closeQuietly(current.get().channel());
             throw e;
         }
     }
@@ -252,7 +252,7 @@ final class RabbitMqSender implements Sender {
     }
 
     private void lost(int generation, Throwable cause) {
-        if (!closed && supervisor != null && generation == current.generation()) {
+        if (!closed && supervisor != null && generation == current.get().generation()) {
             supervisor.lost(LinkEnv.down("The channel", cause));
         }
     }
@@ -260,7 +260,7 @@ final class RabbitMqSender implements Sender {
     // ---- the wire ----------------------------------------------------------------------------
 
     private void write(OutboundMessage message, SendPipeline.Confirmation confirmation) {
-        Open link = current;
+        Open link = current.get();
         AMQP.BasicProperties properties;
         byte[] body;
         try {
@@ -319,17 +319,17 @@ final class RabbitMqSender implements Sender {
 
         @Override
         public void suspended(BrokerException cause) {
-            current.tracker().channelLost();
+            current.get().tracker().channelLost();
             pipeline.suspend(cause);
         }
 
         @Override
         public NodeId reopen() {
             synchronized (reopening) {
-                Open old = current;
+                Open old = current.get();
                 closeQuietly(old.channel());
                 Open fresh = open(old.generation() + 1);
-                current = fresh;
+                current.set(fresh);
                 pipeline.resume(RabbitMqSender.this::write);
                 return fresh.served();
             }
@@ -349,7 +349,7 @@ final class RabbitMqSender implements Sender {
             if (channel.isOpen()) {
                 channel.close();
             }
-        } catch (IOException | TimeoutException | ShutdownSignalException e) {
+        } catch (IOException | TimeoutException | ShutdownSignalException _) {
             // The channel is gone either way.
         }
     }
@@ -364,7 +364,7 @@ final class RabbitMqSender implements Sender {
         } finally {
             closed = true;
             supervisor.close();
-            closeQuietly(current.channel());
+            closeQuietly(current.get().channel());
             env.forget(this);
         }
     }
