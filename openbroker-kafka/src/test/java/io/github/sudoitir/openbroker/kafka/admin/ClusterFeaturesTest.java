@@ -4,13 +4,30 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.sudoitir.openbroker.BrokerException;
+import io.github.sudoitir.openbroker.Deadline;
 import io.github.sudoitir.openbroker.ErrorReasons;
+import io.github.sudoitir.openbroker.NodeId;
 import io.github.sudoitir.openbroker.Status;
 import io.github.sudoitir.openbroker.access.Assessment;
 import io.github.sudoitir.openbroker.kafka.messaging.ShareFeatures;
+import java.time.Clock;
+import java.time.Duration;
 import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalInt;
+import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.clients.admin.DescribeFeaturesOptions;
+import org.apache.kafka.clients.admin.DescribeFeaturesResult;
+import org.apache.kafka.clients.admin.DescribeMetadataQuorumOptions;
+import org.apache.kafka.clients.admin.DescribeMetadataQuorumResult;
+import org.apache.kafka.clients.admin.FeatureMetadata;
+import org.apache.kafka.clients.admin.QuorumInfo;
+import org.apache.kafka.common.KafkaFuture;
+import org.apache.kafka.common.errors.UnsupportedVersionException;
+import org.apache.kafka.common.internals.KafkaFutureImpl;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentMatchers;
+import org.mockito.Mockito;
 
 class ClusterFeaturesTest {
 
@@ -279,5 +296,58 @@ class ClusterFeaturesTest {
         assertThat(features(false, "unknown", OptionalInt.empty(), OFF).named()).isFalse();
         assertThat(features(false, "at least 2.8", OptionalInt.empty(), OFF).named())
                 .isTrue();
+    }
+
+    /** An Admin whose cluster reports no features and does not know the quorum request: a ZooKeeper-mode broker. */
+    private static Admin zooKeeperAdmin() {
+        FeatureMetadata metadata = Mockito.mock(FeatureMetadata.class);
+        Mockito.when(metadata.supportedFeatures()).thenReturn(Map.of());
+        Mockito.when(metadata.finalizedFeatures()).thenReturn(Map.of());
+        DescribeFeaturesResult features = Mockito.mock(DescribeFeaturesResult.class);
+        Mockito.when(features.featureMetadata()).thenReturn(KafkaFuture.completedFuture(metadata));
+        KafkaFutureImpl<QuorumInfo> quorum = new KafkaFutureImpl<>();
+        quorum.completeExceptionally(new UnsupportedVersionException("no quorum"));
+        DescribeMetadataQuorumResult quorumResult = Mockito.mock(DescribeMetadataQuorumResult.class);
+        Mockito.when(quorumResult.quorumInfo()).thenReturn(quorum);
+        Admin admin = Mockito.mock(Admin.class);
+        Mockito.when(admin.describeFeatures(ArgumentMatchers.any(DescribeFeaturesOptions.class)))
+                .thenReturn(features);
+        Mockito.when(admin.describeMetadataQuorum(ArgumentMatchers.any(DescribeMetadataQuorumOptions.class)))
+                .thenReturn(quorumResult);
+        return admin;
+    }
+
+    private static Await await() {
+        Clock clock = Clock.systemUTC();
+        return new Await(Deadline.after(Duration.ofSeconds(10), clock), clock, NodeId.of("n"));
+    }
+
+    @Test
+    void aClusterWithoutAMetadataVersionIsNamedByTheKeysItServes() {
+        Admin admin = zooKeeperAdmin();
+
+        ClusterFeatures twoEight = ClusterFeatures.read(
+                admin, await(), () -> Optional.of(new ApiVersions.Keys(Map.of((short) 18, 3, (short) 61, 0))));
+        ClusterFeatures threeZero = ClusterFeatures.read(
+                admin, await(), () -> Optional.of(new ApiVersions.Keys(Map.of((short) 61, 0, (short) 66, 0))));
+        ClusterFeatures silent = ClusterFeatures.read(admin, await(), Optional::empty);
+
+        assertThat(twoEight.describe()).isEqualTo("at least 2.8, ZooKeeper mode");
+        assertThat(twoEight.transactions()).isFalse();
+        assertThat(threeZero.transactions()).isTrue();
+        // A broker that did not answer the probe is unnamed and not refused.
+        silent.require("[2.8.0,)");
+        assertThat(silent.named()).isFalse();
+    }
+
+    @Test
+    void aClusterServingNeitherKeyIsRefusedBeforeTwoEight() {
+        ClusterFeatures old = ClusterFeatures.read(
+                zooKeeperAdmin(), await(), () -> Optional.of(new ApiVersions.Keys(Map.of((short) 18, 3))));
+
+        assertThatThrownBy(() -> old.require("[2.8.0,)"))
+                .isInstanceOf(BrokerException.class)
+                .hasMessageContaining("before 2.8")
+                .hasMessageContaining("[2.8.0,)");
     }
 }
