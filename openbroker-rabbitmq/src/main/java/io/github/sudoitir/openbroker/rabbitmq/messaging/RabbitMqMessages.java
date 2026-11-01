@@ -81,7 +81,8 @@ public final class RabbitMqMessages implements Messages, AutoCloseable {
         this(cluster, new PooledAmqpConnections(cluster));
     }
 
-    RabbitMqMessages(RabbitMqCluster cluster, AmqpConnections connections) {
+    /** The facet over {@code connections}, which its caller closes (the connection shares one pool). */
+    public RabbitMqMessages(RabbitMqCluster cluster, AmqpConnections connections) {
         this.cluster = cluster;
         this.connections = connections;
     }

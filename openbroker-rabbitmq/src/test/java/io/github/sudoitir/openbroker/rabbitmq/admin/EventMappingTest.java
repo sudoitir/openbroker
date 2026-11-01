@@ -58,6 +58,8 @@ class EventMappingTest {
         BrokerEvent quorum =
                 map("queue.created", headers("name", "q", "vhost", "/", "arguments", Map.of("x-queue-type", "quorum")));
         assertThat(quorum.subject()).contains(id(RabbitMqKinds.QUORUM_QUEUE, "/", "q"));
+        BrokerEvent stream = map("queue.created", headers("name", "q", "vhost", "/", "type", "rabbit_stream_queue"));
+        assertThat(stream.subject()).contains(id(RabbitMqKinds.STREAM, "/", "q"));
         BrokerEvent odd =
                 map("queue.created", headers("name", "q", "vhost", "/", "arguments", Map.of("x-queue-type", "other")));
         assertThat(odd.subject()).contains(id(RabbitMqKinds.QUORUM_QUEUE, "/", "q"));

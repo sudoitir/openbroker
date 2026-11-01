@@ -73,6 +73,7 @@ public final class MessageCodec {
     public static final String HEADER_PREFIX = "header.";
 
     private static final String DELIVERY_COUNT = "x-delivery-count";
+    private static final String ACQUIRED_COUNT = "x-acquired-count";
     private static final String DEATH = "x-death";
     private static final int PERSISTENT = 2;
     private static final int TRANSIENT = 1;
@@ -191,14 +192,17 @@ public final class MessageCodec {
         if (timestamp != null) {
             headers.producedAt(timestamp.toInstant());
         }
-        if (raw.get(DELIVERY_COUNT) instanceof Number count) {
-            headers.deliveryCount(Math.toIntExact(count.longValue() + 1));
+        // A quorum queue counts the returns of a message in x-delivery-count and, on a consumer, in x-acquired-count
+        // (RabbitMQ 4 sends only the latter there); the larger is the number of earlier deliveries.
+        long earlier = Math.max(count(raw.get(DELIVERY_COUNT)), count(raw.get(ACQUIRED_COUNT)));
+        if (earlier > 0) {
+            headers.deliveryCount(Math.toIntExact(earlier + 1));
         }
         origin(raw, properties.getMessageId(), headers);
         Map<String, PropertyValue> values = new LinkedHashMap<>();
         Map<String, Object> structured = new LinkedHashMap<>();
         raw.forEach((name, value) -> {
-            if (DELIVERY_COUNT.equals(name) || value == null) {
+            if (DELIVERY_COUNT.equals(name) || ACQUIRED_COUNT.equals(name) || value == null) {
                 return;
             }
             PropertyValue scalar = scalar(value);
@@ -325,5 +329,9 @@ public final class MessageCodec {
             case List<?> list -> list.stream().map(MessageCodec::toAmqp).toList();
             default -> value;
         };
+    }
+
+    private static long count(Object value) {
+        return value instanceof Number number ? number.longValue() : 0;
     }
 }

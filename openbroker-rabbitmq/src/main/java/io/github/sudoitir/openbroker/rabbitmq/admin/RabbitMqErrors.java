@@ -107,7 +107,7 @@ public final class RabbitMqErrors {
         }
         return switch (httpStatus) {
             case 401 ->
-                lower.isEmpty() || lower.contains("login failed")
+                lower.isEmpty() || lower.contains("login failed") || lower.equals("not_authorized")
                         ? credentialsRejected(Plane.MANAGEMENT, httpStatus)
                         : build(
                                 Status.PERMISSION_DENIED,

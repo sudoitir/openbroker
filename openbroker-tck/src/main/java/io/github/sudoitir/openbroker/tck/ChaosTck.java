@@ -364,7 +364,11 @@ public abstract class ChaosTck {
         assertThat(events.stream()
                         .filter(e -> e.link().equals(sender.id()) && e.state() == LinkState.OPEN)
                         .toList())
-                .allSatisfy(e -> assertThat(e.servedBy()).contains(chaos.node()));
+                .allSatisfy(e -> {
+                    if (chaos.linksNameTheirServingNode()) {
+                        assertThat(e.servedBy()).contains(chaos.node());
+                    }
+                });
     }
 
     /**

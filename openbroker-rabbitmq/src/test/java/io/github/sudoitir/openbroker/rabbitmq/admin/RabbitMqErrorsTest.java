@@ -47,6 +47,12 @@ class RabbitMqErrorsTest {
         expect(e, Status.UNAUTHENTICATED, ErrorReasons.CREDENTIALS_REJECTED, Dispatch.REJECTED);
         assertThat(e.info().metadata()).containsEntry(ErrorReasons.PLANE, "MANAGEMENT");
         expect(http(401, "", false), Status.UNAUTHENTICATED, ErrorReasons.CREDENTIALS_REJECTED, Dispatch.REJECTED);
+        // What RabbitMQ 4 answers to a wrong password.
+        expect(
+                http(401, "Not_Authorized", false),
+                Status.UNAUTHENTICATED,
+                ErrorReasons.CREDENTIALS_REJECTED,
+                Dispatch.REJECTED);
     }
 
     @Test

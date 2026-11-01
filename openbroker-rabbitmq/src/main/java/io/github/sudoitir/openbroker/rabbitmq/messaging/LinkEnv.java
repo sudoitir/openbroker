@@ -243,7 +243,7 @@ final class LinkEnv implements AutoCloseable {
         return new BrokerException(
                 Status.FAILED_PRECONDITION,
                 ErrorInfo.of(ErrorReasons.DELIVERY_STALE),
-                Dispatch.REJECTED,
+                Dispatch.NOT_SENT,
                 RabbitMqCluster.CLUSTER,
                 message);
     }

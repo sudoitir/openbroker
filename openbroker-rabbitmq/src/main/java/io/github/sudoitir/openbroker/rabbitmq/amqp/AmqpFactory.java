@@ -31,7 +31,7 @@ import javax.net.ssl.SSLSocket;
  */
 public final class AmqpFactory {
 
-    private static final int HEARTBEAT_SECONDS = 30;
+    private static final int HEARTBEAT_SECONDS = 10;
     private static final int ID_LENGTH = 8;
 
     private final RabbitMqCluster cluster;

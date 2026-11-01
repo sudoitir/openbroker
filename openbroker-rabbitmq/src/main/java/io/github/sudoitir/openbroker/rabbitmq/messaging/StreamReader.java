@@ -246,9 +246,23 @@ final class StreamReader implements Receiver {
                         + " and has dropped what came before its first retained one.");
     }
 
-    /** The estimate of the messages the stream holds: management's sampled count. */
+    /**
+     * The estimate of the messages the stream holds: management's sampled count, or, while management has not yet
+     * sampled the stream (it reports 0 for a few seconds after a write), the span from the first to the last offset.
+     */
     Total total(Deadline deadline) {
-        return total(stats(deadline));
+        Stats stats = stats(deadline);
+        if (stats.messages() > 0) {
+            return total(stats);
+        }
+        long first = read(StreamOffsets.FIRST, 1, Optional.empty(), 0, UNKNOWN_END, UNKNOWN_END, deadline)
+                .firstOffset();
+        if (first == NONE) {
+            return new Total(Denominator.ALL, Count.exact(0));
+        }
+        long last = read(StreamOffsets.LAST, MAX_PREFETCH, Optional.empty(), 0, UNKNOWN_END, UNKNOWN_END, deadline)
+                .lastOffset();
+        return new Total(Denominator.ALL, Count.estimate(Math.max(1, last - first + 1)));
     }
 
     private static Total total(Stats stats) {
