@@ -1,0 +1,4 @@
+[
+  {"node": "rabbit@alpha", "name": "to-dr", "vhost": "/", "type": "dynamic", "state": "running", "src_uri": "amqp://", "src_queue": "orders", "dest_uri": "amqps://dr.example.com:5671/dr", "dest_exchange": "orders.in"},
+  {"node": "rabbit@beta", "name": "static-copy", "vhost": "/", "type": "static", "state": "starting", "src_uri": "amqp://", "src_queue": "audit", "dest_uri": "amqp://backup.example.com", "dest_queue": "audit-copy"}
+]

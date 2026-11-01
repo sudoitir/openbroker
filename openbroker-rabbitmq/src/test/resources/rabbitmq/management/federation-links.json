@@ -1,0 +1,4 @@
+[
+  {"node": "rabbit@alpha", "vhost": "/", "type": "exchange", "exchange": "orders.events", "upstream": "eu", "upstream_exchange": "orders.events", "uri": "amqps://fed:topsecret@eu.example.com:5671/%2F?password=x", "status": "running", "policy": "federate-orders", "id": "abc"},
+  {"node": "rabbit@beta", "vhost": "/", "type": "queue", "queue": "orders", "upstream": "us", "upstream_queue": "orders-us", "uri": "amqp://us.example.com", "status": "error", "id": "def"}
+]

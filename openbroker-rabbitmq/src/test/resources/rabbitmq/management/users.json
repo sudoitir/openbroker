@@ -1,0 +1,4 @@
+[
+  {"name": "ops", "tags": ["administrator"], "password_hash": "c2VjcmV0aGFzaA==", "hashing_algorithm": "rabbit_password_hashing_sha256"},
+  {"name": "app", "tags": "monitoring,management", "password_hash": "b3RoZXJoYXNo", "hashing_algorithm": "rabbit_password_hashing_sha256"}
+]

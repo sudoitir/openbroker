@@ -1,0 +1,3 @@
+[
+  {"name": "rabbit@alpha", "running": true, "enabled_plugins": ["rabbitmq_management"]}
+]

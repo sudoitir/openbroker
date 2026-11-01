@@ -1,0 +1,4 @@
+[
+  {"name": "rabbit@alpha", "running": true, "enabled_plugins": ["rabbitmq_management", "rabbitmq_shovel", "rabbitmq_shovel_management", "rabbitmq_federation", "rabbitmq_federation_management"]},
+  {"name": "rabbit@beta", "running": true, "enabled_plugins": ["rabbitmq_management", "rabbitmq_shovel", "rabbitmq_shovel_management", "rabbitmq_federation", "rabbitmq_federation_management"]}
+]

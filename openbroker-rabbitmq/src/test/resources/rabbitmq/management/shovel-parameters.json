@@ -1,0 +1,4 @@
+[
+  {"vhost": "/", "component": "shovel", "name": "to-dr", "value": {"src-protocol": "amqp091", "src-uri": "amqp://", "src-queue": "orders", "dest-protocol": "amqp091", "dest-uri": ["amqps://replicator:topsecret@dr.example.com:5671/dr?cacertfile=/etc/ca.pem&password=x"], "dest-exchange": "orders.in"}},
+  {"vhost": "/", "component": "shovel", "name": "stopped", "value": {"src-uri": "amqp:///sales", "src-exchange": "orders.events", "dest-uri": "amqp://", "dest-queue": "payments"}}
+]
