@@ -975,15 +975,15 @@ public abstract class MessagingTck {
         Path file = Files.createTempFile("tck-pinning", ".jfr");
         try {
             AtomicInteger handled = new AtomicInteger();
-            // The JDK initialises its throwable tracing on the first exception made; do that here, so a lane
-            // that is interrupted first does not wait for it on a carrier thread and look like a pin.
-            new InterruptedException().getMessage();
             try (Recording recording = new Recording()) {
                 recording
                         .enable("jdk.VirtualThreadPinned")
                         .withThreshold(Duration.ZERO)
                         .withStackTrace();
                 recording.start();
+                // The JDK initialises its throwable tracing on the first exception made once a recording runs; do
+                // that here, so a lane that is interrupted first does not wait for it on a carrier and look pinned.
+                new InterruptedException().getMessage();
                 Processor processor = transport.process(
                         id, Scope.whole(), ProcessorOptions.defaults().withConcurrency(4), ctx -> {
                             Thread.sleep(2);
