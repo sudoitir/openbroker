@@ -275,8 +275,8 @@ public abstract class MessagingTck {
                             id,
                             Scope.whole(),
                             ProcessorOptions.defaults()
-                                    .withOrdering(ordering)
-                                    .withConcurrency(ordering == OrderingScope.SUBSCRIPTION ? 1 : 2),
+                                    .withConcurrency(ordering == OrderingScope.SUBSCRIPTION ? 1 : 2)
+                                    .withOrdering(ordering),
                             ctx -> Disposition.accept())
                     .close());
         }
