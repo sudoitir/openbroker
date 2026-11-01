@@ -8,6 +8,7 @@ import io.github.sudoitir.openbroker.model.ResourceId;
 import io.github.sudoitir.openbroker.model.Scope;
 import io.github.sudoitir.openbroker.operation.AttributeChange;
 import io.github.sudoitir.openbroker.operation.Estimate;
+import io.github.sudoitir.openbroker.operation.EtagBasis;
 import io.github.sudoitir.openbroker.operation.OperationResult;
 import io.github.sudoitir.openbroker.operation.PreconditionEnforcement;
 import io.github.sudoitir.openbroker.operation.Preview;
@@ -204,6 +205,7 @@ final class Truncation {
                 Set.of(),
                 new Estimate(Count.estimate(plan.removed()), "{message}"),
                 etag(context, id, topic, only, scope),
+                EtagBasis.CONFIGURATION,
                 PreconditionEnforcement.CHECKED_BEFORE);
     }
 

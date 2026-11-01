@@ -20,6 +20,12 @@ public record Capability(String id) {
     public static final Capability SEND = new Capability("messages.send");
     /** Receiving messages through the transport. */
     public static final Capability RECEIVE = new Capability("messages.receive");
+    /** Moving a single message to another destination. */
+    public static final Capability MOVE_MESSAGES = new Capability("messages.move");
+    /** Copying a single message to another destination. */
+    public static final Capability COPY_MESSAGES = new Capability("messages.copy");
+    /** Deleting a single message. */
+    public static final Capability DELETE_MESSAGES = new Capability("messages.delete");
 
     public Capability {
         Objects.requireNonNull(id, "id");

@@ -20,12 +20,6 @@ import org.apache.kafka.clients.admin.DescribeClusterOptions;
  */
 public final class KafkaAccess implements Access {
 
-    /** Moving a single message: unavailable on Kafka, whatever the account may do. */
-    public static final Capability MOVE_MESSAGES = new Capability("messages.move");
-
-    public static final Capability COPY_MESSAGES = new Capability("messages.copy");
-    public static final Capability DELETE_MESSAGES = new Capability("messages.delete");
-
     /** The cluster runs in KRaft mode, so its controller quorum can be described. */
     public static final Capability QUORUM = new Capability("kafka.quorum");
 
@@ -71,9 +65,9 @@ public final class KafkaAccess implements Access {
                                 + cluster.watchInterval() + " with the read permission this account holds.")
                         : Assessment.unknown(settled));
         Assessment appendOnly = Assessment.unavailable(KafkaMessages.LOG_IS_APPEND_ONLY, Optional.empty());
-        out.put(MOVE_MESSAGES, appendOnly);
-        out.put(COPY_MESSAGES, appendOnly);
-        out.put(DELETE_MESSAGES, appendOnly);
+        out.put(Capability.MOVE_MESSAGES, appendOnly);
+        out.put(Capability.COPY_MESSAGES, appendOnly);
+        out.put(Capability.DELETE_MESSAGES, appendOnly);
         if (read.status() == Assessment.Status.AVAILABLE) {
             try {
                 out.putAll(cluster.features().assessments());

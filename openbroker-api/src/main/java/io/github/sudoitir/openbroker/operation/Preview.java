@@ -12,8 +12,11 @@ import java.util.Set;
  * @param estimate how much it would affect
  * @param etag the resource's identity over the resolved scope, in the AIP-154 sense: pass it to
  *     {@code Precondition.ifMatch} so the operation runs only on what was previewed. It covers the
- *     shard set and each shard's incarnation, not volume, so a resource recreated since, or a node
- *     that joined, refuses the operation, while a backlog that grew does not
+ *     shard set and what {@code basis} says it holds, not volume, so a node that joined refuses the
+ *     operation, while a backlog that grew does not
+ * @param basis what the etag holds: with {@link EtagBasis#INCARNATION} a resource recreated since
+ *     also refuses the operation; with {@link EtagBasis#CONFIGURATION} the system exposes no
+ *     identity, so one recreated with the same configuration is not told apart
  * @param enforcement how the precondition is enforced
  */
 public record Preview(
@@ -21,6 +24,7 @@ public record Preview(
         Set<String> requiresReplace,
         Estimate estimate,
         String etag,
+        EtagBasis basis,
         PreconditionEnforcement enforcement) {
 
     public Preview {
@@ -28,6 +32,7 @@ public record Preview(
         requiresReplace = Set.copyOf(requiresReplace);
         Objects.requireNonNull(estimate, "estimate");
         Objects.requireNonNull(etag, "etag");
+        Objects.requireNonNull(basis, "basis");
         Objects.requireNonNull(enforcement, "enforcement");
     }
 }

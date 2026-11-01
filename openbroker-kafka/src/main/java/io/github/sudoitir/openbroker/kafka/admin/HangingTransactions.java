@@ -13,6 +13,7 @@ import io.github.sudoitir.openbroker.model.ResourcePath;
 import io.github.sudoitir.openbroker.model.ResourceQuery;
 import io.github.sudoitir.openbroker.model.Scope;
 import io.github.sudoitir.openbroker.operation.Estimate;
+import io.github.sudoitir.openbroker.operation.EtagBasis;
 import io.github.sudoitir.openbroker.operation.Operation;
 import io.github.sudoitir.openbroker.operation.OperationResult;
 import io.github.sudoitir.openbroker.operation.PreconditionEnforcement;
@@ -341,6 +342,7 @@ record HangingTransactions(Kind kind) implements Handler {
                 Set.of(),
                 new Estimate(Count.exact(held), "{record}"),
                 etag(context, id, operation, scope),
+                EtagBasis.INCARNATION,
                 PreconditionEnforcement.CHECKED_BEFORE);
     }
 

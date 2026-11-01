@@ -22,6 +22,7 @@ import io.github.sudoitir.openbroker.model.Shard;
 import io.github.sudoitir.openbroker.model.StandardAttributes;
 import io.github.sudoitir.openbroker.operation.AttributeChange;
 import io.github.sudoitir.openbroker.operation.Estimate;
+import io.github.sudoitir.openbroker.operation.EtagBasis;
 import io.github.sudoitir.openbroker.operation.Operation;
 import io.github.sudoitir.openbroker.operation.OperationResult;
 import io.github.sudoitir.openbroker.operation.PreconditionEnforcement;
@@ -305,6 +306,7 @@ abstract class Subscriptions implements Handler {
                         Set.of(),
                         new Estimate(Count.exact(1), "{subscription}"),
                         Etags.of(id.format(), "absent"),
+                        EtagBasis.CONFIGURATION,
                         PreconditionEnforcement.CHECKED_BEFORE);
             }
             case Operation.Delete delete -> {
@@ -317,6 +319,7 @@ abstract class Subscriptions implements Handler {
                         Set.of(),
                         new Estimate(Count.exact(1), "{subscription}"),
                         etag(context, id, operation, scope),
+                        EtagBasis.CONFIGURATION,
                         PreconditionEnforcement.CHECKED_BEFORE);
             }
             default -> throw unsupported(operation);
@@ -372,6 +375,7 @@ abstract class Subscriptions implements Handler {
                 Set.of(),
                 new Estimate(Count.estimate(records), "{message}"),
                 etag(context, id, new Operation.Purge(), scope),
+                EtagBasis.CONFIGURATION,
                 PreconditionEnforcement.CHECKED_BEFORE);
     }
 
