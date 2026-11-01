@@ -546,6 +546,16 @@ class RabbitMqResourcesTest {
     }
 
     @Test
+    void aStreamIsListedWithItsStatisticsWhateverTheProjection() {
+        resources
+                .read(ResourceQuery.of(RabbitMqKinds.STREAM)
+                        .project(Set.of("openbroker.backlog", RabbitMqKinds.COMMITTED_OFFSET)))
+                .orThrow();
+
+        assertThat(server.received().getFirst().query()).doesNotContain("disable_stats");
+    }
+
+    @Test
     void aNodeScopeKeepsTheResourcesPlacedOnThatNode() {
         ResourcePage page = resources
                 .read(ResourceQuery.of(RabbitMqKinds.QUORUM_QUEUE).in(Scope.node(NodeId.of("rabbit@gamma"))))

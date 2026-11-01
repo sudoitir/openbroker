@@ -42,7 +42,13 @@ final class RabbitMqResources implements Resources {
     private static final String LISTING = "list resources";
     private static final String NAME = "name";
     private static final String VHOST = "vhost";
+    /**
+     * The attributes the management API leaves out of a listing made with {@code disable_stats}: a projection that
+     * names any of them is listed with full statistics.
+     */
     private static final Set<String> HEAVY_METRICS = Set.of(
+            RabbitMqKinds.COMMITTED_OFFSET,
+            RabbitMqKinds.FIRST_TIMESTAMP,
             "openbroker.backlog.size",
             "openbroker.backlog.age",
             "openbroker.enqueued",
@@ -202,7 +208,8 @@ final class RabbitMqResources implements Resources {
             params.put(NAME, regex(glob));
             params.put("use_regex", "true");
         });
-        if (isQueue(kind) && reducedStats(query)) {
+        // A stream's counters and offsets are statistics too, and enable_queue_totals does not bring them back.
+        if (isQueue(kind) && !kind.equals(RabbitMqKinds.STREAM) && reducedStats(query)) {
             params.put("disable_stats", "true");
             params.put("enable_queue_totals", "true");
         }
