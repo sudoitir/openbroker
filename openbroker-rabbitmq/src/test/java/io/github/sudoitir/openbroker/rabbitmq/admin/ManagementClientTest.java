@@ -73,7 +73,7 @@ class ManagementClientTest {
         assertThat(response.body().path("rabbitmq_version").asString()).isEqualTo("3.13.7");
         String expected = "Basic " + Base64.getEncoder().encodeToString(("ops:" + SECRET).getBytes());
         assertThat(server.received().getFirst().header("Authorization")).isEqualTo(expected);
-        assertThat(server.received().getFirst().header("Accept")).isEqualTo("application/json");
+        assertThat(server.received().getFirst().header("Accept")).isEqualTo("application/json, */*;q=0.1");
     }
 
     @Test

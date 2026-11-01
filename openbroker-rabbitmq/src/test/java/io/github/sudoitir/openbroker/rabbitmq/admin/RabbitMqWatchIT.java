@@ -27,6 +27,7 @@ import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -61,10 +62,15 @@ class RabbitMqWatchIT {
         }
 
         BrokerEvent await(String type) throws InterruptedException {
+            return await(type, event -> true);
+        }
+
+        /** The first event of {@code type} that {@code matching} accepts; others, such as unrelated ones, are skipped. */
+        BrokerEvent await(String type, Predicate<BrokerEvent> matching) throws InterruptedException {
             long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(60);
             while (System.nanoTime() < until) {
                 BrokerEvent event = events.poll(1, TimeUnit.SECONDS);
-                if (event != null && type.equals(event.type())) {
+                if (event != null && type.equals(event.type()) && matching.test(event)) {
                     return event;
                 }
             }
@@ -142,8 +148,10 @@ class RabbitMqWatchIT {
                     EventExchangeStream stream = new EventExchangeStream(cluster, collector, connections)) {
                 stream.start();
                 RabbitMq.of(node, 0).declareQueue(VHOST, "announced", "stream");
-                BrokerEvent created = collector.await(EventTypes.RESOURCE_CREATED);
-                assertThat(created.subject()).contains(ResourceId.of(RabbitMqKinds.STREAM.value(), VHOST, "announced"));
+                ResourceId announced = ResourceId.of(RabbitMqKinds.STREAM.value(), VHOST, "announced");
+                BrokerEvent created = collector.await(
+                        EventTypes.RESOURCE_CREATED, event -> event.subject().equals(Optional.of(announced)));
+                assertThat(created.subject()).contains(announced);
             }
         }
     }

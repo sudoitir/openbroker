@@ -156,7 +156,7 @@ class RabbitMqOperationsIT {
             ResourceId queue = ResourceId.of("rabbitmq.classic-queue", vhost, "orders");
             assertThat(run(queue, new Operation.Create(Attributes.empty())).failures())
                     .isEmpty();
-            ResourceId binding = ResourceId.of("rabbitmq.binding", vhost, "events", "orders", "~");
+            ResourceId binding = ResourceId.of("rabbitmq.binding", vhost, "events", "orders", "order.%23");
             assertThat(run(
                                     binding,
                                     new Operation.Create(Attributes.builder()
@@ -190,6 +190,8 @@ class RabbitMqOperationsIT {
                             .asInt())
                     .isEqualTo(3);
 
+            assertThat(run(binding, Operation.delete()).failures()).isEmpty();
+
             ResourceId permission = ResourceId.of("rabbitmq.permission", vhost, RabbitMqTestCluster.ADMIN_USER);
             assertThat(run(
                                     permission,
@@ -200,12 +202,11 @@ class RabbitMqOperationsIT {
                                             .build()))
                             .failures())
                     .isEmpty();
-            assertThat(run(permission, Operation.delete()).failures()).isEmpty();
-
-            assertThat(run(binding, Operation.delete()).failures()).isEmpty();
             assertThat(run(exchange, new Operation.Delete(true, false)).failures())
                     .isEmpty();
             assertThat(run(policy, Operation.delete()).failures()).isEmpty();
+            // Last: the permission is the account's own on this virtual host, so nothing is writable after it.
+            assertThat(run(permission, Operation.delete()).failures()).isEmpty();
         } finally {
             assertThat(run(vhostId, Operation.delete()).failures()).isEmpty();
         }

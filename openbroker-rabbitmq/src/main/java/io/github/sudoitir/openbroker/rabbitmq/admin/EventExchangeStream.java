@@ -54,6 +54,7 @@ final class EventExchangeStream implements AutoCloseable {
     private volatile boolean closed;
     private volatile StreamState state;
     private volatile @Nullable Channel channel;
+    private volatile String ownQueue = "";
     private @Nullable AutoCloseable loss;
     private int attempt;
 
@@ -110,6 +111,7 @@ final class EventExchangeStream implements AutoCloseable {
             Connection connection = connections.connection(vhost, Deadlines.current(cluster.options()));
             Channel opened = connection.createChannel();
             String queue = opened.queueDeclare("", false, true, true, null).getQueue();
+            ownQueue = queue;
             opened.queueBind(queue, EXCHANGE, "#");
             opened.addShutdownListener(_ -> lost());
             opened.basicConsume(queue, true, this::deliver, _ -> lost());
@@ -130,12 +132,38 @@ final class EventExchangeStream implements AutoCloseable {
     private void deliver(String consumerTag, Delivery delivery) {
         String routingKey = delivery.getEnvelope().getRoutingKey();
         Map<String, Object> headers = plain(delivery.getProperties().getHeaders());
+        if (isOwn(routingKey, headers)) {
+            return;
+        }
         Optional<BrokerEvent> mapped =
                 EventMapping.map(routingKey, headers, now(), sequence.incrementAndGet(), this::queueKind);
         mapped.ifPresent(event -> {
             event.subject().ifPresent(id -> remember(routingKey, id));
             dispatcher.event(event);
         });
+    }
+
+    /**
+     * Whether the event is about the stream's own plumbing: its queue, its binding to the event exchange, or its
+     * consumer. The stream must not report itself.
+     */
+    private boolean isOwn(String routingKey, Map<String, Object> headers) {
+        String own = ownQueue;
+        if (own.isEmpty()) {
+            return false;
+        }
+        String queue;
+        if (routingKey.startsWith("queue.")) {
+            queue = String.valueOf(headers.get("name"));
+        } else if (routingKey.startsWith("consumer.")) {
+            queue = String.valueOf(headers.get("queue"));
+        } else if (routingKey.startsWith("binding.")
+                && !"exchange".equals(String.valueOf(headers.get("destination_kind")))) {
+            queue = String.valueOf(headers.get("destination_name"));
+        } else {
+            return false;
+        }
+        return own.equals(queue) && vhost.equals(String.valueOf(headers.getOrDefault("vhost", "/")));
     }
 
     /** Keeps the kind of each queue created, so its deletion, which the listing no longer holds, names it right. */
