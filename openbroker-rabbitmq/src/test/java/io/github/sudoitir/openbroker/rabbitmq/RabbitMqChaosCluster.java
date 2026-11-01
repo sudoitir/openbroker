@@ -216,7 +216,7 @@ final class RabbitMqChaosCluster implements AutoCloseable {
                 rabbit.nodes().stream().filter(RabbitMqChaosCluster::running).count();
         for (NodeId node : nodes) {
             RabbitMq api = direct.get(index(node));
-            RabbitMq.eventually(RETURN, () -> api.exists("/api/health/checks/is-in-service"), inService -> inService);
+            RabbitMq.eventually(RETURN, () -> api.exists("/api/health/checks/virtual-hosts"), inService -> inService);
         }
         RabbitMq.eventually(RETURN, () -> get("/api/nodes"), listed -> running(listed) == expected);
     }
