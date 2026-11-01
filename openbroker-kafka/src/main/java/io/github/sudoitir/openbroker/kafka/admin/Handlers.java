@@ -104,10 +104,22 @@ final class Handlers {
         return cluster.features(context.admin(), context.await()).share().available();
     }
 
+    /** Whether the cluster lists transactions, which Kafka 3.0 added (KIP-664). */
+    private boolean listsTransactions(Context context) {
+        return cluster.features(context.admin(), context.await()).transactions();
+    }
+
     /** The kinds of the cluster the context is on. */
     List<Kind> kinds(Context context) {
         List<Kind> out = new ArrayList<>();
-        base.values().forEach(h -> out.add(h.kind()));
+        if (listsTransactions(context)) {
+            base.values().forEach(h -> out.add(h.kind()));
+        } else {
+            // A cluster before 3.0 has transactional ids but cannot list transactions or the producers in them.
+            base.values().stream()
+                    .filter(h -> !h.kind().id().equals(KafkaKinds.HANGING_TRANSACTION))
+                    .forEach(h -> out.add(h.kind()));
+        }
         if (sharesInProduction(context)) {
             out.add(shares.kind());
         }
@@ -118,6 +130,13 @@ final class Handlers {
     Handler of(Context context, KindId kind) {
         Handler handler = base.get(kind);
         if (handler != null) {
+            if (kind.equals(KafkaKinds.HANGING_TRANSACTION) && !listsTransactions(context)) {
+                throw KafkaErrors.refused(
+                        Status.FAILED_PRECONDITION,
+                        ErrorReasons.NOT_SUPPORTED,
+                        "This cluster cannot list hanging transactions: finding one needs Kafka 3.0 or later"
+                                + " (KIP-664), which lists the producers in a partition.");
+            }
             return handler;
         }
         if (kind.equals(shares.kind().id())) {

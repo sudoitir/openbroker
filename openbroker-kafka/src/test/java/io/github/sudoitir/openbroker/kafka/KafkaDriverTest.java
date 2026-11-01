@@ -16,8 +16,8 @@ class KafkaDriverTest {
     }
 
     @Test
-    void theDriverSupportsKafka30AndLater() {
-        assertThat(new KafkaDriver().system().supportedVersions()).isEqualTo("[3.0.0,)");
+    void theDriverSupportsKafka28AndLater() {
+        assertThat(new KafkaDriver().system().supportedVersions()).isEqualTo("[2.8.0,)");
     }
 
     @Test

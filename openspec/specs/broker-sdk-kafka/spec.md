@@ -6,7 +6,7 @@ Defines the Apache Kafka driver: how Kafka's topics, partitions and groups map o
 ## Requirements
 
 ### Requirement: Kafka is a driver of the SDK
-The driver SHALL register the system `kafka` through `ServiceLoader`, declare Kafka 3.0 and later as its supported versions, in ZooKeeper and KRaft mode, and connect from bootstrap endpoints given as the cluster's endpoints. A cluster below 3.0 SHALL be refused at verify with `FAILED_PRECONDITION`, naming what was found. The driver SHALL depend on no framework.
+The driver SHALL register the system `kafka` through `ServiceLoader`, declare Kafka 2.8 and later as its supported versions, in ZooKeeper and KRaft mode, and connect from bootstrap endpoints given as the cluster's endpoints. A cluster below 2.8 SHALL be refused at verify with `FAILED_PRECONDITION`, naming what was found. A cluster below Kafka 3.3 SHALL be named by the API keys it serves, read from `ApiVersions` on the wire, because it reports no `metadata.version`. The driver SHALL depend on no framework.
 
 #### Scenario: Connecting to a supported cluster
 - **WHEN** a consumer connects with the system `kafka` and the bootstrap endpoints of a Kafka 4.x cluster
@@ -16,9 +16,13 @@ The driver SHALL register the system `kafka` through `ServiceLoader`, declare Ka
 - **WHEN** a consumer verifies a connection to a Kafka 3.0 cluster in ZooKeeper mode
 - **THEN** verify succeeds, the connection description says "at least 3.0, ZooKeeper mode", and every broker is a node
 
-#### Scenario: An unsupported cluster
+#### Scenario: A Kafka 2.8 cluster
 - **WHEN** a consumer verifies a connection to a Kafka 2.8 cluster
-- **THEN** verify fails with `FAILED_PRECONDITION`, and the reason says the cluster runs a Kafka before 3.0 and names the supported range
+- **THEN** verify succeeds, the connection description says "at least 2.8, ZooKeeper mode", every broker is a node, and `kafka.transaction-listing` is unavailable with the reason that it needs Kafka 3.0 or later
+
+#### Scenario: An unsupported cluster
+- **WHEN** a consumer verifies a connection to a Kafka 2.6 cluster
+- **THEN** verify fails with `FAILED_PRECONDITION`, and the reason says the cluster runs a Kafka before 2.8 and names the supported range
 
 ### Requirement: Kafka is modelled honestly
 The driver SHALL map a topic to a destination, a partition to a partition, a group to a consumer group with its type (classic, consumer, share or streams) and state, a classic, consumer or share group on a topic to a subscription, an ACL to an access rule and a transactional id to a transaction. A streams group, and a classic group run by Kafka Streams, SHALL be read-only with no subscription. A topic's configuration SHALL be its config attributes. Every kind SHALL carry Kafka's own label.

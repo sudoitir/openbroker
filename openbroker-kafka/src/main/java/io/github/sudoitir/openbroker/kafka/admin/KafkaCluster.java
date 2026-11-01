@@ -120,8 +120,9 @@ public final class KafkaCluster implements AutoCloseable {
 
     /** Reads what the cluster is and offers again, and keeps it. */
     public ClusterFeatures readFeatures() {
-        return call("features.read", Optional.empty(), Deadlines.current(options()), (admin, await) -> {
-            ClusterFeatures read = ClusterFeatures.read(admin, await);
+        Deadline deadline = Deadlines.current(options());
+        return call("features.read", Optional.empty(), deadline, (admin, await) -> {
+            ClusterFeatures read = ClusterFeatures.read(admin, await, apiKeys(deadline));
             features.set(read);
             return read;
         });
@@ -131,10 +132,29 @@ public final class KafkaCluster implements AutoCloseable {
     ClusterFeatures features(Admin admin, Await await) {
         ClusterFeatures known = features.get();
         if (known == null) {
-            known = ClusterFeatures.read(admin, await);
+            Deadline deadline = Deadlines.current(options());
+            known = ClusterFeatures.read(admin, await, apiKeys(deadline));
             features.set(known);
         }
         return known;
+    }
+
+    /**
+     * The API keys the bootstrap brokers serve, asked for only by a cluster that reports no {@code metadata.version}
+     * and only within the time left: it is the one name such a cluster has (ADR-0032). A probe that gets no answer
+     * leaves the cluster unnamed rather than refused, so a quiet broker is not mistaken for an old one.
+     */
+    private Supplier<Optional<ApiVersions.Keys>> apiKeys(Deadline deadline) {
+        return () -> {
+            Duration left = deadline.remaining(options().clock());
+            String protocol = spec.option(KafkaOptions.SECURITY_PROTOCOL, KafkaOptions.PLAINTEXT);
+            return ApiVersions.read(
+                    List.of(bootstrapServers().split(",")),
+                    options().tls(),
+                    protocol.equals(KafkaOptions.SSL) || protocol.equals(KafkaOptions.SASL_SSL),
+                    Deadline.after(left, options().clock()),
+                    options().clock());
+        };
     }
 
     /** The nodes the caller named, as they are known without asking the cluster: the nodes of the spec, else its endpoints. */

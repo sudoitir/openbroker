@@ -4,13 +4,30 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.sudoitir.openbroker.BrokerException;
+import io.github.sudoitir.openbroker.Deadline;
 import io.github.sudoitir.openbroker.ErrorReasons;
+import io.github.sudoitir.openbroker.NodeId;
 import io.github.sudoitir.openbroker.Status;
 import io.github.sudoitir.openbroker.access.Assessment;
 import io.github.sudoitir.openbroker.kafka.messaging.ShareFeatures;
+import java.time.Clock;
+import java.time.Duration;
 import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalInt;
+import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.clients.admin.DescribeFeaturesOptions;
+import org.apache.kafka.clients.admin.DescribeFeaturesResult;
+import org.apache.kafka.clients.admin.DescribeMetadataQuorumOptions;
+import org.apache.kafka.clients.admin.DescribeMetadataQuorumResult;
+import org.apache.kafka.clients.admin.FeatureMetadata;
+import org.apache.kafka.clients.admin.QuorumInfo;
+import org.apache.kafka.common.KafkaFuture;
+import org.apache.kafka.common.errors.UnsupportedVersionException;
+import org.apache.kafka.common.internals.KafkaFutureImpl;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentMatchers;
+import org.mockito.Mockito;
 
 class ClusterFeaturesTest {
 
@@ -52,26 +69,44 @@ class ClusterFeaturesTest {
     }
 
     @Test
-    void aClusterBeforeThreeZeroIsRefusedNamingWhatWasFound() {
+    void aClusterBeforeTwoEightIsRefusedNamingWhatWasFound() {
         ClusterFeatures old = new ClusterFeatures(
                 ClusterFeatures.Mode.ZOOKEEPER,
-                "before 3.0",
+                "before 2.8",
                 OptionalInt.empty(),
-                "it reports no metadata.version and does not list transactions",
+                "it reports no metadata.version and serves neither 61 nor 66",
                 OFF,
                 OFF,
                 OFF,
                 OFF,
                 new ShareFeatures(0, 0, false));
 
-        assertThatThrownBy(() -> old.require("[3.0.0,)")).isInstanceOfSatisfying(BrokerException.class, e -> {
+        assertThatThrownBy(() -> old.require("[2.8.0,)")).isInstanceOfSatisfying(BrokerException.class, e -> {
             assertThat(e.status()).isEqualTo(Status.FAILED_PRECONDITION);
             assertThat(e.reason()).isEqualTo(ErrorReasons.UNSUPPORTED_VERSION);
             assertThat(e.getMessage())
-                    .contains("before 3.0")
-                    .contains("does not list transactions")
-                    .contains("[3.0.0,)");
+                    .contains("before 2.8")
+                    .contains("serves neither")
+                    .contains("[2.8.0,)");
         });
+    }
+
+    @Test
+    void aClusterNamedByItsApiKeysIsNotRefused() {
+        ClusterFeatures kafka28 = new ClusterFeatures(
+                ClusterFeatures.Mode.ZOOKEEPER,
+                "at least 2.8",
+                OptionalInt.empty(),
+                null,
+                OFF,
+                OFF,
+                OFF,
+                OFF,
+                new ShareFeatures(0, 0, false));
+
+        kafka28.require("[2.8.0,)");
+        assertThat(kafka28.describe()).isEqualTo("at least 2.8, ZooKeeper mode");
+        assertThat(kafka28.transactions()).isFalse();
     }
 
     @Test
@@ -79,7 +114,7 @@ class ClusterFeaturesTest {
         assertThat(features(false, "at least 3.0", OptionalInt.empty(), OFF).describe())
                 .isEqualTo("at least 3.0, ZooKeeper mode");
         assertThat(features(true, "4.0", OptionalInt.of(25), OFF).describe()).isEqualTo("4.0, KRaft mode");
-        features(true, "4.0", OptionalInt.of(25), OFF).require("[3.0.0,)");
+        features(true, "4.0", OptionalInt.of(25), OFF).require("[2.8.0,)");
     }
 
     @Test
@@ -227,8 +262,92 @@ class ClusterFeaturesTest {
     void aClusterThatDidNotAnswerIsUnknownAndNotUnsupported() {
         ClusterFeatures unread = ClusterFeatures.unread();
 
-        unread.require("[3.0.0,)");
+        unread.require("[2.8.0,)");
         assertThat(unread.mode()).isEqualTo(ClusterFeatures.Mode.UNKNOWN);
         assertThat(unread.consumerProtocol()).isFalse();
+    }
+
+    @Test
+    void transactionListingIsDeclaredPerWhatTheClusterIsKnownToHave() {
+        Assessment listed =
+                features(true, "3.6", OptionalInt.of(19), OFF).assessments().get(KafkaAccess.TRANSACTION_LISTING);
+        Assessment atLeast30 = features(false, "at least 3.0", OptionalInt.empty(), OFF)
+                .assessments()
+                .get(KafkaAccess.TRANSACTION_LISTING);
+        Assessment kafka28 = features(false, "at least 2.8", OptionalInt.empty(), OFF)
+                .assessments()
+                .get(KafkaAccess.TRANSACTION_LISTING);
+        Assessment unnamed = features(false, "unknown", OptionalInt.empty(), OFF)
+                .assessments()
+                .get(KafkaAccess.TRANSACTION_LISTING);
+
+        assertThat(listed.status()).isEqualTo(Assessment.Status.AVAILABLE);
+        assertThat(atLeast30.status()).isEqualTo(Assessment.Status.AVAILABLE);
+        // A 2.8 cluster is declared without the feature, never emulated.
+        assertThat(kafka28.status()).isEqualTo(Assessment.Status.UNAVAILABLE);
+        assertThat(kafka28.reason()).contains("Kafka 3.0 or later");
+        // A broker that did not answer the probe is not an old broker.
+        assertThat(unnamed.status()).isEqualTo(Assessment.Status.UNKNOWN);
+        assertThat(unnamed.reason()).contains("not established");
+    }
+
+    @Test
+    void aReleaseIsNamedOnlyWhenSomethingSaidWhatItIs() {
+        assertThat(features(false, "unknown", OptionalInt.empty(), OFF).named()).isFalse();
+        assertThat(features(false, "at least 2.8", OptionalInt.empty(), OFF).named())
+                .isTrue();
+    }
+
+    /** An Admin whose cluster reports no features and does not know the quorum request: a ZooKeeper-mode broker. */
+    private static Admin zooKeeperAdmin() {
+        FeatureMetadata metadata = Mockito.mock(FeatureMetadata.class);
+        Mockito.when(metadata.supportedFeatures()).thenReturn(Map.of());
+        Mockito.when(metadata.finalizedFeatures()).thenReturn(Map.of());
+        DescribeFeaturesResult features = Mockito.mock(DescribeFeaturesResult.class);
+        Mockito.when(features.featureMetadata()).thenReturn(KafkaFuture.completedFuture(metadata));
+        KafkaFutureImpl<QuorumInfo> quorum = new KafkaFutureImpl<>();
+        quorum.completeExceptionally(new UnsupportedVersionException("no quorum"));
+        DescribeMetadataQuorumResult quorumResult = Mockito.mock(DescribeMetadataQuorumResult.class);
+        Mockito.when(quorumResult.quorumInfo()).thenReturn(quorum);
+        Admin admin = Mockito.mock(Admin.class);
+        Mockito.when(admin.describeFeatures(ArgumentMatchers.any(DescribeFeaturesOptions.class)))
+                .thenReturn(features);
+        Mockito.when(admin.describeMetadataQuorum(ArgumentMatchers.any(DescribeMetadataQuorumOptions.class)))
+                .thenReturn(quorumResult);
+        return admin;
+    }
+
+    private static Await await() {
+        Clock clock = Clock.systemUTC();
+        return new Await(Deadline.after(Duration.ofSeconds(10), clock), clock, NodeId.of("n"));
+    }
+
+    @Test
+    void aClusterWithoutAMetadataVersionIsNamedByTheKeysItServes() {
+        Admin admin = zooKeeperAdmin();
+
+        ClusterFeatures twoEight = ClusterFeatures.read(
+                admin, await(), () -> Optional.of(new ApiVersions.Keys(Map.of((short) 18, 3, (short) 61, 0))));
+        ClusterFeatures threeZero = ClusterFeatures.read(
+                admin, await(), () -> Optional.of(new ApiVersions.Keys(Map.of((short) 61, 0, (short) 66, 0))));
+        ClusterFeatures silent = ClusterFeatures.read(admin, await(), Optional::empty);
+
+        assertThat(twoEight.describe()).isEqualTo("at least 2.8, ZooKeeper mode");
+        assertThat(twoEight.transactions()).isFalse();
+        assertThat(threeZero.transactions()).isTrue();
+        // A broker that did not answer the probe is unnamed and not refused.
+        silent.require("[2.8.0,)");
+        assertThat(silent.named()).isFalse();
+    }
+
+    @Test
+    void aClusterServingNeitherKeyIsRefusedBeforeTwoEight() {
+        ClusterFeatures old = ClusterFeatures.read(
+                zooKeeperAdmin(), await(), () -> Optional.of(new ApiVersions.Keys(Map.of((short) 18, 3))));
+
+        assertThatThrownBy(() -> old.require("[2.8.0,)"))
+                .isInstanceOf(BrokerException.class)
+                .hasMessageContaining("before 2.8")
+                .hasMessageContaining("[2.8.0,)");
     }
 }

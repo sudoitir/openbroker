@@ -1,6 +1,6 @@
 # ADR-0031: Kafka 3.0 and later, declared per feature
 
-- **Status**: accepted
+- **Status**: superseded in part by [0032](0032-kafka-2-8-is-supported-and-named-from-apiversions.md)
 - **Date**: 2026-10-28
 - **Deciders**: Mahdi Amirabdollahi
 
