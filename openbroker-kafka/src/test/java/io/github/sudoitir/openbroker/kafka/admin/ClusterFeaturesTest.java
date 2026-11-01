@@ -249,4 +249,35 @@ class ClusterFeaturesTest {
         assertThat(unread.mode()).isEqualTo(ClusterFeatures.Mode.UNKNOWN);
         assertThat(unread.consumerProtocol()).isFalse();
     }
+
+    @Test
+    void transactionListingIsDeclaredPerWhatTheClusterIsKnownToHave() {
+        Assessment listed =
+                features(true, "3.6", OptionalInt.of(19), OFF).assessments().get(KafkaAccess.TRANSACTION_LISTING);
+        Assessment atLeast30 = features(false, "at least 3.0", OptionalInt.empty(), OFF)
+                .assessments()
+                .get(KafkaAccess.TRANSACTION_LISTING);
+        Assessment kafka28 = features(false, "at least 2.8", OptionalInt.empty(), OFF)
+                .assessments()
+                .get(KafkaAccess.TRANSACTION_LISTING);
+        Assessment unnamed = features(false, "unknown", OptionalInt.empty(), OFF)
+                .assessments()
+                .get(KafkaAccess.TRANSACTION_LISTING);
+
+        assertThat(listed.status()).isEqualTo(Assessment.Status.AVAILABLE);
+        assertThat(atLeast30.status()).isEqualTo(Assessment.Status.AVAILABLE);
+        // A 2.8 cluster is declared without the feature, never emulated.
+        assertThat(kafka28.status()).isEqualTo(Assessment.Status.UNAVAILABLE);
+        assertThat(kafka28.reason()).contains("Kafka 3.0 or later");
+        // A broker that did not answer the probe is not an old broker.
+        assertThat(unnamed.status()).isEqualTo(Assessment.Status.UNKNOWN);
+        assertThat(unnamed.reason()).contains("not established");
+    }
+
+    @Test
+    void aReleaseIsNamedOnlyWhenSomethingSaidWhatItIs() {
+        assertThat(features(false, "unknown", OptionalInt.empty(), OFF).named()).isFalse();
+        assertThat(features(false, "at least 2.8", OptionalInt.empty(), OFF).named())
+                .isTrue();
+    }
 }
