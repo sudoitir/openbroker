@@ -113,7 +113,11 @@ class RabbitMqResourcesIT {
 
     @Test
     void aStreamsBacklogIsAnEstimate() {
-        Resource audit = list(RabbitMqKinds.STREAM).items().getFirst();
+        // A stream reports its counters from the broker's next statistics emission on.
+        Resource audit = RabbitMq.eventually(
+                Duration.ofSeconds(30),
+                () -> list(RabbitMqKinds.STREAM).items().getFirst(),
+                r -> r.attributes().get(MetricKeys.BACKLOG).isPresent());
 
         assertThat(audit.attributes().get(MetricKeys.BACKLOG).orElseThrow().precision())
                 .isEqualTo(Precision.ESTIMATE);
