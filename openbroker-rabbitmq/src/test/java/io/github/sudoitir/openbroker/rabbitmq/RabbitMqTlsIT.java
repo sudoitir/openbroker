@@ -54,7 +54,7 @@ class RabbitMqTlsIT {
 
     private static ConnectRequest request(ConnectOptions options) {
         return new ConnectRequest(
-                RabbitMqDriver.SYSTEM, cluster.tlsSpec(), CredentialSource.of(cluster.credentials()), options);
+                RabbitMqDriver.SYSTEM_ID, cluster.tlsSpec(), CredentialSource.of(cluster.credentials()), options);
     }
 
     private static ConnectOptions trusting() {

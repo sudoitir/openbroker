@@ -40,6 +40,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -98,8 +99,8 @@ final class RabbitMqReceiver implements Receiver {
     private final OperationInfo receiveInfo;
     private final OperationInfo settleInfo;
     private final LinkSupervisor supervisor;
-    private volatile Open current;
-    private volatile @Nullable BrokerException failure;
+    private final AtomicReference<Open> current = new AtomicReference<>();
+    private final AtomicReference<@Nullable BrokerException> failure = new AtomicReference<>();
     private volatile boolean closed;
 
     /** A receiver over connections of its own, for a caller that has no transport. */
@@ -117,7 +118,7 @@ final class RabbitMqReceiver implements Receiver {
         this.autoAck = options.guarantee() == Guarantee.AT_MOST_ONCE;
         this.receiveInfo = env.info(OperationType.RECEIVE, subscription, Optional.of(subscription), 1);
         this.settleInfo = env.info(OperationType.SETTLE, subscription, Optional.of(subscription), 1);
-        this.current = open(0);
+        this.current.set(open(0));
         this.supervisor = new LinkSupervisor(
                 id, RabbitMqCluster.CLUSTER, env.endpoint(), options.recovery(), new Recover(), env.engine());
         this.supervisor.listen(env::fire);
@@ -210,7 +211,7 @@ final class RabbitMqReceiver implements Receiver {
     }
 
     private void refuse(int number, long tag) {
-        Open link = current;
+        Open link = current.get();
         if (autoAck || link == null || link.generation() != number) {
             return;
         }
@@ -235,7 +236,7 @@ final class RabbitMqReceiver implements Receiver {
     public List<Message> receive(int max, Duration timeout) {
         try {
             return receiveInterruptibly(max, timeout);
-        } catch (InterruptedException e) {
+        } catch (InterruptedException _) {
             Thread.currentThread().interrupt();
             return List.of();
         }
@@ -254,7 +255,7 @@ final class RabbitMqReceiver implements Receiver {
             out.add(first);
             buffer.drainTo(out, Math.max(0, max - 1));
         }
-        BrokerException lastFailure = failure;
+        BrokerException lastFailure = failure.get();
         boolean failed = out.isEmpty() && lastFailure != null;
         if (observation != null) {
             observation.received(out);
@@ -283,7 +284,7 @@ final class RabbitMqReceiver implements Receiver {
         }
         String position = message.ref().position();
         Held held = outstanding.get(position);
-        Open link = current;
+        Open link = current.get();
         if (held == null || held.settling) {
             throw LinkEnv.stale("The message " + message.ref() + " was not delivered by this receiver, or is settled.");
         }
@@ -295,9 +296,9 @@ final class RabbitMqReceiver implements Receiver {
                     + " was lost; RabbitMQ delivers it again, so it cannot be settled.");
         }
         switch (disposition) {
-            case Disposition.Accept a ->
+            case Disposition.Accept _ ->
                 finish(position, held, tag -> link.channel().basicAck(tag, false));
-            case Disposition.Reject r ->
+            case Disposition.Reject _ ->
                 finish(position, held, tag -> link.channel().basicReject(tag, false));
             case Disposition.Release r -> {
                 Duration delay = r.delay().orElse(Duration.ZERO);
@@ -338,7 +339,7 @@ final class RabbitMqReceiver implements Receiver {
                         link.channel().basicNack(held.tag, false, true);
                     }
                 }
-            } catch (InterruptedException e) {
+            } catch (InterruptedException _) {
                 Thread.currentThread().interrupt();
             } catch (IOException | ShutdownSignalException e) {
                 LOG.log(System.Logger.Level.DEBUG, "A delayed release found the channel gone", e);
@@ -378,17 +379,17 @@ final class RabbitMqReceiver implements Receiver {
 
         @Override
         public NodeId reopen() {
-            closeQuietly(current.channel());
+            closeQuietly(current.get().channel());
             buffer.clear();
             outstanding.clear();
             Open fresh = open(generation.incrementAndGet());
-            current = fresh;
+            current.set(fresh);
             return fresh.served();
         }
 
         @Override
         public void failed(BrokerException cause) {
-            failure = cause;
+            failure.set(cause);
         }
     }
 
@@ -400,7 +401,7 @@ final class RabbitMqReceiver implements Receiver {
             if (channel.isOpen()) {
                 channel.close();
             }
-        } catch (IOException | TimeoutException | ShutdownSignalException e) {
+        } catch (IOException | TimeoutException | ShutdownSignalException _) {
             // The channel is gone either way; the broker requeues what it held.
         }
     }
@@ -413,7 +414,7 @@ final class RabbitMqReceiver implements Receiver {
         closed = true;
         releases.forEach(Thread::interrupt);
         supervisor.close();
-        closeQuietly(current.channel());
+        closeQuietly(current.get().channel());
         buffer.clear();
         outstanding.clear();
         env.forget(this);

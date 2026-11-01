@@ -208,7 +208,7 @@ public final class ManagementClient {
             }
             case Credentials.BearerToken token ->
                 request.header("Authorization", "Bearer " + token.token().reveal());
-            case Credentials.None none -> {
+            case Credentials.None _ -> {
                 // No header: the management API answers 401, which maps to a credentials failure.
             }
         }
@@ -248,7 +248,7 @@ public final class ManagementClient {
             JsonNode node = cluster.mapper().readTree(bytes);
             JsonNode reason = node.path("reason");
             return reason.isString() ? reason.asString() : "";
-        } catch (JacksonException e) {
+        } catch (JacksonException _) {
             return "";
         }
     }
@@ -257,10 +257,11 @@ public final class ManagementClient {
         try {
             return Optional.of(ZonedDateTime.parse(header, DateTimeFormatter.RFC_1123_DATE_TIME)
                     .toInstant());
-        } catch (DateTimeParseException e) {
+        } catch (DateTimeParseException _) {
             return Optional.empty();
         }
     }
+
     /** The nanoseconds left of the deadline, at least one so an expired one still times out at once. */
     private static long remaining(Deadline deadline, ConnectOptions options) {
         return Math.max(1, deadline.remaining(options.clock()).toNanos());
@@ -276,21 +277,27 @@ public final class ManagementClient {
         try (in) {
             FutureTask<byte[]> read = new FutureTask<>(() -> in.readNBytes(limit));
             Thread.ofVirtual().name("rabbitmq-management-body").start(read);
-            try {
-                return read.get(remaining(deadline, options), TimeUnit.NANOSECONDS);
-            } catch (ExecutionException e) {
-                throw RabbitMqErrors.fromIo(e.getCause() == null ? e : e.getCause(), true);
-            } catch (TimeoutException e) {
-                read.cancel(true);
-                throw RabbitMqErrors.fromIo(e, true);
-            } catch (InterruptedException e) {
-                read.cancel(true);
-                throw Deadlines.cancelled(target.node(), e);
-            }
+            return await(read, remaining(deadline, options), target);
         } catch (IOException e) {
             throw RabbitMqErrors.fromIo(e, true);
         }
     }
+
+    private static byte[] await(FutureTask<byte[]> read, long nanos, RabbitMqCluster.Target target) {
+        try {
+            return read.get(nanos, TimeUnit.NANOSECONDS);
+        } catch (ExecutionException e) {
+            throw RabbitMqErrors.fromIo(e.getCause() == null ? e : e.getCause(), true);
+        } catch (TimeoutException e) {
+            read.cancel(true);
+            throw RabbitMqErrors.fromIo(e, true);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            read.cancel(true);
+            throw Deadlines.cancelled(target.node(), e);
+        }
+    }
+
     /**
      * Whether the next management endpoint is asked after this failure: always when the request was never sent, and
      * for a read also when the endpoint became unavailable mid-request, since asking again changes nothing. A write

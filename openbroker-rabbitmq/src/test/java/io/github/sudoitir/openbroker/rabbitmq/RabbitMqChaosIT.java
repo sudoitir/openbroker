@@ -170,7 +170,7 @@ class RabbitMqChaosIT extends ChaosTck {
 
     private static ConnectRequest request() {
         return new ConnectRequest(
-                RabbitMqDriver.SYSTEM,
+                RabbitMqDriver.SYSTEM_ID,
                 cluster.spec(),
                 CredentialSource.of(Credentials.usernamePassword(
                         RabbitMqTestCluster.ADMIN_USER, RabbitMqTestCluster.ADMIN_PASSWORD)),

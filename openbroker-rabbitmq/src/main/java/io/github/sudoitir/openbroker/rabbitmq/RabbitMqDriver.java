@@ -30,10 +30,10 @@ import java.util.Set;
 public final class RabbitMqDriver implements BrokerDriver {
 
     /** The system id, and the prefix of every kind this driver defines. */
-    public static final String SYSTEM = "rabbitmq";
+    public static final String SYSTEM_ID = "rabbitmq";
 
     private static final BrokerSystem DESCRIPTION =
-            new BrokerSystem(SYSTEM, "RabbitMQ", "[3.13.0,)", 1, Set.of("com.rabbitmq."), List.of());
+            new BrokerSystem(SYSTEM_ID, "RabbitMQ", "[3.13.0,)", 1, Set.of("com.rabbitmq."), List.of());
 
     @Override
     public BrokerSystem system() {

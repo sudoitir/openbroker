@@ -42,6 +42,7 @@ final class Writes {
     private static final String ARGUMENTS = "arguments";
     private static final String TOPIC_FIELD = "exchange";
     private static final String ABSENT = "absent";
+    private static final String AUTO_DELETE_FIELD = "auto_delete";
 
     private final RabbitMqCluster cluster;
 
@@ -242,12 +243,12 @@ final class Writes {
         } else if (kind.equals(RabbitMqKinds.EXCHANGE)) {
             put(out, RabbitMqKinds.EXCHANGE_TYPE, json.path("type"));
             put(out, DURABLE, json.path("durable"));
-            put(out, RabbitMqKinds.AUTO_DELETE, json.path("auto_delete"));
+            put(out, RabbitMqKinds.AUTO_DELETE, json.path(AUTO_DELETE_FIELD));
             put(out, RabbitMqKinds.INTERNAL, json.path("internal"));
             arguments(out, json.path(ARGUMENTS));
         } else if (isQueue(kind)) {
             put(out, DURABLE, json.path("durable"));
-            put(out, RabbitMqKinds.AUTO_DELETE, json.path("auto_delete"));
+            put(out, RabbitMqKinds.AUTO_DELETE, json.path(AUTO_DELETE_FIELD));
             arguments(out, json.path(ARGUMENTS));
             out.remove(RabbitMqKinds.ARGUMENT_PREFIX + QUEUE_TYPE_ARGUMENT);
         } else if (kind.equals(RabbitMqKinds.BINDING) || kind.equals(RabbitMqKinds.EXCHANGE_BINDING)) {
@@ -319,12 +320,12 @@ final class Writes {
             }
             body.put("type", type);
             body.put("durable", flag(attributes, DURABLE, true));
-            body.put("auto_delete", flag(attributes, RabbitMqKinds.AUTO_DELETE, false));
+            body.put(AUTO_DELETE_FIELD, flag(attributes, RabbitMqKinds.AUTO_DELETE, false));
             body.put("internal", flag(attributes, RabbitMqKinds.INTERNAL, false));
             body.set(ARGUMENTS, argumentsNode(attributes, Map.of()));
         } else if (isQueue(kind)) {
             body.put("durable", flag(attributes, DURABLE, true));
-            body.put("auto_delete", flag(attributes, RabbitMqKinds.AUTO_DELETE, false));
+            body.put(AUTO_DELETE_FIELD, flag(attributes, RabbitMqKinds.AUTO_DELETE, false));
             ObjectNode arguments = argumentsNode(
                     attributes,
                     Map.of(
@@ -383,7 +384,7 @@ final class Writes {
         if (value instanceof String text) {
             try {
                 return cluster.mapper().readTree(text);
-            } catch (JacksonException e) {
+            } catch (JacksonException _) {
                 return cluster.mapper().valueToTree(text);
             }
         }
@@ -411,7 +412,7 @@ final class Writes {
         Object value = attributes.get(key);
         try {
             return value == null ? 0 : Long.parseLong(value.toString());
-        } catch (NumberFormatException e) {
+        } catch (NumberFormatException _) {
             throw RabbitMqErrors.invalid(key + " is a whole number, not " + value + ".");
         }
     }

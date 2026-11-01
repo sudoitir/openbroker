@@ -52,7 +52,7 @@ final class Listing {
                     return new Cursor(server, value);
                 }
             }
-        } catch (IllegalArgumentException e) {
+        } catch (IllegalArgumentException _) {
             // Falls through to the refusal below: a token that does not decode is not ours.
         }
         throw RabbitMqErrors.invalid("The continue token is not one this listing issued.");

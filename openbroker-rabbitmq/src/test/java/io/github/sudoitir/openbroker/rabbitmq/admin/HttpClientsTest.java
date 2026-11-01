@@ -16,7 +16,7 @@ class HttpClientsTest {
     private final FakeManagement.TestContext context = new FakeManagement.TestContext(ConnectOptions.defaults());
 
     @Test
-    void oneClientPerMaterialAndTimeoutNeverFollowingRedirects() throws Exception {
+    void oneClientPerMaterialAndTimeoutNeverFollowingRedirects() {
         HttpClient plain = HttpClients.forTls(context, Optional.empty(), Duration.ofSeconds(3));
         assertThat(HttpClients.forTls(context, Optional.empty(), Duration.ofSeconds(3)))
                 .isSameAs(plain);

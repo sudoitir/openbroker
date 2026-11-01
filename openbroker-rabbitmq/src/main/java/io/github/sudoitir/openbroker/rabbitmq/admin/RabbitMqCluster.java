@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
@@ -49,6 +50,9 @@ public final class RabbitMqCluster implements AutoCloseable {
     /** A data endpoint resolved. */
     public record HostPort(String host, int port) {}
 
+    /** The specification and the management endpoints resolved from it, swapped together on a reconfiguration. */
+    private record Configuration(ClusterSpec spec, List<Target> targets) {}
+
     private final CredentialSource credentials;
     private final DriverContext context;
     private final ObjectMapper mapper = JsonMapper.builder().build();
@@ -57,8 +61,7 @@ public final class RabbitMqCluster implements AutoCloseable {
     private final ManagementClient management;
     private final ClusterFeatures features;
     private final QueueTypes queueTypes;
-    private volatile ClusterSpec spec;
-    private volatile List<Target> targets;
+    private final AtomicReference<Configuration> configuration;
 
     /**
      * @throws io.github.sudoitir.openbroker.BrokerException {@code INVALID_ARGUMENT}, not sent, when an endpoint
@@ -67,15 +70,14 @@ public final class RabbitMqCluster implements AutoCloseable {
     public RabbitMqCluster(ClusterSpec spec, CredentialSource credentials, DriverContext context) {
         this.credentials = credentials;
         this.context = context;
-        this.spec = spec;
-        this.targets = resolve(spec);
+        this.configuration = new AtomicReference<>(new Configuration(spec, resolve(spec)));
         this.management = new ManagementClient(this);
         this.features = new ClusterFeatures(this);
         this.queueTypes = new QueueTypes(this);
     }
 
     public ClusterSpec spec() {
-        return spec;
+        return configuration.get().spec();
     }
 
     public ConnectOptions options() {
@@ -108,7 +110,7 @@ public final class RabbitMqCluster implements AutoCloseable {
 
     /** The management endpoints in the order they are tried: the cluster's, then each node's. */
     List<Target> managementTargets() {
-        return targets;
+        return configuration.get().targets();
     }
 
     /** Calls {@code listener} after every {@link #reconfigure}. */
@@ -132,8 +134,7 @@ public final class RabbitMqCluster implements AutoCloseable {
     /** Applies a changed specification: drops the caches and tells the AMQP connections. */
     public void reconfigure(ClusterSpec spec) {
         List<Target> resolved = resolve(spec);
-        this.spec = spec;
-        this.targets = resolved;
+        configuration.set(new Configuration(spec, resolved));
         features.reset();
         queueTypes.reset();
         reconfigureListeners.forEach(Runnable::run);
@@ -177,7 +178,7 @@ public final class RabbitMqCluster implements AutoCloseable {
         if (portText != null) {
             try {
                 port = Integer.parseInt(portText);
-            } catch (NumberFormatException e) {
+            } catch (NumberFormatException _) {
                 throw RabbitMqErrors.invalid("The port of a data endpoint is a number, not '" + portText + "'.");
             }
             if (port < 1 || port > 65535) {
@@ -238,9 +239,17 @@ public final class RabbitMqCluster implements AutoCloseable {
             throw RabbitMqErrors.invalid(
                     "A management endpoint's address holds no user information; give credentials separately.");
         }
-        String path = base.getRawPath() == null ? "" : base.getRawPath().replaceAll("/+$", "");
+        String path = base.getRawPath() == null ? "" : withoutTrailingSlashes(base.getRawPath());
         String root = base.getScheme() + "://" + base.getRawAuthority() + path;
         out.add(new Target(node, protocol, URI.create(root)));
+    }
+
+    private static String withoutTrailingSlashes(String path) {
+        int end = path.length();
+        while (end > 0 && path.charAt(end - 1) == '/') {
+            end--;
+        }
+        return path.substring(0, end);
     }
 
     /** An address without anything before an {@code @}, so a mistaken user:password never reaches a message. */

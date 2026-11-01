@@ -32,7 +32,6 @@ final class EventMapping {
     private static final String PERFORMED_BY = "user_who_performed_action";
     private static final String QUEUE_TYPE = "x-queue-type";
     private static final String CREATED = ".created";
-    private static final String DELETED = ".deleted";
     private static final Set<String> SECRET_PARTS = Set.of("password", "secret", "token", "hash", "value", "uri");
 
     private EventMapping() {}

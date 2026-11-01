@@ -291,7 +291,7 @@ final class RabbitMqChaosCluster implements AutoCloseable {
                         return true;
                     },
                     name);
-        } catch (RuntimeException e) {
+        } catch (RuntimeException _) {
             // Best effort: the cluster is torn down at the end.
         }
     }

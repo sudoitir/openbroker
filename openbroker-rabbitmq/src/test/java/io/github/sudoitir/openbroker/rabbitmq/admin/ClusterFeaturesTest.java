@@ -3,10 +3,12 @@ package io.github.sudoitir.openbroker.rabbitmq.admin;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 
 import io.github.sudoitir.openbroker.BrokerException;
 import io.github.sudoitir.openbroker.ErrorReasons;
 import io.github.sudoitir.openbroker.Status;
+import java.time.Duration;
 import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -75,6 +77,16 @@ class ClusterFeaturesTest {
         assertThatThrownBy(() -> features().require("(3.13.7,)")).isInstanceOf(BrokerException.class);
         assertThatCode(() -> features().require("[3.13.7,3.13.7]")).doesNotThrowAnyException();
         assertThatCode(() -> features().require("3.13.0")).doesNotThrowAnyException();
+    }
+
+    @Test
+    void readsAnIntervalWithBlanksAndSurvivesALongMalformedOne() {
+        healthy();
+        assertThatCode(() -> features().require("[ 3.13.0 , )")).doesNotThrowAnyException();
+        assertThatCode(() -> features().require("[3.13.0,,4.0)")).doesNotThrowAnyException();
+        String adversarial = "[" + " ".repeat(200_000) + "1 2" + " ".repeat(200_000) + ",";
+        ClusterFeatures features = features();
+        assertTimeoutPreemptively(Duration.ofSeconds(5), () -> features.require(adversarial));
     }
 
     @Test
@@ -184,7 +196,8 @@ class ClusterFeaturesTest {
         server.json("GET", "/api/overview", "overview.json")
                 .json("GET", "/api/nodes", "nodes.json")
                 .respond("GET", "/api/whoami", 503, Map.of(), "");
-        assertThatThrownBy(() -> features().tags()).isInstanceOf(BrokerException.class);
+        ClusterFeatures features = features();
+        assertThatThrownBy(features::tags).isInstanceOf(BrokerException.class);
     }
 
     @Test

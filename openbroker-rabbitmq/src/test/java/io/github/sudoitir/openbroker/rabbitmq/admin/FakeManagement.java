@@ -137,7 +137,7 @@ final class FakeManagement implements AutoCloseable {
                 }
                 try {
                     release.await(30, TimeUnit.SECONDS);
-                } catch (InterruptedException e) {
+                } catch (InterruptedException _) {
                     Thread.currentThread().interrupt();
                 }
                 return;

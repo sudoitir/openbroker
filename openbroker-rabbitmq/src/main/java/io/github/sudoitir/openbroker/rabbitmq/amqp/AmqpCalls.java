@@ -93,7 +93,7 @@ public final class AmqpCalls {
             if (channel.isOpen()) {
                 channel.close();
             }
-        } catch (IOException | TimeoutException | ShutdownSignalException e) {
+        } catch (IOException | TimeoutException | ShutdownSignalException _) {
             // The channel is gone either way.
         }
     }

@@ -182,7 +182,7 @@ class RabbitMqMessagingIT {
 
             RabbitMq.eventually(
                     WAIT, () -> EVENTS.stream().anyMatch(e -> e.state() == LinkState.RECOVERING), seen -> seen);
-            RabbitMq.eventually(WAIT, () -> receiver.state(), state -> state == LinkState.OPEN);
+            RabbitMq.eventually(WAIT, receiver::state, state -> state == LinkState.OPEN);
             admin.publish("/", "", name, "after");
             assertThat(receiveOne(receiver)).hasSize(1);
         } catch (Exception e) {

@@ -263,7 +263,7 @@ public final class MessageCodec {
     /** The queue (else the exchange) of the first death record, and the message id the message carried into it. */
     private static void origin(Map<String, Object> raw, @Nullable String id, MessageHeaders.Builder headers) {
         if (raw.get(DEATH) instanceof List<?> deaths && !deaths.isEmpty() && deaths.get(0) instanceof Map<?, ?> first) {
-            Object from = first.get("queue") != null ? first.get("queue") : first.get("exchange");
+            Object from = first.get("queue") != null ? first.get("queue") : first.get(EXCHANGE);
             if (from != null) {
                 headers.origin(from.toString());
                 headers.originId(id);

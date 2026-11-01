@@ -29,6 +29,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -52,8 +53,8 @@ final class EventExchangeStream implements AutoCloseable {
     private final AtomicBoolean reopening = new AtomicBoolean();
     private final String vhost;
     private volatile boolean closed;
-    private volatile StreamState state;
-    private volatile @Nullable Channel channel;
+    private final AtomicReference<StreamState> state = new AtomicReference<>();
+    private final AtomicReference<@Nullable Channel> channel = new AtomicReference<>();
     private volatile String ownQueue = "";
     private @Nullable AutoCloseable loss;
     private int attempt;
@@ -81,7 +82,7 @@ final class EventExchangeStream implements AutoCloseable {
         this.vhost = RabbitMqOptions.eventVhost(cluster.spec());
         this.dispatcher =
                 new NotificationDispatcher(listener, BUFFER, cluster.options().clock(), r -> r);
-        this.state = new StreamState(StreamState.Phase.CONNECTING, Optional.empty(), Optional.empty());
+        this.state.set(new StreamState(StreamState.Phase.CONNECTING, Optional.empty(), Optional.empty()));
     }
 
     /**
@@ -94,7 +95,7 @@ final class EventExchangeStream implements AutoCloseable {
         try {
             open();
         } catch (BrokerException e) {
-            state = new StreamState(StreamState.Phase.UNAVAILABLE, Optional.of(now()), Optional.of(e));
+            state.set(new StreamState(StreamState.Phase.UNAVAILABLE, Optional.of(now()), Optional.of(e)));
             close();
             throw e;
         }
@@ -103,7 +104,7 @@ final class EventExchangeStream implements AutoCloseable {
 
     /** Where the stream is: connecting, active, or backing off until the connection is back. */
     StreamState state() {
-        return state;
+        return state.get();
     }
 
     private void open() {
@@ -115,11 +116,11 @@ final class EventExchangeStream implements AutoCloseable {
             opened.queueBind(queue, EXCHANGE, "#");
             opened.addShutdownListener(_ -> lost());
             opened.basicConsume(queue, true, this::deliver, _ -> lost());
-            channel = opened;
+            channel.set(opened);
             if (loss == null) {
                 loss = connections.onLoss(vhost, this::lost);
             }
-            state = new StreamState(StreamState.Phase.ACTIVE, Optional.of(now()), Optional.empty());
+            state.set(new StreamState(StreamState.Phase.ACTIVE, Optional.of(now()), Optional.empty()));
             attempt = 0;
         } catch (IOException | RuntimeException e) {
             if (e instanceof BrokerException broker) {
@@ -197,7 +198,7 @@ final class EventExchangeStream implements AutoCloseable {
         if (closed || !reopening.compareAndSet(false, true)) {
             return;
         }
-        state = new StreamState(StreamState.Phase.BACKING_OFF, Optional.of(now()), Optional.empty());
+        state.set(new StreamState(StreamState.Phase.BACKING_OFF, Optional.of(now()), Optional.empty()));
         schedule();
     }
 
@@ -216,7 +217,7 @@ final class EventExchangeStream implements AutoCloseable {
         try {
             open();
         } catch (BrokerException e) {
-            state = new StreamState(StreamState.Phase.BACKING_OFF, Optional.of(now()), Optional.of(e));
+            state.set(new StreamState(StreamState.Phase.BACKING_OFF, Optional.of(now()), Optional.of(e)));
             schedule();
             return;
         }
@@ -260,7 +261,7 @@ final class EventExchangeStream implements AutoCloseable {
         } catch (Exception _) {
             // The loss listener is removed with the connection anyway.
         }
-        Channel open = channel;
+        Channel open = channel.get();
         if (open != null) {
             try {
                 open.close();

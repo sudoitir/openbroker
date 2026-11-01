@@ -236,7 +236,7 @@ final class RabbitMqAccess implements Access {
                     return Assessment.available("Events from " + EVENT_EXCHANGE_NAME + " in vhost " + vhost);
                 }
                 why = "the event exchange plugin is not enabled";
-            } catch (BrokerException e) {
+            } catch (BrokerException _) {
                 why = "the plugins could not be read";
             }
         }

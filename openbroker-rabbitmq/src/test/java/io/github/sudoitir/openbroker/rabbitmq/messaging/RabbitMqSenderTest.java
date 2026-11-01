@@ -76,7 +76,7 @@ class RabbitMqSenderTest {
         return fixtures.channel(generation * 2 + 1);
     }
 
-    private ConfirmCallback ack(Channel channel) throws IOException {
+    private ConfirmCallback ack(Channel channel) {
         ArgumentCaptor<ConfirmCallback> ack = ArgumentCaptor.forClass(ConfirmCallback.class);
         verify(channel).addConfirmListener(ack.capture(), any(ConfirmCallback.class));
         return ack.getValue();
@@ -254,14 +254,13 @@ class RabbitMqSenderTest {
         RabbitMqSender.Destination queue = RabbitMqSender.Destination.of(SendTarget.destination(QUEUE));
         assertThat(queue.queue()).isTrue();
         assertThat(queue.routingKey()).isEqualTo("orders");
-        assertThatThrownBy(() -> RabbitMqSender.Destination.of(
-                        new SendTarget.ToDestination(EXCHANGE, Optional.empty(), Optional.of(PartitionId.of("0")))))
-                .isInstanceOf(BrokerException.class);
-        assertThatThrownBy(() -> RabbitMqSender.Destination.of(SendTarget.subscription(EXCHANGE)))
-                .isInstanceOf(BrokerException.class);
-        assertThatThrownBy(() -> RabbitMqSender.Destination.of(
-                        SendTarget.destination(ResourceId.of(RabbitMqKinds.EXCHANGE.value(), "/"))))
-                .isInstanceOf(BrokerException.class);
+        SendTarget partitioned =
+                new SendTarget.ToDestination(EXCHANGE, Optional.empty(), Optional.of(PartitionId.of("0")));
+        assertThatThrownBy(() -> RabbitMqSender.Destination.of(partitioned)).isInstanceOf(BrokerException.class);
+        SendTarget subscription = SendTarget.subscription(EXCHANGE);
+        assertThatThrownBy(() -> RabbitMqSender.Destination.of(subscription)).isInstanceOf(BrokerException.class);
+        SendTarget unnamed = SendTarget.destination(ResourceId.of(RabbitMqKinds.EXCHANGE.value(), "/"));
+        assertThatThrownBy(() -> RabbitMqSender.Destination.of(unnamed)).isInstanceOf(BrokerException.class);
     }
 
     @Test
