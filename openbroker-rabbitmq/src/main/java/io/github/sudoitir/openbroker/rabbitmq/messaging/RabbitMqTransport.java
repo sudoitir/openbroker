@@ -36,6 +36,7 @@ import io.github.sudoitir.openbroker.support.messaging.Retries;
 import java.time.Duration;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.Set;
 import java.util.UUID;
 
@@ -127,7 +128,8 @@ public final class RabbitMqTransport implements Transport, AutoCloseable {
                         "browse " + subscription.kind() + ": only a stream can be browsed without taking messages");
             }
             return env.admitted(
-                    "receiver.open", subscription, () -> env.track(new StreamReader(cluster, subscription)));
+                    "receiver.open", subscription, () -> env.track(new StreamReader(
+                            cluster, subscription, connections, false, options, new ConcurrentHashMap<>())));
         }
         RabbitMqReceiver.check(subscription, options);
         SubscriptionCapabilities kind = CAPABILITIES.subscription(subscription.kind());
