@@ -15,6 +15,7 @@ Apache-2.0, public.
 | `openbroker-tck` | Abstract JUnit contract tests a driver extends | api, JUnit, AssertJ |
 | `openbroker-artemis` | The Apache ActiveMQ Artemis driver (Jolokia + Core) | api, support, Artemis client, Jackson 3 |
 | `openbroker-kafka` | The Apache Kafka driver (Admin, producer, consumer, share consumer) | api, support, Kafka clients |
+| `openbroker-rabbitmq` | The RabbitMQ driver (management HTTP API + AMQP 0-9-1) | api, support, amqp-client, Jackson 3 |
 | `openbroker-opentelemetry` | Traces and metrics for messaging through OpenTelemetry | api, OpenTelemetry API |
 | `openbroker-spring-boot-autoconfigure` | Spring Boot 4 auto-configuration: connections, health, metrics, tracing, lifecycle | api; Spring Boot, the drivers and telemetry optional |
 | `openbroker-spring-boot-starter` | Pom of the autoconfigure module and `openbroker-support`; applications add the drivers | autoconfigure, support |

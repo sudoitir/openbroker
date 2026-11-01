@@ -14,9 +14,9 @@ permissions:
   contents: read
 
 jobs:
-  # Build, unit tests, and the TCK against the oldest and newest supported Artemis and Kafka. A driver's
-  # entries build its module and what it needs; the Kafka driver's integration tests run only on the
-  # Kafka entries and the Artemis driver's only on the Artemis ones.
+  # Build, unit tests, and the TCK against the oldest and newest supported Artemis, Kafka and RabbitMQ. A
+  # driver's entries build its module and what it needs; each driver's integration tests run only on its own
+  # entries.
   verify:
     runs-on: ubuntu-latest
     strategy:
@@ -29,6 +29,8 @@ jobs:
           - { driver: kafka, image: "apache/kafka:3.9.2" }
           - { driver: kafka, image: "apache/kafka:4.0.2" }
           - { driver: kafka, image: "apache/kafka:4.4.0" }
+          - { driver: rabbitmq, image: "rabbitmq:3.13.7-management" }
+          - { driver: rabbitmq, image: "rabbitmq:4.4.0-management" }
     name: verify (${{ matrix.image }})
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -40,9 +42,11 @@ jobs:
           java-version: "25"
           cache: maven
       - if: matrix.driver == 'artemis'
-        run: ./mvnw -B verify -pl '!openbroker-kafka,!openbroker-coverage,!openbroker-benchmarks,!openbroker-spring-boot-autoconfigure,!openbroker-spring-boot-starter' -Dartemis.image=${{ matrix.image }}
+        run: ./mvnw -B verify -pl '!openbroker-kafka,!openbroker-coverage,!openbroker-rabbitmq,!openbroker-benchmarks,!openbroker-spring-boot-autoconfigure,!openbroker-spring-boot-starter' -Dartemis.image=${{ matrix.image }}
       - if: matrix.driver == 'kafka'
         run: ./mvnw -B verify -pl openbroker-kafka,openbroker-coverage -am ${{ matrix.profile }} -Dkafka.image=${{ matrix.image }}
+      - if: matrix.driver == 'rabbitmq'
+        run: ./mvnw -B verify -pl openbroker-rabbitmq -am -Drabbitmq.image=${{ matrix.image }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: matrix.image == 'apache/artemis:2.57.0'
         with:
@@ -53,6 +57,11 @@ jobs:
         with:
           name: coverage-kafka
           path: openbroker-coverage/target/site/jacoco-aggregate
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: matrix.image == 'rabbitmq:4.4.0-management'
+        with:
+          name: coverage-rabbitmq
+          path: openbroker-rabbitmq/target/site/jacoco-aggregate
 
   # Spring lives only in the two Spring modules (ADR-0027): the Enforcer bans it everywhere else, and
   # this proves the ban holds by adding Spring to the API, which must fail the build on the ban.
@@ -144,6 +153,7 @@ jobs:
           - { driver: artemis, image: "apache/activemq-artemis:2.33.0" }
           - { driver: artemis, image: "apache/artemis:2.57.0" }
           - { driver: kafka, image: "apache/kafka:4.4.0" }
+          - { driver: rabbitmq, image: "rabbitmq:4.4.0-management" }
     name: chaos (${{ matrix.image }})
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -158,6 +168,8 @@ jobs:
         run: ./mvnw -B -pl openbroker-artemis -am verify -Pchaos -Dit.test=ArtemisChaosIT -Dartemis.image=${{ matrix.image }}
       - if: matrix.driver == 'kafka'
         run: ./mvnw -B -pl openbroker-kafka -am verify -Pchaos -Dit.test=KafkaChaosIT -Dkafka.image=${{ matrix.image }}
+      - if: matrix.driver == 'rabbitmq'
+        run: ./mvnw -B -pl openbroker-rabbitmq -am verify -Pchaos -Dit.test=RabbitMqChaosIT -Drabbitmq.image=${{ matrix.image }}
 
   # The messaging client against its performance budgets (allocation per message is a hard gate;
   # throughput and p99 have wide margins). The recorded budgets file is the candidate for new baselines.
@@ -212,6 +224,10 @@ jobs:
         with:
           name: coverage-kafka
           path: openbroker-coverage/target/site/jacoco-aggregate
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: coverage-rabbitmq
+          path: openbroker-rabbitmq/target/site/jacoco-aggregate
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: coverage-spring-artemis

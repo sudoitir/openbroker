@@ -2,8 +2,8 @@
 
 One Java SDK, and one vocabulary, for every message broker and queue service.
 
-OpenBroker lets a backend inspect, operate and move messages on Apache ActiveMQ Artemis and
-Apache Kafka today, and on RabbitMQ, ActiveMQ Classic and others as their drivers arrive, through one small,
+OpenBroker lets a backend inspect, operate and move messages on Apache ActiveMQ Artemis, Apache Kafka and
+RabbitMQ today, and on ActiveMQ Classic and others as their drivers arrive, through one small,
 framework-free API. Drivers plug in like JDBC drivers, and a conformance kit (the TCK) proves each
 one against a real broker.
 
@@ -17,7 +17,8 @@ Status: pre-release (`0.x`). The API may change between minor versions until 1.0
 | `openbroker-support` | Shared helpers for drivers and consumers: the portable filter dialect, polling notifications, counter rates. |
 | `openbroker-tck` | Abstract JUnit contract tests a driver extends. |
 | `openbroker-artemis` | The Apache ActiveMQ Artemis driver: management over Jolokia, messages and notifications over Core. |
-| `openbroker-kafka` | The Apache Kafka driver (3.0 and later): management over Admin, messages over the producer, consumer and share consumer. |
+| `openbroker-kafka` | The Apache Kafka driver (2.8 and later): management over Admin, messages over the producer, consumer and share consumer. |
+| `openbroker-rabbitmq` | The RabbitMQ driver (3.13 and later): management over the management HTTP API, messages over AMQP 0-9-1. |
 | `openbroker-opentelemetry` | Optional: maps the messaging observer to OpenTelemetry spans, metrics and W3C trace context. |
 | `openbroker-spring-boot-starter` | Optional: everything a Spring Boot 4 application needs; add the drivers it uses. |
 | `openbroker-spring-boot-autoconfigure` | Optional: the auto-configuration behind the starter. |
@@ -201,6 +202,41 @@ because the Admin API exposes no version table (ADR-0032).
 - **Security.** SASL (PLAIN, SCRAM, OAUTHBEARER with a refreshed bearer token), TLS and mutual TLS
   (`Credentials.None`). Hostname verification stays on.
 
+## RabbitMQ
+
+`openbroker-rabbitmq` supports RabbitMQ 3.13 and later, read from the management API's `rabbitmq_version`, and
+refuses an older cluster when it connects. It manages the cluster through the management HTTP API and moves
+messages over AMQP 0-9-1 with `amqp-client`; it needs no stream-protocol port.
+
+A connection has one or more management endpoints (`http` or `https`, a base URL with an optional path prefix)
+and, for messages, one or more data endpoints (`amqp` or `amqps`, `host:port`). Without a data endpoint the cluster
+is read and changed, and every messaging capability says it needs one. The options are `rabbitmq.watch_interval`
+(how often the polling watch and the queue-type cache refresh) and `rabbitmq.event_vhost` (the virtual host the
+event-exchange queue lives in).
+
+- **Mapping.** A virtual host is a namespace; an exchange a destination; classic queues, quorum queues and
+  streams are three subscription kinds, because their verbs differ; bindings, exchange-to-exchange bindings,
+  shovels and federation links are routes; policies and operator policies are policies; permissions and topic
+  permissions are access rules; connections, channels and consumers are clients. Quorum and stream members are
+  leader and follower placements, marked in sync or not.
+- **Browse never consumes.** Only a stream is browsed, from an offset (`x-stream-offset`), and the messages stay
+  where they are. Browsing a classic or quorum queue is refused `NOT_SUPPORTED` before any call: a get and requeue
+  would change delivery counts, redelivery flags and order.
+- **Sends are confirmed and routed.** Every send uses publisher confirms and `mandatory`; a message the broker
+  routed to no queue fails `NOT_ROUTED` (ADR-0035).
+- **Etags say what they can tell apart.** RabbitMQ has no incarnation id, so every preview's basis is
+  `CONFIGURATION`: a resource deleted and created again with the same configuration is not told apart (ADR-0034).
+- **Destructive operations are honest.** Purge empties a classic or quorum queue's ready messages; a stream has
+  no purge. A quorum queue or stream is deleted only after the driver has checked the emptiness or unused
+  condition the broker does not enforce for it. Shovels, federation upstreams and users carry secrets the SDK
+  cannot yet accept write-only, so they are read and deleted, never created.
+- **Counts are estimates** where the management statistics are sampled, and say so.
+- **Events** come from the event exchange (`rabbitmq_event_exchange`) when it is enabled and the account may bind
+  to it, and from a polling watch otherwise; the `notifications` capability says which.
+- **Messaging.** Receivers consume with manual acknowledgements and `basic.qos`; settlement is by acknowledgement,
+  with no transacted batch. The client's own recovery is off: links are reopened by the SDK's supervisor, and a
+  settlement after a channel was lost fails `DELIVERY_STALE`.
+
 ## Spring Boot
 
 `openbroker-spring-boot-starter` gives a Spring Boot 4 application its OpenBroker clients as beans. It is the
@@ -316,6 +352,9 @@ The design is recorded in [`docs/adr/`](docs/adr/).
 - [0017](docs/adr/0017-chaos-is-part-of-the-tck.md) Chaos is part of the TCK
 - [0031](docs/adr/0031-kafka-3-0-and-later-declared-per-feature.md) Kafka 3.0 and later, declared per feature
 - [0032](docs/adr/0032-kafka-2-8-is-supported-and-named-from-apiversions.md) Kafka 2.8 is supported, and named from `ApiVersions`
+- [0033](docs/adr/0033-the-rabbitmq-mapping-browse-only-on-streams.md) The RabbitMQ mapping: management over HTTP, messages over AMQP 0-9-1, browse only on streams
+- [0034](docs/adr/0034-an-etag-states-whether-it-names-an-incarnation.md) An etag states whether it names an incarnation
+- [0035](docs/adr/0035-a-send-routed-nowhere-fails-not-routed.md) A send the system routed nowhere fails `NOT_ROUTED`
 - [0019](docs/adr/0019-kafka-settles-by-offset-and-runs-keys-in-lanes.md) Kafka settles by offset and runs keys in lanes
 - [0018](docs/adr/0018-the-kafka-mapping-and-its-honest-destructive-operations.md) The Kafka mapping and its honest destructive operations
 - [0020](docs/adr/0020-deduplication-is-declared-as-a-scope.md) Deduplication is declared as a scope
