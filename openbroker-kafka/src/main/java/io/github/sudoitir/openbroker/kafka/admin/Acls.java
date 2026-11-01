@@ -9,6 +9,7 @@ import io.github.sudoitir.openbroker.model.ResourceId;
 import io.github.sudoitir.openbroker.model.ResourcePath;
 import io.github.sudoitir.openbroker.model.Scope;
 import io.github.sudoitir.openbroker.operation.Estimate;
+import io.github.sudoitir.openbroker.operation.EtagBasis;
 import io.github.sudoitir.openbroker.operation.Operation;
 import io.github.sudoitir.openbroker.operation.OperationResult;
 import io.github.sudoitir.openbroker.operation.PreconditionEnforcement;
@@ -181,6 +182,7 @@ final class Acls implements Handler {
                         Set.of(),
                         new Estimate(Count.exact(exists ? 0 : 1), "{acl}"),
                         Etags.of(id.format(), exists),
+                        EtagBasis.CONFIGURATION,
                         PreconditionEnforcement.CHECKED_BEFORE);
             case Operation.Delete delete ->
                 new Preview(
@@ -188,6 +190,7 @@ final class Acls implements Handler {
                         Set.of(),
                         new Estimate(Count.exact(exists ? 1 : 0), "{acl}"),
                         Etags.of(id.format(), exists),
+                        EtagBasis.CONFIGURATION,
                         PreconditionEnforcement.CHECKED_BEFORE);
             default -> throw unsupported(operation);
         };

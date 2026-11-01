@@ -14,6 +14,7 @@ import io.github.sudoitir.openbroker.model.ResourceId;
 import io.github.sudoitir.openbroker.model.ResourceQuery;
 import io.github.sudoitir.openbroker.model.Scope;
 import io.github.sudoitir.openbroker.operation.Estimate;
+import io.github.sudoitir.openbroker.operation.EtagBasis;
 import io.github.sudoitir.openbroker.operation.Operation;
 import io.github.sudoitir.openbroker.operation.OperationResult;
 import io.github.sudoitir.openbroker.operation.PreconditionEnforcement;
@@ -161,6 +162,7 @@ final class Groups implements Handler {
                 Set.of(),
                 new Estimate(Count.exact(1), "{group}"),
                 etag(context, id, operation, scope),
+                EtagBasis.CONFIGURATION,
                 PreconditionEnforcement.CHECKED_BEFORE);
     }
 
