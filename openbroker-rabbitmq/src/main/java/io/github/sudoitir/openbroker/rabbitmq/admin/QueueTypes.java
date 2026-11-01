@@ -1,6 +1,8 @@
 package io.github.sudoitir.openbroker.rabbitmq.admin;
 
+import io.github.sudoitir.openbroker.BrokerException;
 import io.github.sudoitir.openbroker.Deadline;
+import io.github.sudoitir.openbroker.Status;
 import io.github.sudoitir.openbroker.model.KindId;
 import io.github.sudoitir.openbroker.rabbitmq.RabbitMqOptions;
 import io.github.sudoitir.openbroker.support.Deadlines;
@@ -39,7 +41,43 @@ final class QueueTypes {
                 listed = load(vhost);
             }
         }
-        return listed.kinds().getOrDefault(queue, RabbitMqKinds.CLASSIC_QUEUE);
+        KindId listedKind = listed.kinds().get(queue);
+        if (listedKind != null) {
+            return listedKind;
+        }
+        // The listing lags a queue that was just declared: ask for this one queue, which the broker answers at once.
+        return one(vhost, queue).orElse(RabbitMqKinds.CLASSIC_QUEUE);
+    }
+
+    /**
+     * Whether the kind of a queue is known for certain: from the listing, or else from the queue itself. Empty when the
+     * queue does not exist (any more), so a caller does not keep a guess.
+     */
+    Optional<KindId> knownKindOf(String vhost, String queue) {
+        Listed listed = byVhost.get(vhost);
+        if (listed == null || stale(listed)) {
+            listed = load(vhost);
+        }
+        KindId listedKind = listed.kinds().get(queue);
+        return listedKind != null ? Optional.of(listedKind) : one(vhost, queue);
+    }
+
+    private Optional<KindId> one(String vhost, String queue) {
+        try {
+            JsonNode body = cluster.management()
+                    .get(
+                            "/api/queues/" + ManagementPaths.segment(vhost) + "/" + ManagementPaths.segment(queue),
+                            Map.of("columns", "name,type", "disable_stats", "true"),
+                            Deadlines.current(cluster.options()),
+                            "read a queue's type")
+                    .body();
+            return kind(body.path("type").asString());
+        } catch (BrokerException e) {
+            if (e.status() == Status.NOT_FOUND) {
+                return Optional.empty();
+            }
+            throw e;
+        }
     }
 
     void reset() {

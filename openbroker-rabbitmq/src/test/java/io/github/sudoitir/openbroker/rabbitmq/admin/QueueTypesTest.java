@@ -9,6 +9,7 @@ import io.github.sudoitir.openbroker.Credentials;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
@@ -28,7 +29,7 @@ class QueueTypesTest {
         }
 
         @Override
-        public Clock withZone(java.time.ZoneId zone) {
+        public Clock withZone(ZoneId zone) {
             return this;
         }
 
@@ -84,16 +85,15 @@ class QueueTypesTest {
     }
 
     @Test
-    void anUnknownQueueIsLookedForOnceMoreThenTakenForClassic() {
+    void anUnknownQueueIsAskedForByNameAndTakenForClassicWhenTheBrokerHasNone() {
         QueueTypes types = cluster.queueTypes();
         types.kindOf("/", "orders");
         assertThat(types.kindOf("/", "new"))
-                .as("within half a second: no second read")
+                .as("within half a second the listing is not read again; the queue itself is asked for")
                 .isEqualTo(RabbitMqKinds.CLASSIC_QUEUE);
-        assertThat(server.received()).hasSize(1);
-        clock.advance(Duration.ofSeconds(2));
-        assertThat(types.kindOf("/", "mqtt")).isEqualTo(RabbitMqKinds.CLASSIC_QUEUE);
-        assertThat(server.received()).hasSize(2);
+        assertThat(server.received())
+                .extracting(FakeManagement.Received::path)
+                .containsExactly("/api/queues/%2F", "/api/queues/%2F/new");
     }
 
     @Test
@@ -134,5 +134,27 @@ class QueueTypesTest {
             assertThat(FakeManagement.cluster(plain.endpoint()).queueTypes().kindOf("v", "a"))
                     .isEqualTo(RabbitMqKinds.STREAM);
         }
+    }
+
+    @Test
+    void aQueueTheListingDoesNotHaveYetIsAskedForByName() {
+        server.respond(
+                "GET",
+                "/api/queues/%2F/just-declared",
+                200,
+                Map.of("Content-Type", "application/json"),
+                "{\"name\":\"just-declared\",\"vhost\":\"/\",\"type\":\"quorum\"}");
+        QueueTypes types = new QueueTypes(cluster);
+
+        assertThat(types.kindOf("/", "just-declared")).isEqualTo(RabbitMqKinds.QUORUM_QUEUE);
+        assertThat(types.knownKindOf("/", "just-declared")).contains(RabbitMqKinds.QUORUM_QUEUE);
+    }
+
+    @Test
+    void aQueueTheBrokerDoesNotHaveIsNotKnownNorGuessed() {
+        QueueTypes types = new QueueTypes(cluster);
+
+        assertThat(types.knownKindOf("/", "gone")).isEmpty();
+        assertThat(types.kindOf("/", "gone")).isEqualTo(RabbitMqKinds.CLASSIC_QUEUE);
     }
 }

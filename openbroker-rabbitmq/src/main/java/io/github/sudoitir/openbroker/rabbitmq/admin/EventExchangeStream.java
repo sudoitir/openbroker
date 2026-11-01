@@ -183,9 +183,10 @@ final class EventExchangeStream implements AutoCloseable {
             return known;
         }
         try {
-            KindId kind = cluster.queueTypes().kindOf(queueVhost, queue);
-            queueKinds.put(queueVhost + "\u0000" + queue, kind);
-            return kind;
+            // Only a kind the broker confirmed is kept; a queue it no longer has is reported as classic and not cached.
+            Optional<KindId> kind = cluster.queueTypes().knownKindOf(queueVhost, queue);
+            kind.ifPresent(k -> queueKinds.put(queueVhost + "\u0000" + queue, k));
+            return kind.orElse(RabbitMqKinds.CLASSIC_QUEUE);
         } catch (BrokerException _) {
             return RabbitMqKinds.CLASSIC_QUEUE; // A listing that fails must not lose the event.
         }
