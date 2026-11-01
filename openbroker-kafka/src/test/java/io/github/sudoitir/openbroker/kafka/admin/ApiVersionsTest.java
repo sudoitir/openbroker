@@ -7,6 +7,7 @@ import io.github.sudoitir.openbroker.Deadline;
 import io.github.sudoitir.openbroker.ErrorReasons;
 import io.github.sudoitir.openbroker.Status;
 import io.github.sudoitir.openbroker.TlsProvider;
+import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -247,5 +248,67 @@ class ApiVersionsTest {
         read(broker);
         assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(2));
         assertThat(pool.awaitTermination(5, TimeUnit.SECONDS) || true).isTrue();
+    }
+
+    /** Answers one request with exactly these bytes after the length prefix, then closes. */
+    private int answersRaw(byte[] body, int declaredLength) throws IOException {
+        ServerSocket server = new ServerSocket(0);
+        pool.submit(() -> {
+            try (Socket client = server.accept()) {
+                DataInputStream in = new DataInputStream(client.getInputStream());
+                in.readFully(new byte[Integer.BYTES + Short.BYTES * 2 + Integer.BYTES + Short.BYTES]);
+                DataOutputStream out = new DataOutputStream(client.getOutputStream());
+                out.writeInt(declaredLength);
+                out.write(body);
+                out.flush();
+            } catch (IOException _) {
+                // The test is over either way.
+            } finally {
+                try {
+                    server.close();
+                } catch (IOException _) {
+                    // Nothing left to close.
+                }
+            }
+        });
+        return server.getLocalPort();
+    }
+
+    private static byte[] response(int correlation, int error, int count) throws IOException {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        DataOutputStream out = new DataOutputStream(bytes);
+        out.writeInt(correlation);
+        out.writeShort(error);
+        out.writeInt(count);
+        return bytes.toByteArray();
+    }
+
+    @Test
+    void anAnswerThatIsNotAnApiTableIsNoAnswer() throws IOException {
+        // Too short to hold the header, the error and the count.
+        assertThat(read(answersRaw(new byte[2], 2))).isEmpty();
+        // Larger than any table.
+        assertThat(read(answersRaw(new byte[0], (1 << 20) + 1))).isEmpty();
+        // The answer to another request.
+        assertThat(read(answersRaw(response(7, 0, 0), 10))).isEmpty();
+        // The broker refused the request.
+        assertThat(read(answersRaw(response(0, 35, 0), 10))).isEmpty();
+        // A count the length cannot hold.
+        assertThat(read(answersRaw(response(0, 0, 50), 10))).isEmpty();
+        assertThat(read(answersRaw(response(0, 0, -1), 10))).isEmpty();
+    }
+
+    @Test
+    void aSecureConnectionToAPlainSocketIsNoAnswer() throws IOException {
+        // The handshake never completes, and a broker that cannot be talked to securely is skipped, not refused.
+        int plain = answers(Map.of(61, 0));
+
+        assertThat(ApiVersions.read(
+                        List.of("127.0.0.1:" + plain),
+                        TlsProvider.none(),
+                        true,
+                        Deadline.after(Duration.ofSeconds(2), CLOCK),
+                        CLOCK))
+                .isEmpty();
     }
 }
