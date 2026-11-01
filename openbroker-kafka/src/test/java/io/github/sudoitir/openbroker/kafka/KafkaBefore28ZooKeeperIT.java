@@ -23,13 +23,13 @@ import org.testcontainers.containers.Network;
 import org.testcontainers.containers.wait.strategy.Wait;
 
 /**
- * A cluster before Kafka 3.0 (Kafka 2.8 in ZooKeeper mode) is refused at verify, and what it was
- * refused for is named. This also proves that ListTransactions, which Kafka 3.0 introduced, is the
- * marker that tells a cluster too old to report its metadata version from one that is supported.
+ * A cluster before Kafka 2.8 (Kafka 2.6 in ZooKeeper mode) is refused at verify, and what it was
+ * refused for is named. Kafka 2.8 serves {@code DescribeProducers} and so is supported ({@link Kafka28ZooKeeperIT});
+ * this image serves neither it nor {@code ListTransactions}, which is how the probe names a cluster too old.
  */
-class KafkaBefore30ZooKeeperIT {
+class KafkaBefore28ZooKeeperIT {
 
-    private static final String IMAGE = System.getProperty("kafka.before30.image", "confluentinc/cp-kafka:6.2.15");
+    private static final String IMAGE = System.getProperty("kafka.before28.image", "confluentinc/cp-kafka:6.0.14");
 
     private static Network network;
     private static GenericContainer<?> zookeeper;
@@ -62,7 +62,7 @@ class KafkaBefore30ZooKeeperIT {
     }
 
     @Test
-    void verifyRefusesAClusterBeforeKafka30() {
+    void verifyRefusesAClusterBeforeKafka28() {
         ClusterSpec spec = new ClusterSpec(
                 List.of(),
                 List.of(Endpoint.of(Plane.DATA, KafkaOptions.PROTOCOL, broker.getBootstrapServers())),
@@ -74,7 +74,7 @@ class KafkaBefore30ZooKeeperIT {
                     .isInstanceOfSatisfying(BrokerException.class, e -> {
                         assertThat(e.status()).isEqualTo(Status.FAILED_PRECONDITION);
                         assertThat(e.reason()).isEqualTo(ErrorReasons.UNSUPPORTED_VERSION);
-                        assertThat(e.getMessage()).contains("before 3.0").contains("[3.0.0,)");
+                        assertThat(e.getMessage()).contains("before 2.8").contains("[2.8.0,)");
                     });
         }
     }

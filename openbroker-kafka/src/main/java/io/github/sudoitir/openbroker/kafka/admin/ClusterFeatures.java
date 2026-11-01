@@ -13,12 +13,12 @@ import java.util.NavigableMap;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.TreeMap;
+import java.util.function.Supplier;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.DescribeFeaturesOptions;
 import org.apache.kafka.clients.admin.DescribeMetadataQuorumOptions;
 import org.apache.kafka.clients.admin.FeatureMetadata;
 import org.apache.kafka.clients.admin.FinalizedVersionRange;
-import org.apache.kafka.clients.admin.ListTransactionsOptions;
 import org.apache.kafka.clients.admin.SupportedVersionRange;
 import org.jspecify.annotations.Nullable;
 
@@ -28,12 +28,14 @@ import org.jspecify.annotations.Nullable;
  * broker does not report its release, but it reports the newest {@code metadata.version} its
  * software supports (Kafka 3.3 and later), and each release first supports a level of its own, so
  * the release is the newest one whose first level is not above it. A broker too old to report one
- * is told apart by ListTransactions (KIP-664), which Kafka 3.0 introduced.
+ * is named by the API keys it serves (ADR-0032): {@code DescribeProducers} arrived in 2.8 and
+ * {@code ListTransactions} in 3.0.
  *
  * @param mode whether the cluster is in KRaft or ZooKeeper mode, or neither could be established
- * @param release the release, such as {@code 4.0}, or {@code at least 4.4} when it is not told apart
+ * @param release the release, such as {@code 4.0}, {@code 2.8} or {@code at least 2.8} when it is not told apart,
+ *     or {@code before 2.8}
  * @param metadataLevel the newest {@code metadata.version} the software supports, when it says
- * @param unsupported what was found when the cluster is older than Kafka 3.0, else null
+ * @param unsupported what was found when the cluster is older than Kafka 2.8, else null
  * @param group the {@code group.version} (KIP-848)
  * @param streams the {@code streams.version}
  * @param eligibleLeaderReplicas the {@code eligible.leader.replicas.version} (KIP-966)
@@ -72,6 +74,17 @@ public record ClusterFeatures(
             Map.entry(31, "4.4")));
 
     private static final String AT_LEAST_30 = "at least 3.0";
+
+    /** {@code DescribeProducers}, which Kafka 2.8 introduced: a cluster without it is older than 2.8. */
+    private static final int DESCRIBE_PRODUCERS = 61;
+
+    /** {@code ListTransactions}, which Kafka 3.0 introduced (KIP-664). */
+    private static final int LIST_TRANSACTIONS = 66;
+
+    private static final String BEFORE_28 = "before 2.8";
+
+    /** The release of a cluster that reports none and whose API keys could not be read. */
+    private static final String UNKNOWN = "unknown";
 
     /** How the cluster keeps its metadata; unknown when the broker that would say did not answer. */
     public enum Mode {
@@ -116,8 +129,8 @@ public record ClusterFeatures(
                 Mode.UNKNOWN, "unknown", OptionalInt.empty(), null, off, off, off, off, new ShareFeatures(0, 0, false));
     }
 
-    /** Reads the cluster's features. */
-    public static ClusterFeatures read(Admin admin, Await await) {
+    /** Reads the cluster's features, naming a cluster too old to report them by the API keys it serves. */
+    public static ClusterFeatures read(Admin admin, Await await, Supplier<Optional<ApiVersions.Keys>> apiKeys) {
         FeatureMetadata metadata =
                 await.get(admin.describeFeatures(new DescribeFeaturesOptions().timeoutMs(await.timeoutMs()))
                         .featureMetadata());
@@ -131,14 +144,24 @@ public record ClusterFeatures(
             if (release == null) {
                 unsupported = "the newest " + METADATA + " it supports is level " + level.getAsInt();
             }
-        } else if (listsTransactions(admin, await)) {
-            release = AT_LEAST_30;
         } else {
-            unsupported = "it reports no " + METADATA + " and does not list transactions";
+            // A cluster below 3.3 says no metadata version; its API keys are the only thing that names it.
+            Optional<ApiVersions.Keys> served = apiKeys.get();
+            if (served.isEmpty()) {
+                // No broker answered the probe: that says nothing of the release, and a cluster is not refused on
+                // silence.
+                release = UNKNOWN;
+            } else {
+                release = byApiKeys(served.get());
+                unsupported = release == null
+                        ? "it reports no " + METADATA + " and serves neither " + DESCRIBE_PRODUCERS + " nor "
+                                + LIST_TRANSACTIONS
+                        : null;
+            }
         }
         return new ClusterFeatures(
                 mode,
-                release == null ? "before 3.0" : release,
+                release == null ? BEFORE_28 : release,
                 level,
                 unsupported,
                 Level.of(metadata, "group.version"),
@@ -146,6 +169,21 @@ public record ClusterFeatures(
                 Level.of(metadata, "eligible.leader.replicas.version"),
                 Level.of(metadata, "transaction.version"),
                 ShareFeatures.of(metadata));
+    }
+
+    /**
+     * The release a cluster without {@code metadata.version} serves, from the API keys whose arrival is a protocol
+     * fact: {@code DescribeProducers} in 2.8, {@code ListTransactions} in 3.0. Null when it serves neither, which is a
+     * cluster older than 2.8.
+     */
+    static @Nullable String byApiKeys(ApiVersions.Keys keys) {
+        if (keys.serves(LIST_TRANSACTIONS)) {
+            return AT_LEAST_30;
+        }
+        if (keys.serves(DESCRIBE_PRODUCERS)) {
+            return "at least 2.8";
+        }
+        return null;
     }
 
     /** The release whose software supports {@code level} as its newest, or null before the table starts. */
@@ -190,26 +228,13 @@ public record ClusterFeatures(
         return null;
     }
 
-    private static boolean listsTransactions(Admin admin, Await await) {
-        try {
-            await.get(admin.listTransactions(new ListTransactionsOptions().timeoutMs(await.timeoutMs()))
-                    .all());
-            return true;
-        } catch (BrokerException e) {
-            if (e.reason().equals(ErrorReasons.UNSUPPORTED_VERSION)) {
-                return false;
-            }
-            throw e;
-        }
-    }
-
-    /** Refuses a cluster before Kafka 3.0, naming what it reported and the range this driver supports. */
+    /** Refuses a cluster before Kafka 2.8, naming what it reported and the range this driver supports. */
     public void require(String supportedVersions) {
         if (unsupported != null) {
             throw KafkaErrors.refused(
                     Status.FAILED_PRECONDITION,
                     ErrorReasons.UNSUPPORTED_VERSION,
-                    "This cluster runs a Kafka before 3.0 (" + unsupported + "); the Kafka driver supports "
+                    "This cluster runs a Kafka " + BEFORE_28 + " (" + unsupported + "); the Kafka driver supports "
                             + supportedVersions + ".");
         }
     }
@@ -244,6 +269,21 @@ public record ClusterFeatures(
         return eligibleLeaderReplicas.enabled();
     }
 
+    /**
+     * Whether the cluster lists transactions and the producers in them (KIP-664), which Kafka 3.0 added. A 2.8
+     * cluster serves neither {@code ListTransactions} nor {@code DescribeTransactions}, so its transactions are not
+     * listed; the transactional ids themselves still are, from the coordinator's own requests.
+     */
+    public boolean transactions() {
+        // A cluster reporting metadata.version at all is 3.0 or later; below that, only its API keys say it is.
+        return metadataLevel.isPresent() || release.equals(AT_LEAST_30);
+    }
+
+    /** Whether the cluster's release is known at all: false when it reports no {@code metadata.version} and no broker answered the probe. */
+    public boolean named() {
+        return !release.equals(UNKNOWN);
+    }
+
     /** The capabilities this cluster has or lacks, each with its reason and, where an operator can change it, the remedy. */
     public Map<Capability, Assessment> assessments() {
         Map<Capability, Assessment> out = new LinkedHashMap<>();
@@ -269,6 +309,7 @@ public record ClusterFeatures(
                                 "Consumer-protocol groups (KIP-848) need Kafka 4.0 or later with group.version finalized"
                                         + " at 1 or more; this cluster finalizes it at " + group.finalized() + ".",
                                 enable("group.version", group)));
+        out.put(KafkaAccess.TRANSACTION_LISTING, transactionListing());
         out.put(KafkaAccess.SHARE_GROUPS, shareAssessment());
         out.put(
                 KafkaAccess.STREAMS_GROUPS,
@@ -295,6 +336,22 @@ public record ClusterFeatures(
                                 "Eligible leader replicas (KIP-966) are not enabled on this cluster.",
                                 enable("eligible.leader.replicas.version", eligibleLeaderReplicas)));
         return out;
+    }
+
+    /** Whether the cluster lists transactions, which Kafka 3.0 added, and why it does not when it cannot. */
+    private Assessment transactionListing() {
+        if (!named()) {
+            return Assessment.unknown("The cluster's release is not established: it reports no " + METADATA
+                    + " and no broker answered with the API keys it serves, so it is not known whether it lists"
+                    + " transactions.");
+        }
+        if (transactions()) {
+            return Assessment.available("The cluster lists transactions and the producers in them (KIP-664).");
+        }
+        return Assessment.unavailable(
+                "Listing transactions needs Kafka 3.0 or later (KIP-664); this cluster's Kafka cannot list them, so"
+                        + " open transactions are not shown.",
+                Optional.empty());
     }
 
     private Assessment shareAssessment() {

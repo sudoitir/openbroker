@@ -52,26 +52,44 @@ class ClusterFeaturesTest {
     }
 
     @Test
-    void aClusterBeforeThreeZeroIsRefusedNamingWhatWasFound() {
+    void aClusterBeforeTwoEightIsRefusedNamingWhatWasFound() {
         ClusterFeatures old = new ClusterFeatures(
                 ClusterFeatures.Mode.ZOOKEEPER,
-                "before 3.0",
+                "before 2.8",
                 OptionalInt.empty(),
-                "it reports no metadata.version and does not list transactions",
+                "it reports no metadata.version and serves neither 61 nor 66",
                 OFF,
                 OFF,
                 OFF,
                 OFF,
                 new ShareFeatures(0, 0, false));
 
-        assertThatThrownBy(() -> old.require("[3.0.0,)")).isInstanceOfSatisfying(BrokerException.class, e -> {
+        assertThatThrownBy(() -> old.require("[2.8.0,)")).isInstanceOfSatisfying(BrokerException.class, e -> {
             assertThat(e.status()).isEqualTo(Status.FAILED_PRECONDITION);
             assertThat(e.reason()).isEqualTo(ErrorReasons.UNSUPPORTED_VERSION);
             assertThat(e.getMessage())
-                    .contains("before 3.0")
-                    .contains("does not list transactions")
-                    .contains("[3.0.0,)");
+                    .contains("before 2.8")
+                    .contains("serves neither")
+                    .contains("[2.8.0,)");
         });
+    }
+
+    @Test
+    void aClusterNamedByItsApiKeysIsNotRefused() {
+        ClusterFeatures kafka28 = new ClusterFeatures(
+                ClusterFeatures.Mode.ZOOKEEPER,
+                "at least 2.8",
+                OptionalInt.empty(),
+                null,
+                OFF,
+                OFF,
+                OFF,
+                OFF,
+                new ShareFeatures(0, 0, false));
+
+        kafka28.require("[2.8.0,)");
+        assertThat(kafka28.describe()).isEqualTo("at least 2.8, ZooKeeper mode");
+        assertThat(kafka28.transactions()).isFalse();
     }
 
     @Test
@@ -79,7 +97,7 @@ class ClusterFeaturesTest {
         assertThat(features(false, "at least 3.0", OptionalInt.empty(), OFF).describe())
                 .isEqualTo("at least 3.0, ZooKeeper mode");
         assertThat(features(true, "4.0", OptionalInt.of(25), OFF).describe()).isEqualTo("4.0, KRaft mode");
-        features(true, "4.0", OptionalInt.of(25), OFF).require("[3.0.0,)");
+        features(true, "4.0", OptionalInt.of(25), OFF).require("[2.8.0,)");
     }
 
     @Test
@@ -227,7 +245,7 @@ class ClusterFeaturesTest {
     void aClusterThatDidNotAnswerIsUnknownAndNotUnsupported() {
         ClusterFeatures unread = ClusterFeatures.unread();
 
-        unread.require("[3.0.0,)");
+        unread.require("[2.8.0,)");
         assertThat(unread.mode()).isEqualTo(ClusterFeatures.Mode.UNKNOWN);
         assertThat(unread.consumerProtocol()).isFalse();
     }

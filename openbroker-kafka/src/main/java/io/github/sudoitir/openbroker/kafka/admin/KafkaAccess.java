@@ -35,6 +35,9 @@ public final class KafkaAccess implements Access {
     public static final Capability FENCED_BROKERS = new Capability("kafka.fenced-brokers");
     public static final Capability ELIGIBLE_LEADERS = new Capability("kafka.eligible-leaders");
 
+    /** The cluster lists transactions and the producers in them (KIP-664), which Kafka 3.0 added. */
+    public static final Capability TRANSACTION_LISTING = new Capability("kafka.transaction-listing");
+
     private final KafkaCluster cluster;
 
     public KafkaAccess(KafkaCluster cluster) {

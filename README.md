@@ -150,7 +150,7 @@ resent. The dedupe window is reported by `Sender.deduplication()`.
 
 ## Kafka
 
-`openbroker-kafka` supports Apache Kafka 3.0 and later, in ZooKeeper and KRaft mode, and refuses an older
+`openbroker-kafka` supports Apache Kafka 2.8 and later, in ZooKeeper and KRaft mode, and refuses an older
 cluster when it connects. It uses `kafka-clients` alone. What a cluster lacks is declared per feature, with
 its reason, and never emulated:
 
@@ -162,12 +162,13 @@ its reason, and never emulated:
 | `kafka.streams-groups` | `streams.version` 1 | Streams groups are not listed |
 | `kafka.fenced-brokers` | KRaft and Kafka 4.0 | A fenced broker is missing from the nodes instead of shown as fenced |
 | `kafka.eligible-leaders` | `eligible.leader.replicas.version` 1 | Partitions carry no `kafka.elr` attributes |
+| `kafka.transaction-listing` | Kafka 3.0 (`ListTransactions`, KIP-664) | Transactional ids are listed from the coordinator; hanging transactions are not, and their kind is not declared |
 
 `verify` checks every broker on the address it advertises, in parallel and within the connect timeout, and
 names each unreached broker and why (the name does not resolve, the connection is refused or times out, TLS
-or authentication fails). On a ZooKeeper cluster before Kafka 3.3 with a broker down, the check that tells
-the release fans out to every broker and fails, so `verify` fails as unreachable instead of naming the
-broker.
+or authentication fails). A cluster below Kafka 3.3 reports no `metadata.version`, so its release is named by
+the API keys it serves (`DescribeProducers` arrived in 2.8, `ListTransactions` in 3.0), read from the wire
+because the Admin API exposes no version table (ADR-0032).
 
 - **Resources.** Brokers are nodes; topics, partitions, consumer groups, share groups, ACLs and
   transactional ids are kinds. Streams groups, and classic groups run by Kafka Streams, are listed
@@ -314,6 +315,7 @@ The design is recorded in [`docs/adr/`](docs/adr/).
 - [0016](docs/adr/0016-performance-budgets-are-enforced-in-ci.md) Performance budgets are enforced in CI
 - [0017](docs/adr/0017-chaos-is-part-of-the-tck.md) Chaos is part of the TCK
 - [0031](docs/adr/0031-kafka-3-0-and-later-declared-per-feature.md) Kafka 3.0 and later, declared per feature
+- [0032](docs/adr/0032-kafka-2-8-is-supported-and-named-from-apiversions.md) Kafka 2.8 is supported, and named from `ApiVersions`
 - [0019](docs/adr/0019-kafka-settles-by-offset-and-runs-keys-in-lanes.md) Kafka settles by offset and runs keys in lanes
 - [0018](docs/adr/0018-the-kafka-mapping-and-its-honest-destructive-operations.md) The Kafka mapping and its honest destructive operations
 - [0020](docs/adr/0020-deduplication-is-declared-as-a-scope.md) Deduplication is declared as a scope
