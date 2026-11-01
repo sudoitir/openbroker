@@ -78,6 +78,7 @@ final class EventMapping {
             case "queue.created", "queue.deleted" -> {
                 KindId kind = text(h, ARGUMENTS + "." + QUEUE_TYPE)
                         .flatMap(EventMapping::queueKind)
+                        .or(() -> text(h, "type").flatMap(EventMapping::queueImplementation))
                         .orElseGet(() -> queueKind.apply(vhost, name));
                 return change(key, resource(kind, vhost, name));
             }
@@ -198,6 +199,16 @@ final class EventMapping {
             case "quorum" -> Optional.of(RabbitMqKinds.QUORUM_QUEUE);
             case "stream" -> Optional.of(RabbitMqKinds.STREAM);
             case "classic" -> Optional.of(RabbitMqKinds.CLASSIC_QUEUE);
+            default -> Optional.empty();
+        };
+    }
+
+    /** The kind of a queue from the module the event names ({@code rabbit_stream_queue}), the only place a stream says so. */
+    private static Optional<KindId> queueImplementation(String module) {
+        return switch (module) {
+            case "rabbit_quorum_queue" -> Optional.of(RabbitMqKinds.QUORUM_QUEUE);
+            case "rabbit_stream_queue" -> Optional.of(RabbitMqKinds.STREAM);
+            case "rabbit_classic_queue" -> Optional.of(RabbitMqKinds.CLASSIC_QUEUE);
             default -> Optional.empty();
         };
     }
