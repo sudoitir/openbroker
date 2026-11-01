@@ -6,13 +6,18 @@ import io.github.sudoitir.openbroker.BrokerException;
 import io.github.sudoitir.openbroker.Deadline;
 import io.github.sudoitir.openbroker.ErrorReasons;
 import io.github.sudoitir.openbroker.Status;
+import io.github.sudoitir.openbroker.TlsMaterial;
 import io.github.sudoitir.openbroker.TlsProvider;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.KeyStore;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
@@ -24,6 +29,10 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import javax.net.ssl.KeyManagerFactory;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLServerSocket;
+import javax.net.ssl.TrustManagerFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -310,5 +319,86 @@ class ApiVersionsTest {
                         Deadline.after(Duration.ofSeconds(2), CLOCK),
                         CLOCK))
                 .isEmpty();
+    }
+
+    /** A TLS context for 127.0.0.1 from a self-signed certificate made with the JDK's keytool. */
+    private static SSLContext selfSigned() throws Exception {
+        Path store = Files.createTempDirectory("openbroker-tls").resolve("self.p12");
+        Process keytool = new ProcessBuilder(
+                        Path.of(System.getProperty("java.home"), "bin", "keytool")
+                                .toString(),
+                        "-genkeypair",
+                        "-alias",
+                        "self",
+                        "-dname",
+                        "CN=localhost",
+                        "-keyalg",
+                        "RSA",
+                        "-keysize",
+                        "2048",
+                        "-validity",
+                        "2",
+                        "-ext",
+                        "san=dns:localhost,ip:127.0.0.1",
+                        "-keystore",
+                        store.toString(),
+                        "-storepass",
+                        "changeit")
+                .redirectErrorStream(true)
+                .start();
+        keytool.getInputStream().readAllBytes();
+        assertThat(keytool.waitFor()).isZero();
+        KeyStore keys = KeyStore.getInstance("PKCS12");
+        try (InputStream in = Files.newInputStream(store)) {
+            keys.load(in, "changeit".toCharArray());
+        }
+        KeyManagerFactory managers = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
+        managers.init(keys, "changeit".toCharArray());
+        TrustManagerFactory trust = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+        trust.init(keys);
+        SSLContext context = SSLContext.getInstance("TLS");
+        context.init(managers.getKeyManagers(), trust.getTrustManagers(), null);
+        return context;
+    }
+
+    @Test
+    void aSecureBrokerIsAskedOverTlsWithTheMaterialItIsGiven() throws Exception {
+        SSLContext context = selfSigned();
+        SSLServerSocket server =
+                (SSLServerSocket) context.getServerSocketFactory().createServerSocket(0);
+        pool.submit(() -> {
+            try (Socket client = server.accept()) {
+                DataInputStream in = new DataInputStream(client.getInputStream());
+                in.readFully(new byte[Integer.BYTES + Short.BYTES * 2 + Integer.BYTES + Short.BYTES]);
+                DataOutputStream out = new DataOutputStream(client.getOutputStream());
+                out.writeInt(Integer.BYTES + Short.BYTES + Integer.BYTES + 6);
+                out.writeInt(0);
+                out.writeShort(0);
+                out.writeInt(1);
+                out.writeShort(61);
+                out.writeShort(0);
+                out.writeShort(0);
+                out.flush();
+            } catch (IOException _) {
+                // The test is over either way.
+            } finally {
+                try {
+                    server.close();
+                } catch (IOException _) {
+                    // Nothing left to close.
+                }
+            }
+        });
+        TlsProvider material = () -> Optional.of(TlsMaterial.of("test", context));
+
+        Optional<ApiVersions.Keys> keys = ApiVersions.read(
+                List.of("127.0.0.1:" + server.getLocalPort()),
+                material,
+                true,
+                Deadline.after(Duration.ofSeconds(10), CLOCK),
+                CLOCK);
+
+        assertThat(keys)
+                .hasValueSatisfying(served -> assertThat(served.serves(61)).isTrue());
     }
 }
