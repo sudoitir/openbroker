@@ -6,6 +6,7 @@ import io.github.sudoitir.openbroker.ConnectOptions;
 import io.github.sudoitir.openbroker.Credentials;
 import io.github.sudoitir.openbroker.Deadline;
 import io.github.sudoitir.openbroker.Dispatch;
+import io.github.sudoitir.openbroker.NodeId;
 import io.github.sudoitir.openbroker.Outcome;
 import io.github.sudoitir.openbroker.Permit;
 import io.github.sudoitir.openbroker.Plane;
@@ -64,6 +65,11 @@ public final class ManagementClient {
         return send("GET", path, query, null, deadline, operation);
     }
 
+    /** A read answered by {@code node} alone: only its own management endpoints are tried. */
+    public Response getAt(NodeId node, String path, Deadline deadline, String operation) {
+        return send("GET", path, Map.of(), null, deadline, operation, node);
+    }
+
     public Response put(String path, JsonNode body, Deadline deadline, String operation) {
         return send("PUT", path, Map.of(), body, deadline, operation);
     }
@@ -78,11 +84,25 @@ public final class ManagementClient {
 
     private Response send(
             String method, String path, Map<String, String> query, JsonNode body, Deadline deadline, String operation) {
+        return send(method, path, query, body, deadline, operation, null);
+    }
+
+    private Response send(
+            String method,
+            String path,
+            Map<String, String> query,
+            JsonNode body,
+            Deadline deadline,
+            String operation,
+            NodeId only) {
         ConnectOptions options = cluster.options();
         if (deadline.expired(options.clock())) {
             throw Deadlines.exceeded(RabbitMqCluster.CLUSTER, Dispatch.NOT_SENT);
         }
         List<RabbitMqCluster.Target> targets = cluster.managementTargets();
+        if (only != null) {
+            targets = targets.stream().filter(t -> t.node().equals(only)).toList();
+        }
         if (targets.isEmpty()) {
             throw RabbitMqErrors.noEndpoint(
                     "Add a management endpoint (http or https): RabbitMQ is read and changed" + " through it.");

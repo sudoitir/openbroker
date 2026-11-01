@@ -7,6 +7,7 @@ import io.github.sudoitir.openbroker.Endpoint;
 import io.github.sudoitir.openbroker.ErrorInfo;
 import io.github.sudoitir.openbroker.ErrorReasons;
 import io.github.sudoitir.openbroker.NodeId;
+import io.github.sudoitir.openbroker.NodeOutcome;
 import io.github.sudoitir.openbroker.Partial;
 import io.github.sudoitir.openbroker.Plane;
 import io.github.sudoitir.openbroker.Status;
@@ -27,6 +28,7 @@ import io.github.sudoitir.openbroker.rabbitmq.RabbitMqOptions;
 import io.github.sudoitir.openbroker.support.Deadlines;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -50,6 +52,8 @@ final class RabbitMqNodes implements Nodes {
             "stream", "stream",
             "stream/ssl", "stream+ssl");
 
+    private static final String REACH_PATH = "/api/health/checks/local-alarms";
+
     private final RabbitMqCluster cluster;
 
     RabbitMqNodes(RabbitMqCluster cluster) {
@@ -60,6 +64,31 @@ final class RabbitMqNodes implements Nodes {
     public Partial<List<NodeDescription>> describe(Scope scope) {
         List<NodeDescription> all = read(scope);
         return Partial.complete(all, all.stream().map(NodeDescription::node).toList());
+    }
+
+    /**
+     * Checks every node the caller named a management endpoint for on that endpoint alone. The cluster describes all
+     * its nodes through whichever node answers, so a node the caller cannot reach is still described; it becomes a
+     * failed node here, with the failure the call met, and keeps its description.
+     */
+    Partial<List<NodeDescription>> reach(Partial<List<NodeDescription>> described, Deadline deadline) {
+        Map<NodeId, NodeOutcome> outcomes = new LinkedHashMap<>(described.outcomes());
+        Map<NodeId, BrokerException> failures = new LinkedHashMap<>(described.failures());
+        Set<NodeId> named = new LinkedHashSet<>();
+        cluster.managementTargets().forEach(t -> named.add(t.node()));
+        for (NodeDescription node : described.value()) {
+            if (!named.contains(node.node())) {
+                continue;
+            }
+            try {
+                cluster.management().getAt(node.node(), REACH_PATH, deadline, "reach the node");
+            } catch (BrokerException e) {
+                outcomes.put(
+                        node.node(), e.dispatch() == Dispatch.IN_DOUBT ? NodeOutcome.IN_DOUBT : NodeOutcome.FAILED);
+                failures.put(node.node(), e);
+            }
+        }
+        return new Partial<>(described.value(), outcomes, failures);
     }
 
     @Override

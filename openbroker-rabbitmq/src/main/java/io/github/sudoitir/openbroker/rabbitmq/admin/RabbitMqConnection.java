@@ -72,7 +72,7 @@ public final class RabbitMqConnection implements ClusterConnection {
         return ScopedValue.where(CallScope.DEADLINE, deadline).call(() -> {
             cluster.features().require(system.supportedVersions());
             Partial<List<NodeDescription>> described = nodes.describe(Scope.whole());
-            return new ConnectionReport(described, access.probe());
+            return new ConnectionReport(nodes.reach(described, deadline), access.probe());
         });
     }
 
