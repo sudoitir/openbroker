@@ -111,8 +111,9 @@ class ApiVersionsTest {
         ServerSocket silent = new ServerSocket(0);
         pool.submit(() -> {
             try (Socket client = silent.accept()) {
-                Thread.sleep(2_000);
-            } catch (IOException | InterruptedException _) {
+                // Reads the request and never answers, until the probe gives up and closes.
+                client.getInputStream().readAllBytes();
+            } catch (IOException _) {
                 // The test is over either way.
             } finally {
                 try {
@@ -178,7 +179,7 @@ class ApiVersionsTest {
     }
 
     private static ApiVersions.Keys serving(int... keys) {
-        return new ApiVersions.Keys(IntStream.of(keys).boxed().collect(Collectors.toMap(k -> k.shortValue(), k -> 0)));
+        return new ApiVersions.Keys(IntStream.of(keys).boxed().collect(Collectors.toMap(Number::shortValue, k -> 0)));
     }
 
     @Test

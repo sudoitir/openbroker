@@ -111,7 +111,7 @@ final class ApiVersions {
             throws IOException {
         String host = Sockets.host(address);
         int port = Sockets.port(address);
-        int millis = (int) Math.clamp(limit.remaining(clock).toMillis(), 1, Integer.MAX_VALUE);
+        int millis = Math.clamp(limit.remaining(clock).toMillis(), 1, Integer.MAX_VALUE);
         Socket socket = new Socket();
         socket.connect(new InetSocketAddress(host, port), millis);
         socket.setSoTimeout(millis);
