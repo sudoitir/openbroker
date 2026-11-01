@@ -42,6 +42,12 @@ public final class ManagementClient {
     /** A response: its JSON body ({@code MissingNode} when empty) and the {@code Location} header when present. */
     public record Response(JsonNode body, Optional<String> location) {}
 
+    /**
+     * JSON first, anything else second: a purge answers 204 with no body, and the API refuses it with 406 when only
+     * JSON is acceptable.
+     */
+    private static final String ACCEPT = "application/json, */*;q=0.1";
+
     private final RabbitMqCluster cluster;
 
     ManagementClient(RabbitMqCluster cluster) {
@@ -117,7 +123,7 @@ public final class ManagementClient {
                 cluster.context(), tls(target, options), options.timeouts().connect());
         URI uri = URI.create(target.base() + path + queryString(query));
         HttpRequest.Builder request =
-                HttpRequest.newBuilder(uri).timeout(timeout).header("Accept", "application/json");
+                HttpRequest.newBuilder(uri).timeout(timeout).header("Accept", ACCEPT);
         if (payload != null) {
             request.header("Content-Type", "application/json");
             request.method(method, HttpRequest.BodyPublishers.ofByteArray(payload));

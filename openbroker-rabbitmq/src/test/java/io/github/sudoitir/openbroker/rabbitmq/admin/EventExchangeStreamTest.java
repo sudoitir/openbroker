@@ -182,6 +182,29 @@ class EventExchangeStreamTest {
     }
 
     @Test
+    void itDoesNotReportItsOwnQueueBindingOrConsumer() throws Exception {
+        EventExchangeStream s = stream();
+        s.start();
+        next();
+        DeliverCallback callback = delivery();
+        callback.handle("tag", message("queue.created", Map.of("name", "amq.gen-1", "vhost", "/")));
+        callback.handle(
+                "tag",
+                message(
+                        "binding.created",
+                        Map.of(
+                                "source_name", "amq.rabbitmq.event",
+                                "destination_name", "amq.gen-1",
+                                "destination_kind", "queue",
+                                "routing_key", "#",
+                                "vhost", "/")));
+        callback.handle("tag", message("consumer.created", Map.of("queue", "amq.gen-1", "vhost", "/")));
+        assertThat(received.poll(200, TimeUnit.MILLISECONDS)).isNull();
+        callback.handle("tag", message("queue.created", Map.of("name", "other", "vhost", "/")));
+        assertThat(((BrokerEvent) next()).subject().orElseThrow().name()).isEqualTo("other");
+    }
+
+    @Test
     void aRefusedBindingFailsTheStartWithPermissionDeniedAndLeavesNothingOpen() throws Exception {
         ShutdownSignalException refused = new ShutdownSignalException(
                 false,
