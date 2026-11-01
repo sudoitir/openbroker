@@ -579,11 +579,14 @@ public abstract class MessagingTck {
         List<Message> rest = drain(transport, id, 4, SECONDS_15, QUIET);
         assertThat(rest).hasSize(4);
         assertThat(seqs(rest)).doesNotContainAnyElementsOf(finished);
+        // The hand-back is a release that is not a failed delivery: it leaves the count only where the kind declares so.
+        int allowed = subscription().releaseCountsDelivery() ? 2 : 1;
         assertThat(rest)
                 .allSatisfy(m -> m.headers()
                         .deliveryCount()
-                        .ifPresent(count ->
-                                assertThat(count).as("handed back uncounted").isLessThanOrEqualTo(1)));
+                        .ifPresent(count -> assertThat(count)
+                                .as("handed back as a release")
+                                .isLessThanOrEqualTo(allowed)));
     }
 
     /** A sender that is not transacted is safe to use from several threads at once. */
