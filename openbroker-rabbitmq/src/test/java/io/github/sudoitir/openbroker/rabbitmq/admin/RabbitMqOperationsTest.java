@@ -476,4 +476,15 @@ class RabbitMqOperationsTest {
         assertThat(Writes.etag(user, Optional.empty())).isNotBlank();
         assertThatThrownBy(() -> Writes.objectPath(user)).isInstanceOf(BrokerException.class);
     }
+
+    @Test
+    void aBindingIsAddressedByItsPropertiesKeyEncodedOnce() {
+        // The management API names a binding "order.%23" for the routing key "order.#" and "~" for an empty one.
+        assertThat(Writes.objectPath(ResourceId.of("rabbitmq.binding", "/", "events", "orders", "order.%23")))
+                .isEqualTo("/api/bindings/%2F/e/events/q/orders/order.%2523");
+        assertThat(Writes.objectPath(ResourceId.of("rabbitmq.binding", "/", "events", "orders", "~")))
+                .isEqualTo("/api/bindings/%2F/e/events/q/orders/~");
+        assertThat(Writes.objectPath(ResourceId.of("rabbitmq.exchange-binding", "/", "a", "b", "~")))
+                .isEqualTo("/api/bindings/%2F/e/a/e/b/~");
+    }
 }
