@@ -99,14 +99,23 @@ public final class PollingNotifications implements Notifications {
                     failed.putAll(page.failures());
                     // A node that answered and has nothing is still watched: the stream starts, and what
                     // appears on it later is news.
+                    Set<NodeId> answered = new HashSet<>();
                     page.outcomes().forEach((node, outcome) -> {
                         if (outcome == NodeOutcome.APPLIED) {
+                            answered.add(node);
                             seen.computeIfAbsent(node, n -> new HashSet<>());
                         }
                     });
                     for (Resource r : page.value().items()) {
-                        for (Placement p : r.placements()) {
-                            seen.computeIfAbsent(p.node(), n -> new HashSet<>()).add(r.id());
+                        // A resource is the news of the node that answered for it: its own node where that node
+                        // was read, else the nodes that read it, such as a whole cluster read as one. Filing it
+                        // under a node that never answered would announce that node's start instead of the resource.
+                        List<NodeId> on = r.placements().stream()
+                                .map(Placement::node)
+                                .filter(answered::contains)
+                                .toList();
+                        for (NodeId node : on.isEmpty() ? answered : on) {
+                            seen.computeIfAbsent(node, n -> new HashSet<>()).add(r.id());
                         }
                     }
                     Optional<String> next = page.value().continueToken();
