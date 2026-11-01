@@ -1,0 +1,16 @@
+{
+  "management_version": "3.13.7",
+  "rabbitmq_version": "3.13.7",
+  "cluster_name": "rabbit@alpha",
+  "product_name": "RabbitMQ",
+  "product_version": "3.13.7",
+  "node": "rabbit@alpha",
+  "listeners": [
+    {"node": "rabbit@alpha", "protocol": "amqp", "ip_address": "::", "port": 5672},
+    {"node": "rabbit@alpha", "protocol": "http", "ip_address": "::", "port": 15672},
+    {"node": "rabbit@alpha", "protocol": "clustering", "ip_address": "::", "port": 25672},
+    {"node": "rabbit@beta", "protocol": "amqp/ssl", "ip_address": "::", "port": 5671},
+    {"node": "rabbit@beta", "protocol": "https", "ip_address": "::", "port": 15671},
+    {"node": "rabbit@beta", "protocol": "stream", "ip_address": "::", "port": 5552}
+  ]
+}

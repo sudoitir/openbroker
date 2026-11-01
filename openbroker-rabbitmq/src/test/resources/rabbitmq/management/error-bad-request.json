@@ -1,0 +1,1 @@
+{"error": "bad_request", "reason": "PRECONDITION_FAILED - inequivalent arg 'durable' for queue 'q' in vhost '/'"}

@@ -1,0 +1,9 @@
+{
+  "items": [
+    {"name": "orders", "vhost": "/", "type": "classic"},
+    {"name": "payments", "vhost": "/", "type": "quorum"},
+    {"name": "audit", "vhost": "/", "type": "stream"},
+    {"name": "mqtt", "vhost": "/", "type": "mqtt-qos0"}
+  ],
+  "page": 1, "page_count": 1, "page_size": 500, "total_count": 4
+}
