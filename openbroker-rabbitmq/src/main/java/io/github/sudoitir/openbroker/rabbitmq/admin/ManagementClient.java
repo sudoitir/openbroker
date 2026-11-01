@@ -9,6 +9,7 @@ import io.github.sudoitir.openbroker.Dispatch;
 import io.github.sudoitir.openbroker.Outcome;
 import io.github.sudoitir.openbroker.Permit;
 import io.github.sudoitir.openbroker.Plane;
+import io.github.sudoitir.openbroker.Status;
 import io.github.sudoitir.openbroker.TlsMaterial;
 import io.github.sudoitir.openbroker.rabbitmq.RabbitMqOptions;
 import io.github.sudoitir.openbroker.support.Deadlines;
@@ -28,6 +29,11 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.MissingNode;
@@ -96,7 +102,7 @@ public final class ManagementClient {
                 BrokerException located = RabbitMqErrors.at(e, target.node());
                 permit.complete(Outcome.failed(located), Optional.empty());
                 last = located;
-                if (located.dispatch() != Dispatch.NOT_SENT || i == targets.size() - 1) {
+                if (!failsOver(method, located) || i == targets.size() - 1) {
                     throw located;
                 }
             }
@@ -132,21 +138,25 @@ public final class ManagementClient {
         }
         authorize(request, cluster.credentials().forPlane(Plane.MANAGEMENT));
         boolean write = !"GET".equals(method);
+        // The request's own timeout covers only the wait for the headers, so the whole exchange, the body included,
+        // is bounded here by what is left of the deadline: a server that answers its headers and then stalls must not
+        // hold the call past it.
+        CompletableFuture<HttpResponse<InputStream>> call =
+                http.sendAsync(request.build(), HttpResponse.BodyHandlers.ofInputStream());
         HttpResponse<InputStream> response;
         try {
-            response = http.send(request.build(), HttpResponse.BodyHandlers.ofInputStream());
-        } catch (IOException e) {
+            response = call.get(remaining(deadline, options), TimeUnit.NANOSECONDS);
+        } catch (ExecutionException e) {
+            throw RabbitMqErrors.fromIo(e.getCause() == null ? e : e.getCause(), true);
+        } catch (TimeoutException e) {
+            call.cancel(true);
             throw RabbitMqErrors.fromIo(e, true);
         } catch (InterruptedException e) {
+            call.cancel(true);
             throw Deadlines.cancelled(target.node(), e);
         }
         long max = options.maxResponseBytes();
-        byte[] bytes;
-        try (InputStream in = response.body()) {
-            bytes = in.readNBytes((int) Math.min(Integer.MAX_VALUE - 8L, max + 1));
-        } catch (IOException e) {
-            throw RabbitMqErrors.fromIo(e, true);
-        }
+        byte[] bytes = body(response.body(), max, deadline, options, target);
         if (bytes.length > max) {
             throw RabbitMqErrors.responseTooLarge(max);
         }
@@ -230,5 +240,46 @@ public final class ManagementClient {
         } catch (DateTimeParseException e) {
             return Optional.empty();
         }
+    }
+    /** The nanoseconds left of the deadline, at least one so an expired one still times out at once. */
+    private static long remaining(Deadline deadline, ConnectOptions options) {
+        return Math.max(1, deadline.remaining(options.clock()).toNanos());
+    }
+
+    /**
+     * The response body, at most {@code max + 1} bytes, read within what is left of the deadline. A body that stalls
+     * is abandoned by closing its stream, which ends the read.
+     */
+    private static byte[] body(
+            InputStream in, long max, Deadline deadline, ConnectOptions options, RabbitMqCluster.Target target) {
+        int limit = (int) Math.min(Integer.MAX_VALUE - 8L, max + 1);
+        try (in) {
+            FutureTask<byte[]> read = new FutureTask<>(() -> in.readNBytes(limit));
+            Thread.ofVirtual().name("rabbitmq-management-body").start(read);
+            try {
+                return read.get(remaining(deadline, options), TimeUnit.NANOSECONDS);
+            } catch (ExecutionException e) {
+                throw RabbitMqErrors.fromIo(e.getCause() == null ? e : e.getCause(), true);
+            } catch (TimeoutException e) {
+                read.cancel(true);
+                throw RabbitMqErrors.fromIo(e, true);
+            } catch (InterruptedException e) {
+                read.cancel(true);
+                throw Deadlines.cancelled(target.node(), e);
+            }
+        } catch (IOException e) {
+            throw RabbitMqErrors.fromIo(e, true);
+        }
+    }
+    /**
+     * Whether the next management endpoint is asked after this failure: always when the request was never sent, and
+     * for a read also when the endpoint became unavailable mid-request, since asking again changes nothing. A write
+     * that may have reached the server is never sent twice, and a spent deadline is not retried.
+     */
+    private static boolean failsOver(String method, BrokerException failure) {
+        if (failure.dispatch() == Dispatch.NOT_SENT) {
+            return true;
+        }
+        return "GET".equals(method) && failure.status() == Status.UNAVAILABLE;
     }
 }

@@ -80,6 +80,11 @@ final class FakeManagement implements AutoCloseable {
         return add(method, path, new Answer(200, Map.of(), new byte[0], true));
     }
 
+    /** An answer whose headers arrive and whose body stops halfway until the server closes. */
+    FakeManagement stallBody(String method, String path) {
+        return add(method, path, new Answer(200, Map.of(), "{\"name\":".getBytes(StandardCharsets.UTF_8), true));
+    }
+
     private FakeManagement add(String method, String path, Answer answer) {
         synchronized (routes) {
             routes.computeIfAbsent(method + " " + path, k -> new ArrayDeque<>()).add(answer);
@@ -124,6 +129,12 @@ final class FakeManagement implements AutoCloseable {
                 return;
             }
             if (answer.hold()) {
+                if (answer.body().length > 0) {
+                    // The headers and the start of a longer body, then nothing until the server closes.
+                    exchange.sendResponseHeaders(answer.status(), answer.body().length * 2L);
+                    exchange.getResponseBody().write(answer.body());
+                    exchange.getResponseBody().flush();
+                }
                 try {
                     release.await(30, TimeUnit.SECONDS);
                 } catch (InterruptedException e) {
