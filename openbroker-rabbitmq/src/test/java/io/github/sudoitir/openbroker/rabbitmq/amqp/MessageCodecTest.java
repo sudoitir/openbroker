@@ -243,6 +243,18 @@ class MessageCodecTest {
     }
 
     @Test
+    void aConsumersAcquiredCountIsTheNumberOfEarlierDeliveries() {
+        AMQP.BasicProperties props = new AMQP.BasicProperties.Builder()
+                .headers(Map.of("x-acquired-count", 2))
+                .build();
+
+        Message message = MessageCodec.message(QUEUE, new Envelope(1, true, "", "orders"), props, new byte[0]);
+
+        assertThat(message.headers().deliveryCount()).hasValue(3);
+        assertThat(message.properties()).isEmpty();
+    }
+
+    @Test
     void aDeliveryWithoutAnOffsetCarriesItsTagInTheReference() {
         Message message = MessageCodec.message(
                 QUEUE, new Envelope(12, false, "", "orders"), new AMQP.BasicProperties(), new byte[0]);
