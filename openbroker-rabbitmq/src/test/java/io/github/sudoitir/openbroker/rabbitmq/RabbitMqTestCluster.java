@@ -91,7 +91,7 @@ public final class RabbitMqTestCluster implements AutoCloseable {
                             Transferable.of(config(base, count, pki), FILE_MODE), "/etc/rabbitmq/rabbitmq.conf")
                     .withCopyToContainer(Transferable.of(plugins + "\n", FILE_MODE), "/etc/rabbitmq/enabled_plugins")
                     .withExposedPorts(exposedPorts(pki))
-                    .waitingFor(Wait.forHttp("/api/health/checks/is-in-service")
+                    .waitingFor(Wait.forHttp("/api/health/checks/virtual-hosts")
                             .forPort(MANAGEMENT_PORT)
                             .withBasicCredentials(ADMIN_USER, ADMIN_PASSWORD)
                             .forStatusCode(200)
