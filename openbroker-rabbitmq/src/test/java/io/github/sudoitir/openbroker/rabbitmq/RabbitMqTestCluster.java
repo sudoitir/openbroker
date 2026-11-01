@@ -137,6 +137,7 @@ public final class RabbitMqTestCluster implements AutoCloseable {
                     ssl_options.keyfile = %1$s/broker.key
                     ssl_options.verify = verify_peer
                     ssl_options.fail_if_no_peer_cert = false
+                    management.tcp.port = 15672
                     management.ssl.port = 15671
                     management.ssl.cacertfile = %1$s/ca.pem
                     management.ssl.certfile = %1$s/broker.pem
