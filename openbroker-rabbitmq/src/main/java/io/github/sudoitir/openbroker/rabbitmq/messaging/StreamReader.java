@@ -350,6 +350,7 @@ final class StreamReader implements Receiver {
         } catch (IOException e) {
             throw RabbitMqErrors.fromIo(e, false);
         } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             throw Deadlines.cancelled(RabbitMqCluster.CLUSTER, e);
         } finally {
             closeQuietly(channel);

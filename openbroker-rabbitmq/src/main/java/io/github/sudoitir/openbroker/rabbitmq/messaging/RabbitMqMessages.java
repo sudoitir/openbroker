@@ -272,6 +272,7 @@ public final class RabbitMqMessages implements Messages, AutoCloseable {
         } catch (TimeoutException _) {
             throw Deadlines.exceeded(RabbitMqCluster.CLUSTER, Dispatch.IN_DOUBT);
         } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             throw Deadlines.cancelled(RabbitMqCluster.CLUSTER, e);
         } finally {
             closeQuietly(channel);

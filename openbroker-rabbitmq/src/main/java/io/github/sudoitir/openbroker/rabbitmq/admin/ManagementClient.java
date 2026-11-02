@@ -172,6 +172,7 @@ public final class ManagementClient {
             call.cancel(true);
             throw RabbitMqErrors.fromIo(e, true);
         } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             call.cancel(true);
             throw Deadlines.cancelled(target.node(), e);
         }
