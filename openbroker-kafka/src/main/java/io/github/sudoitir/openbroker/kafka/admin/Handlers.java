@@ -109,15 +109,20 @@ final class Handlers {
         return cluster.features(context.admin(), context.await()).transactions();
     }
 
+    /** Whether a kind is read through the transaction requests Kafka 3.0 added (KIP-664). */
+    private static boolean needsTransactionListing(KindId kind) {
+        return kind.equals(KafkaKinds.HANGING_TRANSACTION) || kind.equals(KafkaKinds.TRANSACTIONAL_ID);
+    }
+
     /** The kinds of the cluster the context is on. */
     List<Kind> kinds(Context context) {
         List<Kind> out = new ArrayList<>();
         if (listsTransactions(context)) {
             base.values().forEach(h -> out.add(h.kind()));
         } else {
-            // A cluster before 3.0 has transactional ids but cannot list transactions or the producers in them.
+            // A cluster before 3.0 has transactions but no request that lists, describes or aborts them (KIP-664).
             base.values().stream()
-                    .filter(h -> !h.kind().id().equals(KafkaKinds.HANGING_TRANSACTION))
+                    .filter(h -> !needsTransactionListing(h.kind().id()))
                     .forEach(h -> out.add(h.kind()));
         }
         if (sharesInProduction(context)) {
@@ -130,12 +135,15 @@ final class Handlers {
     Handler of(Context context, KindId kind) {
         Handler handler = base.get(kind);
         if (handler != null) {
-            if (kind.equals(KafkaKinds.HANGING_TRANSACTION) && !listsTransactions(context)) {
+            if (needsTransactionListing(kind) && !listsTransactions(context)) {
                 throw KafkaErrors.refused(
                         Status.FAILED_PRECONDITION,
                         ErrorReasons.NOT_SUPPORTED,
-                        "This cluster cannot list hanging transactions: finding one needs Kafka 3.0 or later"
-                                + " (KIP-664), which lists the producers in a partition.");
+                        kind.equals(KafkaKinds.HANGING_TRANSACTION)
+                                ? "This cluster cannot list hanging transactions: finding one needs Kafka 3.0 or later"
+                                        + " (KIP-664), which lists the producers in a partition."
+                                : "This cluster cannot list its transactional ids: listing, describing and aborting"
+                                        + " transactions need Kafka 3.0 or later (KIP-664).");
             }
             return handler;
         }
