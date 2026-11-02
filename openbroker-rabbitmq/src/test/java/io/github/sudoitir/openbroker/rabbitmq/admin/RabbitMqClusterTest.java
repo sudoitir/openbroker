@@ -14,12 +14,10 @@ import io.github.sudoitir.openbroker.NodeId;
 import io.github.sudoitir.openbroker.NodeSpec;
 import io.github.sudoitir.openbroker.Plane;
 import io.github.sudoitir.openbroker.Status;
-import io.github.sudoitir.openbroker.model.ResourceId;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
@@ -135,7 +133,6 @@ class RabbitMqClusterTest {
         Deadline open = Deadline.after(Duration.ofSeconds(5), Clock.systemUTC());
         assertThat(cluster.call(open, () -> "done")).isEqualTo("done");
         Deadline passed = Deadline.after(Duration.ofSeconds(-1), Clock.systemUTC());
-        Optional<ResourceId> noSubject = Optional.empty();
         assertThatThrownBy(() -> cluster.call(passed, () -> "never"))
                 .isInstanceOfSatisfying(BrokerException.class, e -> {
                     assertThat(e.status()).isEqualTo(Status.DEADLINE_EXCEEDED);

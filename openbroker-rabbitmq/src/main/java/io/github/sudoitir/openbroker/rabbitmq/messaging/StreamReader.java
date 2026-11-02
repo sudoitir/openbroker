@@ -370,25 +370,23 @@ final class StreamReader implements Receiver {
             Event event = nextEvent(events, last >= window.hint() && last != NONE, deadline);
             Delivery delivery = event == null ? null : delivered(event);
             long offset = delivery == null ? NONE : StreamOffsets.offset(headersOf(delivery));
-            if (delivery == null || offset > window.end()) {
-                more = false;
-            } else {
-                channel.basicAck(delivery.getEnvelope().getDeliveryTag(), false);
+            more = delivery != null && offset <= window.end();
+            if (more) {
+                take(channel, delivery, window).ifPresent(messages::add);
                 first = first == NONE ? offset : first;
                 last = offset;
-                Message message = MessageCodec.message(
-                        stream,
-                        delivery.getEnvelope(),
-                        delivery.getProperties(),
-                        delivery.getBody(),
-                        window.maxBodyBytes());
-                if (window.filter().map(f -> f.test(message)).orElse(true)) {
-                    messages.add(message);
-                }
                 more = offset < window.end();
             }
         }
         return new Page(messages, first, last);
+    }
+
+    /** Acknowledges a delivery read from the stream, and gives its message when the window's filter keeps it. */
+    private Optional<Message> take(Channel channel, Delivery delivery, Window window) throws IOException {
+        channel.basicAck(delivery.getEnvelope().getDeliveryTag(), false);
+        Message message = MessageCodec.message(
+                stream, delivery.getEnvelope(), delivery.getProperties(), delivery.getBody(), window.maxBodyBytes());
+        return window.filter().map(f -> f.test(message)).orElse(true) ? Optional.of(message) : Optional.empty();
     }
 
     /** The delivery an event carries, or the failure it reports. */
