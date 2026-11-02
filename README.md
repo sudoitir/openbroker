@@ -187,6 +187,10 @@ because the Admin API exposes no version table (ADR-0032).
   offset back so that `read_committed` consumers stall (KIP-664). They are listed on demand, never on the
   watch, for the cluster or one topic, and `RESOLVE` aborts one, previewing the records it holds back.
   A transaction the coordinator still lists heals itself and is not listed.
+- **Broker configuration** (`kafka.broker-config`, class `CONFIGURATION`) is one resource per broker and `*` for the
+  cluster-wide default. Settings are `kafka.config.<name>` attributes, never a secret; `kafka.config_read_only`
+  names those only a restart changes and `kafka.config_sources` where each override comes from. `UPDATE` previews
+  the change and applies a dynamic setting; a read-only or secret setting is refused before anything is sent.
 - **Browsing** reads committed records without joining a group.
 - **Messaging.** Senders deduplicate within the producer session (`DeduplicationScope.SESSION`).
   Processors on a consumer or classic group settle by committing offsets, keep per-key order in lanes, and join
