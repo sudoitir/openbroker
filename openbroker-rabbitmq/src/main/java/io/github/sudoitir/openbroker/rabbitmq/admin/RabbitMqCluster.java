@@ -9,7 +9,6 @@ import io.github.sudoitir.openbroker.Endpoint;
 import io.github.sudoitir.openbroker.NodeId;
 import io.github.sudoitir.openbroker.NodeSpec;
 import io.github.sudoitir.openbroker.Plane;
-import io.github.sudoitir.openbroker.model.ResourceId;
 import io.github.sudoitir.openbroker.rabbitmq.RabbitMqOptions;
 import io.github.sudoitir.openbroker.spi.DriverContext;
 import io.github.sudoitir.openbroker.support.Deadlines;
@@ -17,7 +16,6 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
@@ -124,8 +122,8 @@ public final class RabbitMqCluster implements AutoCloseable {
         closeListeners.add(listener);
     }
 
-    /** Runs {@code work} as the named operation, refusing it first when {@code deadline} has passed. */
-    public <T> T call(String operation, Optional<ResourceId> resource, Deadline deadline, Supplier<T> work) {
+    /** Runs {@code work}, refusing it first when {@code deadline} has passed. */
+    public <T> T call(Deadline deadline, Supplier<T> work) {
         if (deadline.expired(options().clock())) {
             throw Deadlines.exceeded(CLUSTER, Dispatch.NOT_SENT);
         }
@@ -155,7 +153,7 @@ public final class RabbitMqCluster implements AutoCloseable {
                     + defaultPort + ", not '" + redact(address) + "'.");
         }
         HostText split =
-                address.startsWith("[") && address.indexOf(']') > 0 ? bracketed(address) : plain(address, defaultPort);
+                address.startsWith("[") && address.contains("]") ? bracketed(address) : plain(address, defaultPort);
         int port = split.portText() == null ? defaultPort : port(split.portText());
         if (split.host().isBlank()) {
             throw RabbitMqErrors.invalid("A data endpoint's address names a host.");

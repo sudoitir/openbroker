@@ -1,6 +1,8 @@
 package io.github.sudoitir.openbroker.rabbitmq.messaging;
 
+import com.rabbitmq.client.AMQP;
 import com.rabbitmq.client.Connection;
+import com.rabbitmq.client.ShutdownSignalException;
 import io.github.sudoitir.openbroker.BrokerException;
 import io.github.sudoitir.openbroker.CallInfo;
 import io.github.sudoitir.openbroker.Deadline;
@@ -234,6 +236,13 @@ final class LinkEnv implements AutoCloseable {
         }
         if (e instanceof IllegalArgumentException invalid) {
             return RabbitMqErrors.invalid(invalid.getMessage());
+        }
+        // A channel the broker closed names why, about the resource the call was for.
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            if (t instanceof ShutdownSignalException shutdown
+                    && shutdown.getReason() instanceof AMQP.Channel.Close close) {
+                return RabbitMqErrors.fromReply(close.getReplyCode(), close.getReplyText(), resource);
+            }
         }
         return RabbitMqErrors.fromIo(e, false);
     }

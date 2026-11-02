@@ -331,7 +331,7 @@ class RabbitMqChaosIT extends ChaosTck {
         List<LinkEvent> events = new CopyOnWriteArrayList<>();
         try (RabbitMqCluster rabbit = connect();
                 RabbitMqTransport transport = new RabbitMqTransport(rabbit);
-                AutoCloseable _ = transport.watch(events::add);
+                var _ = transport.watch(events::add);
                 Receiver receiver = transport.receiver(id(name), Scope.whole(), ReceiverOptions.consume())) {
             for (int i = 0; i < count; i++) {
                 cluster.publish(name, Integer.toString(i));

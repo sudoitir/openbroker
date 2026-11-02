@@ -115,8 +115,6 @@ public final class RabbitMqMessages implements Messages, AutoCloseable {
         }
         Deadline deadline = Deadlines.current(cluster.options());
         Total total = cluster.call(
-                MESSAGES_COUNT,
-                Optional.of(subscription),
                 deadline,
                 () -> queue
                         ? queueTotal(subscription, deadline)
@@ -203,7 +201,7 @@ public final class RabbitMqMessages implements Messages, AutoCloseable {
         }
         AMQP.BasicProperties properties = MessageCodec.properties(message);
         byte[] body = MessageCodec.body(message);
-        return cluster.call("messages.send", Optional.of(destination), deadline, () -> {
+        return cluster.call(deadline, () -> {
             declarePassive(vhost, route, isExchange, deadline);
             publish(vhost, route.exchange(), route.routingKey(), properties, body, destination, deadline);
             return new SendReceipt(message.headers().id(), Optional.empty(), Optional.empty(), false);

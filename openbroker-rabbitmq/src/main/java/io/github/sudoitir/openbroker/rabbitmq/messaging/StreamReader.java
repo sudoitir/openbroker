@@ -178,8 +178,7 @@ final class StreamReader implements Receiver {
         Deadline deadline = Deadlines.current(cluster.options());
         Optional<PortableFilter> filter = portable(request.filter());
         Object argument = StreamOffsets.argument(request.position());
-        return cluster.call(
-                "messages.browse", Optional.of(stream), deadline, () -> page(request, argument, filter, deadline));
+        return cluster.call(deadline, () -> page(request, argument, filter, deadline));
     }
 
     private BrowsePage page(
@@ -344,7 +343,7 @@ final class StreamReader implements Receiver {
                     consumerTag -> events.add(new Event(
                             null, new IOException("RabbitMQ cancelled the consumer of the stream " + name + "."))),
                     (consumerTag, signal) -> events.add(new Event(null, signal)));
-            Page page = drain(channel, events, limit, filter, maxBodyBytes, end, hint, deadline);
+            Page page = drain(channel, events, new Window(limit, filter, maxBodyBytes, end, hint), deadline);
             cancelQuietly(channel, tag);
             return page;
         } catch (IOException e) {
@@ -357,47 +356,48 @@ final class StreamReader implements Receiver {
         }
     }
 
+    /** What one read takes: at most {@code limit} messages, up to the offset {@code end}, idling early past {@code hint}. */
+    private record Window(int limit, Optional<PortableFilter> filter, long maxBodyBytes, long end, long hint) {}
+
     /** Takes deliveries from {@code events} and acknowledges them until the limit, the end or an idle gap. */
-    private Page drain(
-            Channel channel,
-            BlockingQueue<Event> events,
-            int limit,
-            Optional<PortableFilter> filter,
-            long maxBodyBytes,
-            long end,
-            long hint,
-            Deadline deadline)
+    private Page drain(Channel channel, BlockingQueue<Event> events, Window window, Deadline deadline)
             throws IOException, InterruptedException {
         List<Message> messages = new ArrayList<>();
         long first = NONE;
         long last = NONE;
-        while (messages.size() < limit) {
-            Event event = nextEvent(events, last >= hint && last != NONE, deadline);
-            if (event == null) {
-                break;
-            }
-            Throwable failure = event.failure();
-            if (failure != null) {
-                throw RabbitMqErrors.fromIo(failure, false);
-            }
-            Delivery delivery = event.delivery();
-            long offset = StreamOffsets.offset(headersOf(delivery));
-            if (offset > end) {
-                break;
-            }
-            channel.basicAck(delivery.getEnvelope().getDeliveryTag(), false);
-            first = first == NONE ? offset : first;
-            last = offset;
-            Message message = MessageCodec.message(
-                    stream, delivery.getEnvelope(), delivery.getProperties(), delivery.getBody(), maxBodyBytes);
-            if (filter.map(f -> f.test(message)).orElse(true)) {
-                messages.add(message);
-            }
-            if (offset >= end) {
-                break;
+        boolean more = true;
+        while (more && messages.size() < window.limit()) {
+            Event event = nextEvent(events, last >= window.hint() && last != NONE, deadline);
+            Delivery delivery = event == null ? null : delivered(event);
+            long offset = delivery == null ? NONE : StreamOffsets.offset(headersOf(delivery));
+            if (delivery == null || offset > window.end()) {
+                more = false;
+            } else {
+                channel.basicAck(delivery.getEnvelope().getDeliveryTag(), false);
+                first = first == NONE ? offset : first;
+                last = offset;
+                Message message = MessageCodec.message(
+                        stream,
+                        delivery.getEnvelope(),
+                        delivery.getProperties(),
+                        delivery.getBody(),
+                        window.maxBodyBytes());
+                if (window.filter().map(f -> f.test(message)).orElse(true)) {
+                    messages.add(message);
+                }
+                more = offset < window.end();
             }
         }
         return new Page(messages, first, last);
+    }
+
+    /** The delivery an event carries, or the failure it reports. */
+    private static Delivery delivered(Event event) {
+        Throwable failure = event.failure();
+        if (failure != null) {
+            throw RabbitMqErrors.fromIo(failure, false);
+        }
+        return event.delivery();
     }
 
     /** The next event, or null when the deadline or the idle gap passes first. */
@@ -458,7 +458,7 @@ final class StreamReader implements Receiver {
         }
         Deadline deadline = Deadline.after(timeout, cluster.options().clock());
         Optional<PortableFilter> filter = portable(options.filter());
-        return cluster.call("messages.receive", Optional.of(stream), deadline, () -> {
+        return cluster.call(deadline, () -> {
             Stats stats = stats(deadline);
             long end = stats.end();
             if (options.producedAtOrBefore().isPresent()) {

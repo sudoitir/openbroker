@@ -105,7 +105,7 @@ class PollingNotificationsTest {
         ResourceId made = ResourceId.of("test.thing", "made");
         PollingNotifications watch = watching(listing);
 
-        try (AutoCloseable _ = watch.subscribe(Scope.whole(), heard)) {
+        try (var _ = watch.subscribe(Scope.whole(), heard)) {
             assertThat(heard.next()).isInstanceOfSatisfying(Gap.class, g -> {
                 assertThat(g.node()).isEqualTo(NODE);
                 assertThat(g.cause()).isEqualTo(Gap.Cause.STARTED);
@@ -129,7 +129,7 @@ class PollingNotificationsTest {
         Heard heard = new Heard();
         PollingNotifications watch = watching(listing);
 
-        try (AutoCloseable _ = watch.subscribe(Scope.whole(), heard)) {
+        try (var _ = watch.subscribe(Scope.whole(), heard)) {
             assertThat(heard.next()).isInstanceOf(Gap.class);
             listing.failure = new BrokerException(
                     Status.UNAVAILABLE, ErrorInfo.of("UNREACHABLE"), Dispatch.IN_DOUBT, NODE, "down");
@@ -177,7 +177,7 @@ class PollingNotificationsTest {
                 Clock.systemUTC(),
                 100);
 
-        try (AutoCloseable _ = watch.subscribe(Scope.whole(), heard)) {
+        try (var _ = watch.subscribe(Scope.whole(), heard)) {
             assertThat(heard.next())
                     .isInstanceOfSatisfying(Gap.class, g -> assertThat(g.node()).isEqualTo(cluster));
             present.add(made);

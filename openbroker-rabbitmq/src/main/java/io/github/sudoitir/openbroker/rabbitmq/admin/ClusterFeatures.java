@@ -63,7 +63,7 @@ final class ClusterFeatures {
 
     private final RabbitMqCluster cluster;
     private final AtomicReference<Snapshot> snapshot = new AtomicReference<>();
-    private final AtomicReference<Optional<Set<String>>> pluginsRead = new AtomicReference<>();
+    private final AtomicReference<Set<String>> pluginsRead = new AtomicReference<>();
     private final AtomicReference<Set<String>> tagsRead = new AtomicReference<>();
 
     ClusterFeatures(RabbitMqCluster cluster) {
@@ -101,17 +101,18 @@ final class ClusterFeatures {
 
     /** The plugins enabled on every node; empty when the account may not read the nodes. */
     Set<String> plugins() {
-        Optional<Set<String>> known = pluginsRead.get();
+        Set<String> known = pluginsRead.get();
         if (known == null) {
             synchronized (this) {
                 known = pluginsRead.get();
                 if (known == null) {
-                    known = readPlugins(cluster.management(), Deadlines.current(cluster.options()));
+                    known = readPlugins(cluster.management(), Deadlines.current(cluster.options()))
+                            .orElse(Set.of());
                     pluginsRead.set(known);
                 }
             }
         }
-        return known.orElse(Set.of());
+        return known;
     }
 
     boolean hasPlugin(String plugin) {

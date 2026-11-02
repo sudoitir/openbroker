@@ -618,8 +618,8 @@ class RabbitMqResourcesTest {
                 .respond("GET", "/api/policies", 200, Map.of("Content-Type", "application/json"), "{}")) {
             RabbitMqResources reading = new RabbitMqResources(FakeManagement.cluster(odd.endpoint()));
 
-            ResourceQuery policies = ResourceQuery.of(RabbitMqKinds.POLICY);
-            assertThatThrownBy(() -> reading.read(policies).orThrow()).isInstanceOf(BrokerException.class);
+            Partial<ResourcePage> read = reading.read(ResourceQuery.of(RabbitMqKinds.POLICY));
+            assertThatThrownBy(read::orThrow).isInstanceOf(BrokerException.class);
         }
     }
 

@@ -56,8 +56,8 @@ final class MessagingMocks {
         when(cluster.options()).thenReturn(ConnectOptions.defaults());
         when(cluster.spec()).thenReturn(spec);
         when(cluster.management()).thenReturn(management);
-        when(cluster.call(any(), any(), any(), any())).thenAnswer(call -> {
-            Supplier<?> work = call.getArgument(3);
+        when(cluster.call(any(), any())).thenAnswer(call -> {
+            Supplier<?> work = call.getArgument(1);
             return work.get();
         });
         when(connections.connection(any(), any())).thenReturn(connection);

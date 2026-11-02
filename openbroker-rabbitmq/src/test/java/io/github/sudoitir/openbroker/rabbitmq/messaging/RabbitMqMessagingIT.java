@@ -173,7 +173,7 @@ class RabbitMqMessagingIT {
         String name = unique("loss");
         admin.declareQueue("/", name, "quorum");
         EVENTS.clear();
-        try (AutoCloseable _ = transport.watch(EVENTS::add);
+        try (var _ = transport.watch(EVENTS::add);
                 Receiver receiver = transport.receiver(queue(name), Scope.whole(), ReceiverOptions.consume())) {
             for (var connection : admin.get("/api/connections")) {
                 if (connection.path("user_provided_name").asString().startsWith("openbroker")) {

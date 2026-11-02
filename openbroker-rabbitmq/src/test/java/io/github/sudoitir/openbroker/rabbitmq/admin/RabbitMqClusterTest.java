@@ -133,10 +133,10 @@ class RabbitMqClusterTest {
     void callRunsTheWorkUnlessTheDeadlinePassed() {
         RabbitMqCluster cluster = cluster(List.of(), List.of());
         Deadline open = Deadline.after(Duration.ofSeconds(5), Clock.systemUTC());
-        assertThat(cluster.call("op", Optional.empty(), open, () -> "done")).isEqualTo("done");
+        assertThat(cluster.call(open, () -> "done")).isEqualTo("done");
         Deadline passed = Deadline.after(Duration.ofSeconds(-1), Clock.systemUTC());
         Optional<ResourceId> noSubject = Optional.empty();
-        assertThatThrownBy(() -> cluster.call("op", noSubject, passed, () -> "never"))
+        assertThatThrownBy(() -> cluster.call(passed, () -> "never"))
                 .isInstanceOfSatisfying(BrokerException.class, e -> {
                     assertThat(e.status()).isEqualTo(Status.DEADLINE_EXCEEDED);
                     assertThat(e.dispatch()).isEqualTo(Dispatch.NOT_SENT);

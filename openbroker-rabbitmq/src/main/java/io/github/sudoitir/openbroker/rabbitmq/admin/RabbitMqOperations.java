@@ -74,7 +74,7 @@ final class RabbitMqOperations implements Operations {
     @Override
     public Preview preview(ResourceId resource, Operation operation, Scope scope) {
         Deadline deadline = Deadlines.current(cluster.options());
-        return cluster.call("operations.preview", Optional.of(resource), deadline, () -> {
+        return cluster.call(deadline, () -> {
             Plan plan = plan(resource, operation, deadline);
             return new Preview(
                     plan.diff(),
@@ -91,11 +91,7 @@ final class RabbitMqOperations implements Operations {
             ResourceId resource, Operation operation, Scope scope, Precondition precondition) {
         Deadline deadline = Deadlines.current(cluster.options());
         try {
-            OperationResult result = cluster.call(
-                    "operations.execute",
-                    Optional.of(resource),
-                    deadline,
-                    () -> run(resource, operation, precondition, deadline));
+            OperationResult result = cluster.call(deadline, () -> run(resource, operation, precondition, deadline));
             return new Partial<>(result, Map.of(RabbitMqCluster.CLUSTER, NodeOutcome.APPLIED), Map.of());
         } catch (BrokerException e) {
             BrokerException failure = e.at(RabbitMqCluster.CLUSTER);

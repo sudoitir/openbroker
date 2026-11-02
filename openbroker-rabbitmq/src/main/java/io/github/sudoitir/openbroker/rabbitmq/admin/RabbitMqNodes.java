@@ -109,7 +109,7 @@ final class RabbitMqNodes implements Nodes {
 
     private List<NodeDescription> read(Scope scope) {
         Deadline deadline = Deadlines.current(cluster.options());
-        return cluster.call("describe nodes", Optional.empty(), deadline, () -> {
+        return cluster.call(deadline, () -> {
             ManagementClient client = cluster.management();
             JsonNode nodes = client.get("/api/nodes", Map.of(), deadline, "read the nodes")
                     .body();

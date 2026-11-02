@@ -138,7 +138,7 @@ final class RabbitMqResources implements Resources {
         Set<String> nodes = nodes(query.scope());
         Listing.Cursor cursor = Listing.decode(query.continueToken());
         Deadline deadline = Deadlines.current(cluster.options());
-        return cluster.call(LISTING, Optional.empty(), deadline, () -> {
+        return cluster.call(deadline, () -> {
             if (selected.size() == 1 && feeds.get(selected.getFirst().id()).paged()) {
                 return pageOfOne(selected.getFirst().id(), query, nodes, cursor, deadline);
             }
