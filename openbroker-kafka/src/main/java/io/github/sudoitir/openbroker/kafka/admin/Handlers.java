@@ -34,6 +34,7 @@ final class Handlers {
             Handler handler =
                     switch (kind.id().value()) {
                         case "kafka.topic" -> new Topics(kind);
+                        case "kafka.broker-config" -> new BrokerConfigs(kind);
                         case "kafka.partition" -> new Partitions(kind);
                         case "kafka.group" -> new Groups(kind);
                         case "kafka.group-topic" -> new ConsumerSubscriptions(kind);

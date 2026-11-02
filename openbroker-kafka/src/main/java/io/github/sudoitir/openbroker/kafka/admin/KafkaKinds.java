@@ -53,6 +53,12 @@ public final class KafkaKinds {
      */
     public static final KindId HANGING_TRANSACTION = KindId.of("kafka.hanging-transaction");
 
+    /**
+     * The configuration of a broker, or of every broker at once. Its id is {@code [broker id]}, or {@code [*]} for
+     * the cluster-wide default.
+     */
+    public static final KindId BROKER_CONFIG = KindId.of("kafka.broker-config");
+
     // Native attributes, namespaced.
 
     public static final String PARTITIONS = "kafka.partitions";
@@ -61,6 +67,18 @@ public final class KafkaKinds {
     public static final String INTERNAL = "kafka.internal";
     /** A topic setting, such as {@code kafka.config.retention.ms}. An empty value on update removes the override. */
     public static final String CONFIG_PREFIX = "kafka.config.";
+
+    /**
+     * The settings of a broker configuration that only a restart changes, comma-separated, such as {@code
+     * log.dirs}. Absent on the cluster-wide default.
+     */
+    public static final String CONFIG_READ_ONLY = "kafka.config_read_only";
+    /**
+     * Where each overridden setting of a broker configuration comes from, as comma-separated {@code name=source}:
+     * {@code node} (set for this broker), {@code cluster} (the cluster-wide default) or {@code static}
+     * ({@code server.properties}). A setting at its built-in default is not listed.
+     */
+    public static final String CONFIG_SOURCES = "kafka.config_sources";
 
     public static final String LEADER = "kafka.leader";
     public static final String REPLICAS = "kafka.replicas";
@@ -138,6 +156,20 @@ public final class KafkaKinds {
                         AttributeSpec.config(CONFIG_PREFIX + "min.insync.replicas", true, false),
                         AttributeSpec.status(TOPIC_ID),
                         AttributeSpec.status(INTERNAL))));
+        kinds.add(kind(
+                BROKER_CONFIG,
+                KindLabel.of("Broker configuration", "Broker configurations"),
+                ResourceClass.CONFIGURATION,
+                Set.of(LIST, GET, UPDATE),
+                Optional.empty(),
+                List.of(
+                        AttributeSpec.config(CONFIG_PREFIX + "message.max.bytes", true, false),
+                        AttributeSpec.config(CONFIG_PREFIX + "log.cleaner.threads", true, false),
+                        AttributeSpec.config(CONFIG_PREFIX + "log.retention.ms", true, false),
+                        AttributeSpec.config(CONFIG_PREFIX + "num.io.threads", true, false),
+                        AttributeSpec.config(CONFIG_PREFIX + "num.network.threads", true, false),
+                        AttributeSpec.status(CONFIG_READ_ONLY),
+                        AttributeSpec.status(CONFIG_SOURCES))));
         kinds.add(kind(
                 PARTITION,
                 KindLabel.of("Partition", "Partitions"),

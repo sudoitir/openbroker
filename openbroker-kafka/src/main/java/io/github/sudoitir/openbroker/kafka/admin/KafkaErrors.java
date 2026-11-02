@@ -12,6 +12,7 @@ import java.util.Map;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.errors.AuthenticationException;
 import org.apache.kafka.common.errors.AuthorizationException;
+import org.apache.kafka.common.errors.ClusterAuthorizationException;
 import org.apache.kafka.common.errors.DisconnectException;
 import org.apache.kafka.common.errors.GroupIdNotFoundException;
 import org.apache.kafka.common.errors.InvalidConfigurationException;
@@ -117,6 +118,13 @@ public final class KafkaErrors {
                         ErrorReasons.CREDENTIALS_REJECTED,
                         Dispatch.NOT_SENT,
                         "The cluster rejected these credentials");
+            case ClusterAuthorizationException e ->
+                new Mapped(
+                        Status.PERMISSION_DENIED,
+                        ErrorReasons.NOT_AUTHORIZED,
+                        Dispatch.REJECTED,
+                        "The account is not authorized for this cluster-level operation: it needs the Describe or"
+                                + " Alter operation on the cluster resource");
             case AuthorizationException e ->
                 new Mapped(
                         Status.PERMISSION_DENIED,
@@ -163,7 +171,8 @@ public final class KafkaErrors {
                         Status.INVALID_ARGUMENT,
                         ErrorReasons.INVALID_ARGUMENT,
                         Dispatch.REJECTED,
-                        "The cluster refused the request");
+                        "The cluster refused the request; if it changed a setting, that setting may not be dynamic and"
+                                + " can then only be changed in server.properties with a restart");
             case InvalidPartitionsException e ->
                 new Mapped(
                         Status.INVALID_ARGUMENT,
