@@ -105,7 +105,7 @@ class PollingNotificationsTest {
         ResourceId made = ResourceId.of("test.thing", "made");
         PollingNotifications watch = watching(listing);
 
-        try (AutoCloseable subscription = watch.subscribe(Scope.whole(), heard)) {
+        try (var _ = watch.subscribe(Scope.whole(), heard)) {
             assertThat(heard.next()).isInstanceOfSatisfying(Gap.class, g -> {
                 assertThat(g.node()).isEqualTo(NODE);
                 assertThat(g.cause()).isEqualTo(Gap.Cause.STARTED);
@@ -129,7 +129,7 @@ class PollingNotificationsTest {
         Heard heard = new Heard();
         PollingNotifications watch = watching(listing);
 
-        try (AutoCloseable subscription = watch.subscribe(Scope.whole(), heard)) {
+        try (var _ = watch.subscribe(Scope.whole(), heard)) {
             assertThat(heard.next()).isInstanceOf(Gap.class);
             listing.failure = new BrokerException(
                     Status.UNAVAILABLE, ErrorInfo.of("UNREACHABLE"), Dispatch.IN_DOUBT, NODE, "down");
@@ -141,6 +141,50 @@ class PollingNotificationsTest {
             assertThat(heard.next())
                     .isInstanceOfSatisfying(
                             Gap.class, g -> assertThat(g.cause()).isEqualTo(Gap.Cause.STARTED));
+        }
+    }
+
+    @Test
+    void aResourceOnANodeTheReadDidNotNameIsNewsOfTheNodeThatAnswered() throws Exception {
+        // A cluster read as one answers for itself; what it lists is placed on its own members.
+        NodeId cluster = NodeId.of("cluster");
+        List<ResourceId> present = new CopyOnWriteArrayList<>();
+        Resources wholeCluster = new Resources() {
+            @Override
+            public Partial<List<ResourcePage>> read(List<ResourceQuery> queries) {
+                List<Resource> items = present.stream()
+                        .map(id -> new Resource(
+                                id,
+                                Attributes.empty(),
+                                List.of(),
+                                List.of(Placement.instance(NodeId.of("member-1"), Attributes.empty())),
+                                Instant.now()))
+                        .toList();
+                return Partial.complete(List.of(new ResourcePage(items, Optional.empty())), Set.of(cluster));
+            }
+
+            @Override
+            public List<Kind> kinds() {
+                return List.of();
+            }
+        };
+        Heard heard = new Heard();
+        ResourceId made = ResourceId.of("test.thing", "made");
+        PollingNotifications watch = new PollingNotifications(
+                wholeCluster,
+                List.of(ResourceQuery.of(ResourceClass.DESTINATION)),
+                Duration.ofMillis(20),
+                Clock.systemUTC(),
+                100);
+
+        try (var _ = watch.subscribe(Scope.whole(), heard)) {
+            assertThat(heard.next())
+                    .isInstanceOfSatisfying(Gap.class, g -> assertThat(g.node()).isEqualTo(cluster));
+            present.add(made);
+            assertThat(heard.next()).isInstanceOfSatisfying(BrokerEvent.class, e -> {
+                assertThat(e.type()).isEqualTo(EventTypes.RESOURCE_CREATED);
+                assertThat(e.subject()).contains(made);
+            });
         }
     }
 }

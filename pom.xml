@@ -7,7 +7,7 @@
     <groupId>io.github.sudoitir</groupId>
     <artifactId>openbroker-parent</artifactId>
     <!-- Stays a SNAPSHOT in git; the release workflow sets the tag's version in its working tree. -->
-    <version>0.7.0-SNAPSHOT</version>
+    <version>0.9.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>OpenBroker</name>
@@ -41,6 +41,7 @@
         <module>openbroker-tck</module>
         <module>openbroker-artemis</module>
         <module>openbroker-kafka</module>
+        <module>openbroker-rabbitmq</module>
         <module>openbroker-opentelemetry</module>
         <module>openbroker-spring-boot-autoconfigure</module>
         <module>openbroker-spring-boot-starter</module>
@@ -55,13 +56,14 @@
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 
         <!-- The last version on Central; japicmp compares against it. Raise it after each release. -->
-        <openbroker.previous.version>0.6.1</openbroker.previous.version>
+        <openbroker.previous.version>0.8.0</openbroker.previous.version>
         <!-- While 0.x a breaking change raises the minor version (ADR-0008), which japicmp cannot
              express: it holds 0.x to full SemVer or not at all. CI sets this to false when the minor
              version is above the previous release's, so that bump declares the break. -->
         <openbroker.api.strictZero>true</openbroker.api.strictZero>
 
         <kafka.version>4.4.0</kafka.version>
+        <amqp.client.version>5.37.0</amqp.client.version>
         <jspecify.version>1.0.0</jspecify.version>
         <artemis.version>2.57.0</artemis.version>
         <!-- The Artemis client's own tree asks for two slf4j versions; this one is Artemis's. -->
@@ -101,8 +103,8 @@
         <sonar.organization>sudoitir</sonar.organization>
         <sonar.projectKey>sudoitir_openbroker</sonar.projectKey>
         <sonar.host.url>https://sonarcloud.io</sonar.host.url>
-        <!-- The Artemis and Kafka drivers' aggregates, and the Spring module's, one for each broker its integration tests ran against. -->
-        <sonar.coverage.jacoco.xmlReportPaths>${maven.multiModuleProjectDirectory}/openbroker-artemis/target/site/jacoco-aggregate/jacoco.xml,${maven.multiModuleProjectDirectory}/openbroker-coverage/target/site/jacoco-aggregate/jacoco.xml,${maven.multiModuleProjectDirectory}/openbroker-spring-boot-autoconfigure/target/site/jacoco-aggregate-artemis/jacoco.xml,${maven.multiModuleProjectDirectory}/openbroker-spring-boot-autoconfigure/target/site/jacoco-aggregate-kafka/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
+        <!-- The Artemis, Kafka and RabbitMQ drivers' aggregates, and the Spring module's, one for each broker its integration tests ran against. -->
+        <sonar.coverage.jacoco.xmlReportPaths>${maven.multiModuleProjectDirectory}/openbroker-artemis/target/site/jacoco-aggregate/jacoco.xml,${maven.multiModuleProjectDirectory}/openbroker-coverage/target/site/jacoco-aggregate/jacoco.xml,${maven.multiModuleProjectDirectory}/openbroker-rabbitmq/target/site/jacoco-aggregate/jacoco.xml,${maven.multiModuleProjectDirectory}/openbroker-spring-boot-autoconfigure/target/site/jacoco-aggregate-artemis/jacoco.xml,${maven.multiModuleProjectDirectory}/openbroker-spring-boot-autoconfigure/target/site/jacoco-aggregate-kafka/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
 
         <!--
             The TCK is a library of assertions that ships in src/main for drivers' tests to extend, so
@@ -142,6 +144,11 @@
             </dependency>
             <dependency>
                 <groupId>io.github.sudoitir</groupId>
+                <artifactId>openbroker-rabbitmq</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.sudoitir</groupId>
                 <artifactId>openbroker-opentelemetry</artifactId>
                 <version>${project.version}</version>
             </dependency>
@@ -174,6 +181,11 @@
                 <groupId>org.apache.kafka</groupId>
                 <artifactId>kafka-clients</artifactId>
                 <version>${kafka.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.rabbitmq</groupId>
+                <artifactId>amqp-client</artifactId>
+                <version>${amqp.client.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.opentelemetry</groupId>

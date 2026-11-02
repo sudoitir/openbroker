@@ -42,6 +42,11 @@ public final class ErrorReasons {
     public static final String DUPLICATE_REJECTED = "DUPLICATE_REJECTED";
     public static final String DESTINATION_FULL = "DESTINATION_FULL";
     public static final String INVALID_FILTER = "INVALID_FILTER";
+    /**
+     * The system took the message and no subscription received it (status {@code FAILED_PRECONDITION}). A driver
+     * reports it whenever the system says so.
+     */
+    public static final String NOT_ROUTED = "NOT_ROUTED";
 
     /** A sender's buffer had no room within its {@code maxBlock}. */
     public static final String SEND_BUFFER_FULL = "SEND_BUFFER_FULL";

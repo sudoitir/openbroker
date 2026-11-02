@@ -1,0 +1,3 @@
+[
+  {"vhost": "/", "name": "cap", "pattern": ".*", "apply-to": "queues", "priority": 1, "definition": {"max-length": 50000}}
+]

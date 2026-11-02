@@ -25,6 +25,7 @@ import io.github.sudoitir.openbroker.model.Verb;
 import io.github.sudoitir.openbroker.operation.AttributeChange;
 import io.github.sudoitir.openbroker.operation.Direction;
 import io.github.sudoitir.openbroker.operation.Estimate;
+import io.github.sudoitir.openbroker.operation.EtagBasis;
 import io.github.sudoitir.openbroker.operation.Operation;
 import io.github.sudoitir.openbroker.operation.OperationResult;
 import io.github.sudoitir.openbroker.operation.Operations;
@@ -99,6 +100,7 @@ public final class ArtemisOperations implements Operations {
                     Set.of(),
                     new Estimate(Count.exact(1), RESOURCE),
                     etag(resource, List.of()),
+                    EtagBasis.CONFIGURATION,
                     PreconditionEnforcement.CHECKED_BEFORE);
         }
         List<NodeState> states = states(resource, scope, deadline);
@@ -127,7 +129,13 @@ public final class ArtemisOperations implements Operations {
                         new Estimate(Count.exact(consumersOf(resource, present, deadline)), "consumer");
                     default -> new Estimate(Count.exact(present.size()), RESOURCE);
                 };
-        return new Preview(diff, replace, estimate, etag(resource, states), PreconditionEnforcement.CHECKED_BEFORE);
+        return new Preview(
+                diff,
+                replace,
+                estimate,
+                etag(resource, states),
+                EtagBasis.INCARNATION,
+                PreconditionEnforcement.CHECKED_BEFORE);
     }
 
     @Override

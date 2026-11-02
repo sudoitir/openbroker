@@ -1,0 +1,15 @@
+[
+  {
+    "name": "rabbit@alpha", "running": true, "mem_alarm": false, "disk_free_alarm": false, "partitions": [],
+    "enabled_plugins": ["rabbitmq_management", "rabbitmq_event_exchange", "rabbitmq_shovel", "rabbitmq_shovel_management", "rabbitmq_stream"],
+    "applications": [{"name": "rabbit", "description": "RabbitMQ", "version": "3.13.7"}, {"name": "ra", "version": "2.9.1"}]
+  },
+  {
+    "name": "rabbit@beta", "running": true, "mem_alarm": true, "disk_free_alarm": false, "partitions": ["rabbit@gamma"],
+    "enabled_plugins": ["rabbitmq_management", "rabbitmq_event_exchange", "rabbitmq_shovel"],
+    "applications": [{"name": "rabbit", "version": "3.13.6"}]
+  },
+  {
+    "name": "rabbit@gamma", "running": false
+  }
+]

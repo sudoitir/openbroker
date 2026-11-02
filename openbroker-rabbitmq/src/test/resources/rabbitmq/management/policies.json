@@ -1,0 +1,4 @@
+[
+  {"vhost": "/", "name": "ha", "pattern": "^payments", "apply-to": "queues", "priority": 5, "definition": {"max-length": 10000, "overflow": "reject-publish", "federation-upstream-set": "all"}},
+  {"vhost": "sales", "name": "ttl", "pattern": ".*", "apply-to": "all", "priority": 0, "definition": {"message-ttl": 60000}}
+]

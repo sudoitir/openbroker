@@ -59,6 +59,7 @@ import io.github.sudoitir.openbroker.notification.EventTypes;
 import io.github.sudoitir.openbroker.notification.Gap;
 import io.github.sudoitir.openbroker.notification.NotificationListener;
 import io.github.sudoitir.openbroker.notification.StreamState;
+import io.github.sudoitir.openbroker.operation.EtagBasis;
 import io.github.sudoitir.openbroker.operation.Operation;
 import io.github.sudoitir.openbroker.operation.OperationResult;
 import io.github.sudoitir.openbroker.operation.Precondition;
@@ -346,6 +347,10 @@ public abstract class OpenBrokerTck {
             assertThat(grown.failures()).isEmpty();
 
             Preview second = connection.operations().preview(id, Operation.purge(), Scope.whole());
+            assumeTrue(
+                    second.basis() == EtagBasis.INCARNATION,
+                    "The etag holds no system-assigned identity (" + second.basis()
+                            + "), so a recreated resource is not told apart");
             delete(id);
             createSubscription(id);
             Partial<OperationResult> recreated = connection
@@ -502,6 +507,7 @@ public abstract class OpenBrokerTck {
 
     @Test
     void aReceiverBoundedByProductionTimeReadsOnlyWhatWasProducedBefore() {
+        assumeVerb(Verb.BROWSE);
         Transport transport = transport();
         ResourceId id = createSubscription();
         try {
@@ -525,6 +531,7 @@ public abstract class OpenBrokerTck {
 
     @Test
     void aBrowsingReceiverLeavesTheMessagesWhereTheyAre() {
+        assumeVerb(Verb.BROWSE);
         Transport transport = transport();
         ResourceId id = createSubscription();
         try {
@@ -675,6 +682,7 @@ public abstract class OpenBrokerTck {
 
     @Test
     void aConsumerAttachedEventNamesItsSubscriptionUnderTheStandardKey() throws Exception {
+        assumeVerb(Verb.RECEIVE);
         assumeTrue(connection.notifications().isPresent(), "The driver offers no notifications");
         assumeTrue(connection.transport().isPresent(), "The driver offers no transport");
         BlockingQueue<BrokerEvent> received = new LinkedBlockingQueue<>();

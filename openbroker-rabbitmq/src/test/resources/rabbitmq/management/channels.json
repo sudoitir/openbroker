@@ -1,0 +1,6 @@
+{
+  "items": [
+    {"name": "10.0.0.5:52114 -> 10.0.0.1:5672 (1)", "connection_details": {"name": "10.0.0.5:52114 -> 10.0.0.1:5672", "peer_host": "10.0.0.5", "peer_port": 52114}, "vhost": "/", "user": "app", "node": "rabbit@alpha", "prefetch_count": 20, "messages_unacknowledged": 3, "confirm": true, "transactional": false, "consumer_count": 2, "state": "running"}
+  ],
+  "page": 1, "page_count": 1, "page_size": 500, "total_count": 1
+}

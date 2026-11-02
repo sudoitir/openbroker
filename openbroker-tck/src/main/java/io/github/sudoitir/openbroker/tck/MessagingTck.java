@@ -275,8 +275,8 @@ public abstract class MessagingTck {
                             id,
                             Scope.whole(),
                             ProcessorOptions.defaults()
-                                    .withOrdering(ordering)
-                                    .withConcurrency(ordering == OrderingScope.SUBSCRIPTION ? 1 : 2),
+                                    .withConcurrency(ordering == OrderingScope.SUBSCRIPTION ? 1 : 2)
+                                    .withOrdering(ordering),
                             ctx -> Disposition.accept())
                     .close());
         }
@@ -579,11 +579,14 @@ public abstract class MessagingTck {
         List<Message> rest = drain(transport, id, 4, SECONDS_15, QUIET);
         assertThat(rest).hasSize(4);
         assertThat(seqs(rest)).doesNotContainAnyElementsOf(finished);
+        // The hand-back is a release that is not a failed delivery: it leaves the count only where the kind declares
+        // so.
+        int allowed = subscription().releaseCountsDelivery() ? 2 : 1;
         assertThat(rest)
                 .allSatisfy(m -> m.headers()
                         .deliveryCount()
                         .ifPresent(count ->
-                                assertThat(count).as("handed back uncounted").isLessThanOrEqualTo(1)));
+                                assertThat(count).as("handed back as a release").isLessThanOrEqualTo(allowed)));
     }
 
     /** A sender that is not transacted is safe to use from several threads at once. */
@@ -978,6 +981,9 @@ public abstract class MessagingTck {
                         .withThreshold(Duration.ZERO)
                         .withStackTrace();
                 recording.start();
+                // The JDK initialises its throwable tracing on the first exception made once a recording runs; do
+                // that here, so a lane that is interrupted first does not wait for it on a carrier and look pinned.
+                new InterruptedException().getMessage();
                 Processor processor = transport.process(
                         id, Scope.whole(), ProcessorOptions.defaults().withConcurrency(4), ctx -> {
                             Thread.sleep(2);

@@ -1,0 +1,4 @@
+[
+  {"consumer_tag": "amq.ctag-AbC", "ack_required": true, "prefetch_count": 20, "active": true, "exclusive": false, "activity_status": "up", "queue": {"name": "orders", "vhost": "/"}, "channel_details": {"name": "10.0.0.5:52114 -> 10.0.0.1:5672 (1)", "connection_name": "10.0.0.5:52114 -> 10.0.0.1:5672", "node": "rabbit@alpha"}},
+  {"consumer_tag": "pay-1", "ack_required": false, "prefetch_count": 0, "active": false, "exclusive": true, "queue": {"name": "payments", "vhost": "/"}, "channel_details": {"name": "10.0.0.6:40001 -> 10.0.0.2:5672 (1)", "connection_name": "10.0.0.6:40001 -> 10.0.0.2:5672", "node": "rabbit@beta"}}
+]
