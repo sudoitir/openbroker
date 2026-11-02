@@ -21,6 +21,7 @@ import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
+import org.jspecify.annotations.Nullable;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -153,42 +154,52 @@ public final class RabbitMqCluster implements AutoCloseable {
             throw RabbitMqErrors.invalid("A data endpoint's address is host:port, such as rabbit.example.com:"
                     + defaultPort + ", not '" + redact(address) + "'.");
         }
-        String host = address;
-        String portText = null;
-        int close = address.indexOf(']');
-        if (address.startsWith("[") && close > 0) {
-            host = address.substring(0, close + 1);
-            String rest = address.substring(close + 1);
-            if (rest.startsWith(":")) {
-                portText = rest.substring(1);
-            } else if (!rest.isEmpty()) {
-                throw RabbitMqErrors.invalid("A data endpoint's address is host:port, not '" + address + "'.");
-            }
-        } else {
-            int colon = address.indexOf(':');
-            if (colon >= 0) {
-                if (address.indexOf(':', colon + 1) >= 0) {
-                    throw RabbitMqErrors.invalid("Put an IPv6 address in brackets: [::1]:" + defaultPort + ".");
-                }
-                host = address.substring(0, colon);
-                portText = address.substring(colon + 1);
-            }
-        }
-        int port = defaultPort;
-        if (portText != null) {
-            try {
-                port = Integer.parseInt(portText);
-            } catch (NumberFormatException _) {
-                throw RabbitMqErrors.invalid("The port of a data endpoint is a number, not '" + portText + "'.");
-            }
-            if (port < 1 || port > 65535) {
-                throw RabbitMqErrors.invalid("The port of a data endpoint is 1 to 65535, not " + port + ".");
-            }
-        }
-        if (host.isBlank()) {
+        HostText split =
+                address.startsWith("[") && address.indexOf(']') > 0 ? bracketed(address) : plain(address, defaultPort);
+        int port = split.portText() == null ? defaultPort : port(split.portText());
+        if (split.host().isBlank()) {
             throw RabbitMqErrors.invalid("A data endpoint's address names a host.");
         }
-        return new HostPort(host, port);
+        return new HostPort(split.host(), port);
+    }
+
+    /** A host and the text after its colon, if there is one. */
+    private record HostText(String host, @Nullable String portText) {}
+
+    private static HostText bracketed(String address) {
+        int close = address.indexOf(']');
+        String rest = address.substring(close + 1);
+        if (rest.startsWith(":")) {
+            return new HostText(address.substring(0, close + 1), rest.substring(1));
+        }
+        if (!rest.isEmpty()) {
+            throw RabbitMqErrors.invalid("A data endpoint's address is host:port, not '" + address + "'.");
+        }
+        return new HostText(address.substring(0, close + 1), null);
+    }
+
+    private static HostText plain(String address, int defaultPort) {
+        int colon = address.indexOf(':');
+        if (colon < 0) {
+            return new HostText(address, null);
+        }
+        if (address.indexOf(':', colon + 1) >= 0) {
+            throw RabbitMqErrors.invalid("Put an IPv6 address in brackets: [::1]:" + defaultPort + ".");
+        }
+        return new HostText(address.substring(0, colon), address.substring(colon + 1));
+    }
+
+    private static int port(String portText) {
+        int port;
+        try {
+            port = Integer.parseInt(portText);
+        } catch (NumberFormatException _) {
+            throw RabbitMqErrors.invalid("The port of a data endpoint is a number, not '" + portText + "'.");
+        }
+        if (port < 1 || port > 65535) {
+            throw RabbitMqErrors.invalid("The port of a data endpoint is 1 to 65535, not " + port + ".");
+        }
+        return port;
     }
 
     private static List<Target> resolve(ClusterSpec spec) {

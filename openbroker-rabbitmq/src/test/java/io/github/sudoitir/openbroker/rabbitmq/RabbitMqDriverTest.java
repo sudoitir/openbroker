@@ -63,13 +63,13 @@ class RabbitMqDriverTest {
 
     @Test
     void httpAndHttpsManagementEndpointsWithOptionalAmqpDataEndpointsAreAccepted() {
-        assertThatCode(() -> RabbitMqDriver.requireShape(spec(List.of(management("http")), Map.of())))
-                .doesNotThrowAnyException();
-        assertThatCode(() -> RabbitMqDriver.requireShape(spec(List.of(management("https")), Map.of())))
-                .doesNotThrowAnyException();
-        assertThatCode(() -> RabbitMqDriver.requireShape(spec(
-                        List.of(management("https"), Endpoint.of(Plane.DATA, "amqps", "localhost:5671")), Map.of())))
-                .doesNotThrowAnyException();
+        ClusterSpec http = spec(List.of(management("http")), Map.of());
+        ClusterSpec https = spec(List.of(management("https")), Map.of());
+        ClusterSpec secured =
+                spec(List.of(management("https"), Endpoint.of(Plane.DATA, "amqps", "localhost:5671")), Map.of());
+        assertThatCode(() -> RabbitMqDriver.requireShape(http)).doesNotThrowAnyException();
+        assertThatCode(() -> RabbitMqDriver.requireShape(https)).doesNotThrowAnyException();
+        assertThatCode(() -> RabbitMqDriver.requireShape(secured)).doesNotThrowAnyException();
     }
 
     @Test

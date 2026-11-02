@@ -14,6 +14,7 @@ import io.github.sudoitir.openbroker.NodeId;
 import io.github.sudoitir.openbroker.NodeSpec;
 import io.github.sudoitir.openbroker.Plane;
 import io.github.sudoitir.openbroker.Status;
+import io.github.sudoitir.openbroker.model.ResourceId;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
@@ -95,7 +96,8 @@ class RabbitMqClusterTest {
             assertThat(e.dispatch()).isEqualTo(Dispatch.NOT_SENT);
         }
         NodeSpec node = new NodeSpec(NodeId.of("n"), List.of(Endpoint.of(Plane.DATA, "amqp", "h:x")));
-        assertThatThrownBy(() -> cluster(List.of(), List.of(node))).isInstanceOf(BrokerException.class);
+        List<NodeSpec> nodeSpecs = List.of(node);
+        assertThatThrownBy(() -> cluster(List.of(), nodeSpecs)).isInstanceOf(BrokerException.class);
     }
 
     @Test
@@ -103,7 +105,7 @@ class RabbitMqClusterTest {
         String slashes = "/".repeat(200_000);
         RabbitMqCluster cluster =
                 cluster(List.of(Endpoint.of(Plane.MANAGEMENT, "http", "http://a:1/rabbit" + slashes)), List.of());
-        assertThat(cluster.managementTargets().getFirst().base().toString()).isEqualTo("http://a:1/rabbit");
+        assertThat(cluster.managementTargets().getFirst().base()).hasToString("http://a:1/rabbit");
     }
 
     @Test
@@ -116,13 +118,13 @@ class RabbitMqClusterTest {
         ClusterSpec bad = new ClusterSpec(List.of(), List.of(Endpoint.of(Plane.MANAGEMENT, "http", "a:1")), Map.of());
         assertThatThrownBy(() -> cluster.reconfigure(bad)).isInstanceOf(BrokerException.class);
         assertThat(changed).hasValue(0);
-        assertThat(cluster.managementTargets().getFirst().base().toString()).isEqualTo("http://a:1");
+        assertThat(cluster.managementTargets().getFirst().base()).hasToString("http://a:1");
         ClusterSpec good =
                 new ClusterSpec(List.of(), List.of(Endpoint.of(Plane.MANAGEMENT, "http", "http://b:2")), Map.of());
         cluster.reconfigure(good);
         assertThat(changed).hasValue(1);
         assertThat(cluster.spec()).isSameAs(good);
-        assertThat(cluster.managementTargets().getFirst().base().toString()).isEqualTo("http://b:2");
+        assertThat(cluster.managementTargets().getFirst().base()).hasToString("http://b:2");
         cluster.close();
         assertThat(closed).hasValue(1);
     }
@@ -133,7 +135,8 @@ class RabbitMqClusterTest {
         Deadline open = Deadline.after(Duration.ofSeconds(5), Clock.systemUTC());
         assertThat(cluster.call("op", Optional.empty(), open, () -> "done")).isEqualTo("done");
         Deadline passed = Deadline.after(Duration.ofSeconds(-1), Clock.systemUTC());
-        assertThatThrownBy(() -> cluster.call("op", Optional.empty(), passed, () -> "never"))
+        Optional<ResourceId> noSubject = Optional.empty();
+        assertThatThrownBy(() -> cluster.call("op", noSubject, passed, () -> "never"))
                 .isInstanceOfSatisfying(BrokerException.class, e -> {
                     assertThat(e.status()).isEqualTo(Status.DEADLINE_EXCEEDED);
                     assertThat(e.dispatch()).isEqualTo(Dispatch.NOT_SENT);

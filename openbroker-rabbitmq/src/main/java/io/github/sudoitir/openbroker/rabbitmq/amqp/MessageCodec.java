@@ -201,17 +201,7 @@ public final class MessageCodec {
         origin(raw, properties.getMessageId(), headers);
         Map<String, PropertyValue> values = new LinkedHashMap<>();
         Map<String, Object> structured = new LinkedHashMap<>();
-        raw.forEach((name, value) -> {
-            if (DELIVERY_COUNT.equals(name) || ACQUIRED_COUNT.equals(name) || value == null) {
-                return;
-            }
-            PropertyValue scalar = scalar(value);
-            if (scalar != null) {
-                values.put(name, scalar);
-            } else {
-                structured.put(HEADER_PREFIX + name, plain(value));
-            }
-        });
+        sortHeaders(raw, values, structured);
         Attributes.Builder extension = Attributes.builder();
         structured.forEach(extension::putRaw);
         put(extension, EXCHANGE, envelope.getExchange());
@@ -241,7 +231,7 @@ public final class MessageCodec {
     }
 
     private static Object header(PropertyValue value) {
-        return value instanceof PropertyValue.OfBytes bytes ? bytes.value().toByteArray() : value.boxed();
+        return value instanceof PropertyValue.OfBytes(var blob) ? blob.toByteArray() : value.boxed();
     }
 
     private static void refuse(boolean present, String what) {
@@ -269,6 +259,22 @@ public final class MessageCodec {
                 headers.originId(id);
             }
         }
+    }
+
+    /** Files each delivered header as a scalar property or, when it is not one, as a structured extension value. */
+    private static void sortHeaders(
+            Map<String, Object> raw, Map<String, PropertyValue> values, Map<String, Object> structured) {
+        raw.forEach((name, value) -> {
+            if (DELIVERY_COUNT.equals(name) || ACQUIRED_COUNT.equals(name) || value == null) {
+                return;
+            }
+            PropertyValue scalar = scalar(value);
+            if (scalar != null) {
+                values.put(name, scalar);
+            } else {
+                structured.put(HEADER_PREFIX + name, plain(value));
+            }
+        });
     }
 
     private static @Nullable PropertyValue scalar(Object value) {

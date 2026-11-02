@@ -136,7 +136,9 @@ final class FakeManagement implements AutoCloseable {
                     exchange.getResponseBody().flush();
                 }
                 try {
-                    release.await(30, TimeUnit.SECONDS);
+                    if (!release.await(30, TimeUnit.SECONDS)) {
+                        exchange.close();
+                    }
                 } catch (InterruptedException _) {
                     Thread.currentThread().interrupt();
                 }

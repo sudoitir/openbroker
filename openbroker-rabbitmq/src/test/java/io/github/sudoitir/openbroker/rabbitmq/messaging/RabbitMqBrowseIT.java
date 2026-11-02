@@ -104,7 +104,9 @@ class RabbitMqBrowseIT {
         ResourceId queue = ResourceId.of("rabbitmq.classic-queue", "/", name);
         try {
             send(queue, 2);
-            assertThatThrownBy(() -> messages.browse(queue, Scope.whole(), request(Position.earliest(), 5)))
+            Scope whole = Scope.whole();
+            BrowseRequest browse = request(Position.earliest(), 5);
+            assertThatThrownBy(() -> messages.browse(queue, whole, browse))
                     .isInstanceOfSatisfying(BrokerException.class, e -> {
                         assertThat(e.status()).isEqualTo(Status.UNIMPLEMENTED);
                         assertThat(e.info().reason()).isEqualTo(ErrorReasons.NOT_SUPPORTED);

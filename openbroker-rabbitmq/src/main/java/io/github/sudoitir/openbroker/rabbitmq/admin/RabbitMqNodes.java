@@ -134,18 +134,18 @@ final class RabbitMqNodes implements Nodes {
     private static boolean selected(Scope scope, String name) {
         return switch (scope) {
             case Scope.Whole _ -> true;
-            case Scope.Shards s ->
-                s.shards().stream()
+            case Scope.Shards(Set<Shard> shards) ->
+                shards.stream()
                         .anyMatch(shard -> shard instanceof Shard.NodeInstance(NodeId node)
                                 && node.value().equals(name));
         };
     }
 
     private static void requireAll(Scope scope, List<NodeDescription> found) {
-        if (!(scope instanceof Scope.Shards shards)) {
+        if (!(scope instanceof Scope.Shards(Set<Shard> shards))) {
             return;
         }
-        for (Shard shard : shards.shards()) {
+        for (Shard shard : shards) {
             if (!(shard instanceof Shard.NodeInstance(NodeId node))) {
                 throw RabbitMqErrors.invalid("RabbitMQ has no partitions; scope work to nodes.");
             }
@@ -204,6 +204,10 @@ final class RabbitMqNodes implements Nodes {
                 Optional.empty());
     }
 
+    private static String alarmKind(boolean memory) {
+        return memory ? "memory" : "disk space";
+    }
+
     private static List<Condition> conditions(boolean memory, boolean disk, boolean running, List<String> partitions) {
         boolean alarm = memory || disk;
         boolean partitioned = !partitions.isEmpty();
@@ -212,7 +216,7 @@ final class RabbitMqNodes implements Nodes {
                         ConditionTypes.FULL,
                         alarm ? ConditionStatus.TRUE : ConditionStatus.FALSE,
                         alarmReason(memory, disk),
-                        alarm ? "The node raised a " + (memory ? "memory" : "disk space") + " alarm." : "",
+                        alarm ? "The node raised a " + alarmKind(memory) + " alarm." : "",
                         Optional.empty()),
                 new Condition(
                         ConditionTypes.SERVING,

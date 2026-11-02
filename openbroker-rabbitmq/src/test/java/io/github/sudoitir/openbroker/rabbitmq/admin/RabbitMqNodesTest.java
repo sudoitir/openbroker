@@ -123,10 +123,12 @@ class RabbitMqNodesTest {
         assertThat(nodes.describe(Scope.node(NodeId.of("rabbit@beta"))).value())
                 .extracting(NodeDescription::nativeId)
                 .containsExactly("rabbit@beta");
-        assertThatThrownBy(() -> nodes.describe(Scope.node(NodeId.of("rabbit@nowhere"))))
+        Scope nowhere = Scope.node(NodeId.of("rabbit@nowhere"));
+        assertThatThrownBy(() -> nodes.describe(nowhere))
                 .isInstanceOfSatisfying(
                         BrokerException.class, e -> assertThat(e.status()).isEqualTo(Status.NOT_FOUND));
-        assertThatThrownBy(() -> nodes.describe(Scope.shards(Set.of(Shard.partition(PartitionId.of("0"))))))
+        Scope partition = Scope.shards(Set.of(Shard.partition(PartitionId.of("0"))));
+        assertThatThrownBy(() -> nodes.describe(partition))
                 .isInstanceOfSatisfying(
                         BrokerException.class, e -> assertThat(e.status()).isEqualTo(Status.INVALID_ARGUMENT));
     }
@@ -148,7 +150,8 @@ class RabbitMqNodesTest {
         try (FakeManagement other = new FakeManagement()) {
             other.json("GET", "/api/overview", "overview.json").respond("GET", "/api/nodes", 200, Map.of(), "{}");
             RabbitMqNodes broken = new RabbitMqNodes(FakeManagement.cluster(other.endpoint()));
-            assertThatThrownBy(() -> broken.describe(Scope.whole())).isInstanceOf(BrokerException.class);
+            Scope whole = Scope.whole();
+            assertThatThrownBy(() -> broken.describe(whole)).isInstanceOf(BrokerException.class);
         }
     }
 }

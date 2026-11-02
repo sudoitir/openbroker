@@ -35,6 +35,8 @@ import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 class RabbitMqResourcesTest {
 
@@ -616,17 +618,15 @@ class RabbitMqResourcesTest {
                 .respond("GET", "/api/policies", 200, Map.of("Content-Type", "application/json"), "{}")) {
             RabbitMqResources reading = new RabbitMqResources(FakeManagement.cluster(odd.endpoint()));
 
-            assertThatThrownBy(() ->
-                            reading.read(ResourceQuery.of(RabbitMqKinds.POLICY)).orThrow())
-                    .isInstanceOf(BrokerException.class);
+            ResourceQuery policies = ResourceQuery.of(RabbitMqKinds.POLICY);
+            assertThatThrownBy(() -> reading.read(policies).orThrow()).isInstanceOf(BrokerException.class);
         }
     }
 
     @Test
     void aQueueOfAnUnlistedTypeIsRefusedWhenReadDirectly() {
         Queues queues = new Queues(FakeManagement.cluster(server.endpoint()));
-        tools.jackson.databind.JsonNode json = new tools.jackson.databind.json.JsonMapper()
-                .readTree("{\"name\":\"m\",\"vhost\":\"/\",\"type\":\"mqtt-qos0\"}");
+        JsonNode json = new JsonMapper().readTree("{\"name\":\"m\",\"vhost\":\"/\",\"type\":\"mqtt-qos0\"}");
 
         assertThatThrownBy(() -> queues.read(json)).isInstanceOf(BrokerException.class);
     }

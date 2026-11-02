@@ -11,15 +11,19 @@ import static org.mockito.Mockito.verify;
 import com.rabbitmq.client.AMQP;
 import com.rabbitmq.client.CancelCallback;
 import com.rabbitmq.client.Channel;
+import com.rabbitmq.client.ConfirmCallback;
 import com.rabbitmq.client.DeliverCallback;
 import com.rabbitmq.client.Delivery;
 import com.rabbitmq.client.Envelope;
 import io.github.sudoitir.openbroker.BrokerException;
+import io.github.sudoitir.openbroker.messaging.Backoff;
 import io.github.sudoitir.openbroker.messaging.Disposition;
 import io.github.sudoitir.openbroker.messaging.LinkState;
 import io.github.sudoitir.openbroker.messaging.Message;
 import io.github.sudoitir.openbroker.messaging.Processor;
 import io.github.sudoitir.openbroker.messaging.ProcessorOptions;
+import io.github.sudoitir.openbroker.messaging.ReceiverOptions;
+import io.github.sudoitir.openbroker.messaging.RetryMode;
 import io.github.sudoitir.openbroker.messaging.RetryPolicy;
 import io.github.sudoitir.openbroker.messaging.SendTarget;
 import io.github.sudoitir.openbroker.messaging.SenderOptions;
@@ -71,7 +75,8 @@ class RabbitMqLanesTest {
         assertThat(lane.next(Duration.ofMillis(20))).isEmpty();
         lane.settle(message, new Disposition.Reject(Optional.of("no")));
         verify(fixtures.channels.get(0)).basicReject(4, false);
-        assertThatThrownBy(() -> lane.sender(SendTarget.subscription(QUEUE))).isInstanceOf(BrokerException.class);
+        SendTarget target = SendTarget.subscription(QUEUE);
+        assertThatThrownBy(() -> lane.sender(target)).isInstanceOf(BrokerException.class);
         lane.close();
         assertThat(lanes.state()).isEqualTo(LinkState.CLOSED);
         lanes.close();
@@ -80,8 +85,7 @@ class RabbitMqLanesTest {
 
     @Test
     void aRejectGoesToThePolicysTargetBeforeItIsAcknowledged() throws Exception {
-        RetryPolicy policy = RetryPolicy.managed(3, io.github.sudoitir.openbroker.messaging.Backoff.defaults())
-                .withDeadLetter(SendTarget.subscription(DEAD));
+        RetryPolicy policy = RetryPolicy.managed(3, Backoff.defaults()).withDeadLetter(SendTarget.subscription(DEAD));
         ProcessorOptions options = ProcessorOptions.defaults().withRetry(policy);
         DeadLetterSink.Senders dead = new DeadLetterSink.Senders(fixtures.env, policy);
         RabbitMqLanes lanes = new RabbitMqLanes(fixtures.env, "p", QUEUE, options, dead);
@@ -97,7 +101,7 @@ class RabbitMqLanesTest {
         Channel publishing = fixtures.channel(2);
         verify(publishing, timeout(10_000))
                 .basicPublish(eq(""), eq("dead"), eq(true), any(AMQP.BasicProperties.class), any());
-        com.rabbitmq.client.ConfirmCallback ack = confirm(publishing);
+        ConfirmCallback ack = confirm(publishing);
         ack.handle(1, false);
         verify(consuming, timeout(10_000)).basicAck(4, false);
         settling.join(TimeUnit.SECONDS.toMillis(10));
@@ -105,10 +109,9 @@ class RabbitMqLanesTest {
         dead.close();
     }
 
-    private static com.rabbitmq.client.ConfirmCallback confirm(Channel channel) {
-        ArgumentCaptor<com.rabbitmq.client.ConfirmCallback> ack =
-                ArgumentCaptor.forClass(com.rabbitmq.client.ConfirmCallback.class);
-        verify(channel).addConfirmListener(ack.capture(), any(com.rabbitmq.client.ConfirmCallback.class));
+    private static ConfirmCallback confirm(Channel channel) {
+        ArgumentCaptor<ConfirmCallback> ack = ArgumentCaptor.forClass(ConfirmCallback.class);
+        verify(channel).addConfirmListener(ack.capture(), any(ConfirmCallback.class));
         return ack.getValue();
     }
 
@@ -122,7 +125,7 @@ class RabbitMqLanesTest {
                     return Disposition.accept();
                 });
         assertThat(processor.state()).isEqualTo(LinkState.OPEN);
-        assertThat(processor.retry().mode()).isEqualTo(io.github.sudoitir.openbroker.messaging.RetryMode.SYSTEM);
+        assertThat(processor.retry().mode()).isEqualTo(RetryMode.SYSTEM);
         Channel channel = fixtures.channels.get(0);
         deliver(channel, 7);
         assertThat(handled.await(10, TimeUnit.SECONDS)).isTrue();
@@ -135,10 +138,9 @@ class RabbitMqLanesTest {
     }
 
     @Test
-    void aTransportOpensReceiversAndSenders() throws Exception {
+    void aTransportOpensReceiversAndSenders() {
         RabbitMqTransport transport = new RabbitMqTransport(fixtures.cluster, fixtures.connections);
-        var receiver = transport.receiver(
-                QUEUE, Scope.whole(), io.github.sudoitir.openbroker.messaging.ReceiverOptions.consume());
+        var receiver = transport.receiver(QUEUE, Scope.whole(), ReceiverOptions.consume());
         var sender = transport.sender(SendTarget.subscription(DEAD), Scope.whole(), SenderOptions.defaults());
         assertThat(receiver.state()).isEqualTo(LinkState.OPEN);
         assertThat(sender.state()).isEqualTo(LinkState.OPEN);

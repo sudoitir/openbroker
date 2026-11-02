@@ -93,7 +93,8 @@ class RabbitMqTlsIT {
 
     @Test
     void anHttpsEndpointWithoutTlsMaterialIsRefused() {
-        assertThatThrownBy(() -> drivers.verify(request(ConnectOptions.defaults())))
+        ConnectRequest request = request(ConnectOptions.defaults());
+        assertThatThrownBy(() -> drivers.verify(request))
                 .isInstanceOfSatisfying(
                         BrokerException.class, e -> assertThat(e.status()).isEqualTo(Status.INVALID_ARGUMENT));
     }

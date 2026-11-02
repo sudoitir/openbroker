@@ -43,6 +43,8 @@ final class Writes {
     private static final String TOPIC_FIELD = "exchange";
     private static final String ABSENT = "absent";
     private static final String AUTO_DELETE_FIELD = "auto_delete";
+    private static final String DURABLE_FIELD = "durable";
+    private static final String WRITE_FIELD = "write";
 
     private final RabbitMqCluster cluster;
 
@@ -242,16 +244,24 @@ final class Writes {
             put(out, RabbitMqKinds.DEFAULT_QUEUE_TYPE, json.path("default_queue_type"));
         } else if (kind.equals(RabbitMqKinds.EXCHANGE)) {
             put(out, RabbitMqKinds.EXCHANGE_TYPE, json.path("type"));
-            put(out, DURABLE, json.path("durable"));
+            put(out, DURABLE, json.path(DURABLE_FIELD));
             put(out, RabbitMqKinds.AUTO_DELETE, json.path(AUTO_DELETE_FIELD));
             put(out, RabbitMqKinds.INTERNAL, json.path("internal"));
             arguments(out, json.path(ARGUMENTS));
         } else if (isQueue(kind)) {
-            put(out, DURABLE, json.path("durable"));
+            put(out, DURABLE, json.path(DURABLE_FIELD));
             put(out, RabbitMqKinds.AUTO_DELETE, json.path(AUTO_DELETE_FIELD));
             arguments(out, json.path(ARGUMENTS));
             out.remove(RabbitMqKinds.ARGUMENT_PREFIX + QUEUE_TYPE_ARGUMENT);
-        } else if (kind.equals(RabbitMqKinds.BINDING) || kind.equals(RabbitMqKinds.EXCHANGE_BINDING)) {
+        } else {
+            policyAttributes(kind, json, out);
+        }
+        return out;
+    }
+
+    /** {@link #attributes} for the bindings, the policies, the permissions and the shovels. */
+    private static void policyAttributes(KindId kind, JsonNode json, Map<String, Object> out) {
+        if (kind.equals(RabbitMqKinds.BINDING) || kind.equals(RabbitMqKinds.EXCHANGE_BINDING)) {
             put(out, FILTER, json.path("routing_key"));
             arguments(out, json.path(ARGUMENTS));
         } else if (kind.equals(RabbitMqKinds.POLICY) || kind.equals(RabbitMqKinds.OPERATOR_POLICY)) {
@@ -263,15 +273,14 @@ final class Writes {
             }
         } else if (kind.equals(RabbitMqKinds.PERMISSION)) {
             put(out, RabbitMqKinds.CONFIGURE, json.path("configure"));
-            put(out, RabbitMqKinds.WRITE, json.path("write"));
+            put(out, RabbitMqKinds.WRITE, json.path(WRITE_FIELD));
             put(out, RabbitMqKinds.READ, json.path("read"));
         } else if (kind.equals(RabbitMqKinds.TOPIC_PERMISSION)) {
-            put(out, RabbitMqKinds.WRITE, json.path("write"));
+            put(out, RabbitMqKinds.WRITE, json.path(WRITE_FIELD));
             put(out, RabbitMqKinds.READ, json.path("read"));
         } else if (kind.equals(RabbitMqKinds.SHOVEL)) {
             out.put(SHOVEL_DEFINITION, json.path("value").toString());
         }
-        return out;
     }
 
     private static void put(Map<String, Object> out, String key, JsonNode value) {
@@ -319,12 +328,12 @@ final class Writes {
                 throw RabbitMqErrors.invalid("An exchange needs " + RabbitMqKinds.EXCHANGE_TYPE + ".");
             }
             body.put("type", type);
-            body.put("durable", flag(attributes, DURABLE, true));
+            body.put(DURABLE_FIELD, flag(attributes, DURABLE, true));
             body.put(AUTO_DELETE_FIELD, flag(attributes, RabbitMqKinds.AUTO_DELETE, false));
             body.put("internal", flag(attributes, RabbitMqKinds.INTERNAL, false));
             body.set(ARGUMENTS, argumentsNode(attributes, Map.of()));
         } else if (isQueue(kind)) {
-            body.put("durable", flag(attributes, DURABLE, true));
+            body.put(DURABLE_FIELD, flag(attributes, DURABLE, true));
             body.put(AUTO_DELETE_FIELD, flag(attributes, RabbitMqKinds.AUTO_DELETE, false));
             ObjectNode arguments = argumentsNode(
                     attributes,
@@ -334,7 +343,16 @@ final class Writes {
                             RabbitMqKinds.MAX_LENGTH_BYTES, "x-max-length-bytes"));
             arguments.put(QUEUE_TYPE_ARGUMENT, queueType(kind));
             body.set(ARGUMENTS, arguments);
-        } else if (kind.equals(RabbitMqKinds.BINDING) || kind.equals(RabbitMqKinds.EXCHANGE_BINDING)) {
+        } else {
+            routedBody(id, attributes, body);
+        }
+        return body;
+    }
+
+    /** {@link #body} for the bindings, the policies and the permissions. */
+    private void routedBody(ResourceId id, Map<String, Object> attributes, ObjectNode body) {
+        KindId kind = id.kind();
+        if (kind.equals(RabbitMqKinds.BINDING) || kind.equals(RabbitMqKinds.EXCHANGE_BINDING)) {
             body.put("routing_key", string(attributes, FILTER, ""));
             body.set(ARGUMENTS, argumentsNode(attributes, Map.of()));
         } else if (kind.equals(RabbitMqKinds.POLICY) || kind.equals(RabbitMqKinds.OPERATOR_POLICY)) {
@@ -353,17 +371,16 @@ final class Writes {
             });
         } else if (kind.equals(RabbitMqKinds.PERMISSION)) {
             body.put("configure", string(attributes, RabbitMqKinds.CONFIGURE, ""));
-            body.put("write", string(attributes, RabbitMqKinds.WRITE, ""));
+            body.put(WRITE_FIELD, string(attributes, RabbitMqKinds.WRITE, ""));
             body.put("read", string(attributes, RabbitMqKinds.READ, ""));
         } else if (kind.equals(RabbitMqKinds.TOPIC_PERMISSION)) {
             body.put(
                     TOPIC_FIELD, ManagementPaths.serverName(id.path().segments().get(2)));
-            body.put("write", string(attributes, RabbitMqKinds.WRITE, ""));
+            body.put(WRITE_FIELD, string(attributes, RabbitMqKinds.WRITE, ""));
             body.put("read", string(attributes, RabbitMqKinds.READ, ""));
         } else {
             throw RabbitMqErrors.invalid(kind + " is not created through the management API by this driver.");
         }
-        return body;
     }
 
     private ObjectNode argumentsNode(Map<String, Object> attributes, Map<String, String> renamed) {

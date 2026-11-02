@@ -188,24 +188,8 @@ public final class RabbitMqMessages implements Messages, AutoCloseable {
     @Override
     public SendReceipt send(SendTarget target, Scope scope, OutboundMessage message) {
         Deadline deadline = Deadlines.current(cluster.options());
-        ResourceId destination;
-        String exchange;
-        String routingKey;
-        switch (target) {
-            case SendTarget.ToSubscription to -> {
-                destination = to.subscription();
-                exchange = "";
-                routingKey = to.subscription().name();
-            }
-            case SendTarget.ToDestination to -> {
-                if (to.partition().isPresent()) {
-                    throw RabbitMqErrors.invalid("A RabbitMQ destination has no partitions to send to.");
-                }
-                destination = to.destination();
-                exchange = DEFAULT_EXCHANGE_ID.equals(destination.name()) ? "" : destination.name();
-                routingKey = to.routingKey().orElse("");
-            }
-        }
+        Route route = route(target);
+        ResourceId destination = route.destination();
         if (destination.path().segments().size() != 2) {
             throw RabbitMqErrors.invalid("A queue, a stream or an exchange is named by its virtual host and its name.");
         }
@@ -220,17 +204,36 @@ public final class RabbitMqMessages implements Messages, AutoCloseable {
         AMQP.BasicProperties properties = MessageCodec.properties(message);
         byte[] body = MessageCodec.body(message);
         return cluster.call("messages.send", Optional.of(destination), deadline, () -> {
-            AmqpCalls calls = new AmqpCalls(connections, cluster.options().clock());
-            if (isExchange) {
-                if (!exchange.isEmpty()) {
-                    calls.exchangeDeclarePassive(vhost, exchange, deadline);
-                }
-            } else {
-                calls.queueDeclarePassive(vhost, destination.name(), deadline);
-            }
-            publish(vhost, exchange, routingKey, properties, body, destination, deadline);
+            declarePassive(vhost, route, isExchange, deadline);
+            publish(vhost, route.exchange(), route.routingKey(), properties, body, destination, deadline);
             return new SendReceipt(message.headers().id(), Optional.empty(), Optional.empty(), false);
         });
+    }
+
+    /** Where a send goes: the destination, the exchange to publish to and the routing key. */
+    private record Route(ResourceId destination, String exchange, String routingKey) {}
+
+    private static Route route(SendTarget target) {
+        return switch (target) {
+            case SendTarget.ToSubscription(var subscription) -> new Route(subscription, "", subscription.name());
+            case SendTarget.ToDestination(var destination, var key, var partition) -> {
+                if (partition.isPresent()) {
+                    throw RabbitMqErrors.invalid("A RabbitMQ destination has no partitions to send to.");
+                }
+                String exchange = DEFAULT_EXCHANGE_ID.equals(destination.name()) ? "" : destination.name();
+                yield new Route(destination, exchange, key.orElse(""));
+            }
+        };
+    }
+
+    /** Checks, before anything is published, that the exchange or the queue the send names exists. */
+    private void declarePassive(String vhost, Route route, boolean isExchange, Deadline deadline) {
+        AmqpCalls calls = new AmqpCalls(connections, cluster.options().clock());
+        if (!isExchange) {
+            calls.queueDeclarePassive(vhost, route.destination().name(), deadline);
+        } else if (!route.exchange().isEmpty()) {
+            calls.exchangeDeclarePassive(vhost, route.exchange(), deadline);
+        }
     }
 
     private static boolean isQueue(String kind) {
@@ -269,6 +272,7 @@ public final class RabbitMqMessages implements Messages, AutoCloseable {
         } catch (TimeoutException _) {
             throw Deadlines.exceeded(RabbitMqCluster.CLUSTER, Dispatch.IN_DOUBT);
         } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             throw Deadlines.cancelled(RabbitMqCluster.CLUSTER, e);
         } finally {
             closeQuietly(channel);

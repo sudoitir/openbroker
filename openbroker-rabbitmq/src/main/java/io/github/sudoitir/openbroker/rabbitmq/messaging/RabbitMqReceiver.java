@@ -62,6 +62,7 @@ final class RabbitMqReceiver implements Receiver {
 
     private static final int MAX_QOS = 65535;
     private static final Set<KindId> QUEUES = Set.of(RabbitMqKinds.CLASSIC_QUEUE, RabbitMqKinds.QUORUM_QUEUE);
+    private static final String CHANNEL = "The channel";
     private static final System.Logger LOG = System.getLogger(RabbitMqReceiver.class.getName());
 
     /** The channel of one generation of the link. */
@@ -226,7 +227,7 @@ final class RabbitMqReceiver implements Receiver {
 
     private void lost(int number, Throwable cause) {
         if (!closed && supervisor != null && number == generation.get()) {
-            supervisor.lost(LinkEnv.down("The channel", cause));
+            supervisor.lost(LinkEnv.down(CHANNEL, cause));
         }
     }
 

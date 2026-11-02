@@ -98,6 +98,11 @@ final class RabbitMqAccess implements Access {
         if (!read.available()) {
             return Assessment.unknown(NOT_ASSESSED);
         }
+        return managed(capability, read);
+    }
+
+    /** {@link #check} for the capabilities that depend on the management API being readable. */
+    private Assessment managed(Capability capability, Read read) {
         if (Capability.MANAGEMENT_WRITE.equals(capability)) {
             return write(read);
         }

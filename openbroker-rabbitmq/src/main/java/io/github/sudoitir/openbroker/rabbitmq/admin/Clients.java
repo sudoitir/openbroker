@@ -97,7 +97,7 @@ final class Clients {
     }
 
     private Resource consumer(JsonNode json) {
-        String vhost = json.path("queue").path("vhost").asString();
+        String vhost = json.path("queue").path(VHOST).asString();
         String queue = json.path("queue").path("name").asString();
         JsonNode channelDetails = json.path("channel_details");
         String channel = channelDetails.path("name").asString();

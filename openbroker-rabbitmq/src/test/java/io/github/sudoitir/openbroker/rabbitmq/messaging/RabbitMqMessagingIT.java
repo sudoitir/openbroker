@@ -115,7 +115,8 @@ class RabbitMqMessagingIT {
                 SendTarget.destination(ResourceId.of("rabbitmq.exchange", "/", exchange)),
                 Scope.whole(),
                 SenderOptions.defaults())) {
-            assertThatThrownBy(() -> sender.send(text("lost"))).isInstanceOfSatisfying(BrokerException.class, e -> {
+            OutboundMessage lost = text("lost");
+            assertThatThrownBy(() -> sender.send(lost)).isInstanceOfSatisfying(BrokerException.class, e -> {
                 assertThat(e.status()).isEqualTo(Status.FAILED_PRECONDITION);
                 assertThat(e.reason()).isEqualTo(ErrorReasons.NOT_ROUTED);
             });
@@ -124,8 +125,8 @@ class RabbitMqMessagingIT {
 
     @Test
     void aMissingTargetIsNotFoundAtOpen() {
-        assertThatThrownBy(() -> transport.sender(
-                        SendTarget.subscription(queue(unique("missing"))), Scope.whole(), SenderOptions.defaults()))
+        SendTarget missing = SendTarget.subscription(queue(unique("missing")));
+        assertThatThrownBy(() -> transport.sender(missing, Scope.whole(), SenderOptions.defaults()))
                 .isInstanceOfSatisfying(
                         BrokerException.class, e -> assertThat(e.status()).isEqualTo(Status.NOT_FOUND));
     }
@@ -172,7 +173,7 @@ class RabbitMqMessagingIT {
         String name = unique("loss");
         admin.declareQueue("/", name, "quorum");
         EVENTS.clear();
-        try (AutoCloseable ignored = transport.watch(EVENTS::add);
+        try (AutoCloseable _ = transport.watch(EVENTS::add);
                 Receiver receiver = transport.receiver(queue(name), Scope.whole(), ReceiverOptions.consume())) {
             for (var connection : admin.get("/api/connections")) {
                 if (connection.path("user_provided_name").asString().startsWith("openbroker")) {

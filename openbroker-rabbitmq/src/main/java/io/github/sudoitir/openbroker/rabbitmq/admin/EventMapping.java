@@ -104,10 +104,9 @@ final class EventMapping {
                 return binding(key, h, vhost);
             }
             case "parameter.set", "parameter.cleared" -> {
-                if ("shovel".equals(text(h, "component").orElse(""))) {
-                    String type = key.endsWith("set") ? EventTypes.RESOURCE_CREATED : EventTypes.RESOURCE_DELETED;
-                    return new Mapped(type, Optional.of(resource(RabbitMqKinds.SHOVEL, vhost, name)));
-                }
+                return "shovel".equals(text(h, "component").orElse(""))
+                        ? shovel(key, vhost, name)
+                        : generic(key, h, data);
             }
             case "consumer.created", "consumer.deleted" -> {
                 return consumer(key, h, vhost, queueKind, data);
@@ -116,7 +115,7 @@ final class EventMapping {
                 return connection(key, h, name, data);
             }
             case "channel.created", "channel.closed" -> {
-                String type = key.endsWith("created") ? EventTypes.CHANNEL_OPENED : EventTypes.CHANNEL_CLOSED;
+                String type = key.endsWith(CREATED) ? EventTypes.CHANNEL_OPENED : EventTypes.CHANNEL_CLOSED;
                 ResourceId channel = resource(RabbitMqKinds.CHANNEL, name);
                 data.put(StandardAttributes.CHANNEL, channel);
                 return new Mapped(type, Optional.of(channel));
@@ -126,6 +125,11 @@ final class EventMapping {
             }
         }
         return generic(key, h, data);
+    }
+
+    private static Mapped shovel(String key, String vhost, String name) {
+        String type = key.endsWith("set") ? EventTypes.RESOURCE_CREATED : EventTypes.RESOURCE_DELETED;
+        return new Mapped(type, Optional.of(resource(RabbitMqKinds.SHOVEL, vhost, name)));
     }
 
     private static Mapped change(String key, ResourceId subject) {
@@ -159,7 +163,7 @@ final class EventMapping {
         data.put(StandardAttributes.SUBSCRIPTION, subscription);
         data.put(StandardAttributes.CONSUMER, consumer);
         data.put(StandardAttributes.CHANNEL, resource(RabbitMqKinds.CHANNEL, channel));
-        String type = key.endsWith("created") ? EventTypes.CONSUMER_ATTACHED : EventTypes.CONSUMER_DETACHED;
+        String type = key.endsWith(CREATED) ? EventTypes.CONSUMER_ATTACHED : EventTypes.CONSUMER_DETACHED;
         return new Mapped(type, Optional.of(subscription));
     }
 
@@ -170,7 +174,7 @@ final class EventMapping {
         text(h, "client_properties.connection_name")
                 .or(() -> Optional.of(name).filter(n -> !n.isEmpty()))
                 .ifPresent(client -> data.put(StandardAttributes.CLIENT_ID, client));
-        String type = key.endsWith("created") ? EventTypes.CLIENT_CONNECTED : EventTypes.CLIENT_DISCONNECTED;
+        String type = key.endsWith(CREATED) ? EventTypes.CLIENT_CONNECTED : EventTypes.CLIENT_DISCONNECTED;
         return new Mapped(type, Optional.of(resource(RabbitMqKinds.CONNECTION, name)));
     }
 

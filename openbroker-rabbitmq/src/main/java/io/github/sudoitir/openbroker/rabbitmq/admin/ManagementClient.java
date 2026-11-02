@@ -172,6 +172,7 @@ public final class ManagementClient {
             call.cancel(true);
             throw RabbitMqErrors.fromIo(e, true);
         } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             call.cancel(true);
             throw Deadlines.cancelled(target.node(), e);
         }
@@ -200,8 +201,8 @@ public final class ManagementClient {
 
     private static void authorize(HttpRequest.Builder request, Credentials credentials) {
         switch (credentials) {
-            case Credentials.UsernamePassword account -> {
-                String pair = account.username() + ":" + account.password().reveal();
+            case Credentials.UsernamePassword(var username, var password) -> {
+                String pair = username + ":" + password.reveal();
                 request.header(
                         "Authorization",
                         "Basic " + Base64.getEncoder().encodeToString(pair.getBytes(StandardCharsets.UTF_8)));

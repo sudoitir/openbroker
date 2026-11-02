@@ -27,7 +27,12 @@ import java.util.Set;
 /** Every {@link KindId} of the driver, its {@code rabbitmq.*} attribute keys and its {@link Kind} declarations. */
 public final class RabbitMqKinds {
 
-    public static final KindId VHOST = KindId.of("rabbitmq.vhost");
+    /** The attribute that names a virtual host, and the text of its kind id. */
+    public static final String VHOST_NAME = "rabbitmq.vhost";
+    /** The name of the policy that applies to a queue, if one does; also the text of the policy kind id. */
+    public static final String EFFECTIVE_POLICY = "rabbitmq.policy";
+
+    public static final KindId VHOST = KindId.of(VHOST_NAME);
     public static final KindId EXCHANGE = KindId.of("rabbitmq.exchange");
     public static final KindId CLASSIC_QUEUE = KindId.of("rabbitmq.classic-queue");
     public static final KindId QUORUM_QUEUE = KindId.of("rabbitmq.quorum-queue");
@@ -36,7 +41,7 @@ public final class RabbitMqKinds {
     public static final KindId EXCHANGE_BINDING = KindId.of("rabbitmq.exchange-binding");
     public static final KindId SHOVEL = KindId.of("rabbitmq.shovel");
     public static final KindId FEDERATION_LINK = KindId.of("rabbitmq.federation-link");
-    public static final KindId POLICY = KindId.of("rabbitmq.policy");
+    public static final KindId POLICY = KindId.of(EFFECTIVE_POLICY);
     public static final KindId OPERATOR_POLICY = KindId.of("rabbitmq.operator-policy");
     public static final KindId PERMISSION = KindId.of("rabbitmq.permission");
     public static final KindId TOPIC_PERMISSION = KindId.of("rabbitmq.topic-permission");
@@ -58,8 +63,6 @@ public final class RabbitMqKinds {
     public static final String INTERNAL = "rabbitmq.internal";
     public static final String DELIVERY_LIMIT = "rabbitmq.delivery_limit";
     public static final String LEADER = "rabbitmq.leader";
-    /** The name of the policy that applies to a queue, if one does. */
-    public static final String EFFECTIVE_POLICY = "rabbitmq.policy";
 
     public static final String MAX_AGE = "rabbitmq.max_age";
     public static final String MAX_LENGTH_BYTES = "rabbitmq.max_length_bytes";
@@ -71,7 +74,6 @@ public final class RabbitMqKinds {
     public static final String CONFIGURE = "rabbitmq.configure";
     public static final String WRITE = "rabbitmq.write";
     public static final String READ = "rabbitmq.read";
-    public static final String VHOST_NAME = "rabbitmq.vhost";
     public static final String CHANNELS = "rabbitmq.channels";
     public static final String PREFETCH_COUNT = "rabbitmq.prefetch_count";
     public static final String UNACKED = "rabbitmq.unacked";

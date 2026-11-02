@@ -38,6 +38,7 @@ import io.github.sudoitir.openbroker.model.KindId;
 import io.github.sudoitir.openbroker.model.ResourceId;
 import io.github.sudoitir.openbroker.model.Scope;
 import io.github.sudoitir.openbroker.model.StandardAttributes;
+import io.github.sudoitir.openbroker.rabbitmq.admin.ManagementClient;
 import io.github.sudoitir.openbroker.rabbitmq.admin.RabbitMqCluster;
 import io.github.sudoitir.openbroker.rabbitmq.admin.RabbitMqKinds;
 import io.github.sudoitir.openbroker.rabbitmq.messaging.RabbitMqTransport;
@@ -330,7 +331,7 @@ class RabbitMqChaosIT extends ChaosTck {
         List<LinkEvent> events = new CopyOnWriteArrayList<>();
         try (RabbitMqCluster rabbit = connect();
                 RabbitMqTransport transport = new RabbitMqTransport(rabbit);
-                AutoCloseable ignored = transport.watch(events::add);
+                AutoCloseable _ = transport.watch(events::add);
                 Receiver receiver = transport.receiver(id(name), Scope.whole(), ReceiverOptions.consume())) {
             for (int i = 0; i < count; i++) {
                 cluster.publish(name, Integer.toString(i));
@@ -402,8 +403,9 @@ class RabbitMqChaosIT extends ChaosTck {
         Duration within = Duration.ofSeconds(3);
         try (RabbitMqCluster rabbit = connect()) {
             long started = System.nanoTime();
-            assertThatThrownBy(() -> rabbit.management()
-                            .get("/api/overview", Map.of(), deadline(rabbit, within), "chaos.overview"))
+            ManagementClient management = rabbit.management();
+            Deadline limit = deadline(rabbit, within);
+            assertThatThrownBy(() -> management.get("/api/overview", Map.of(), limit, "chaos.overview"))
                     .isInstanceOfSatisfying(
                             BrokerException.class,
                             e -> assertThat(e.status()).isIn(Status.DEADLINE_EXCEEDED, Status.UNAVAILABLE));

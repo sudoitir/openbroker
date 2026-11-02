@@ -166,10 +166,10 @@ final class RabbitMqResources implements Resources {
 
     private static Set<String> nodes(Scope scope) {
         Set<String> nodes = new HashSet<>();
-        if (scope instanceof Scope.Shards shards) {
-            for (Shard shard : shards.shards()) {
-                if (shard instanceof Shard.NodeInstance node) {
-                    nodes.add(node.node().value());
+        if (scope instanceof Scope.Shards(Set<Shard> shards)) {
+            for (Shard shard : shards) {
+                if (shard instanceof Shard.NodeInstance(NodeId node)) {
+                    nodes.add(node.value());
                 } else {
                     throw RabbitMqErrors.invalid("RabbitMQ has no partitions; scope work to nodes.");
                 }
@@ -193,10 +193,8 @@ final class RabbitMqResources implements Resources {
                 found.items().stream().map(r -> project(r, query)).toList(), next);
     }
 
-    /** Reads pages from {@code first} until {@code limit} resources are found, or all of them when it is 0. */
-    private Found serverRead(
-            KindId kind, ResourceQuery query, Set<String> nodes, int first, int limit, Deadline deadline) {
-        Feed feed = feeds.get(kind);
+    /** The query parameters that make the management API filter, sort and cut a listing as {@code query} asks. */
+    private Map<String, String> listParams(KindId kind, ResourceQuery query, int limit) {
         Map<String, String> params = new LinkedHashMap<>();
         int size = limit > 0 ? Math.min(limit, Listing.MAX_PAGE_SIZE) : Listing.MAX_PAGE_SIZE;
         params.put("page_size", Integer.toString(size));
@@ -213,6 +211,14 @@ final class RabbitMqResources implements Resources {
             params.put("disable_stats", "true");
             params.put("enable_queue_totals", "true");
         }
+        return params;
+    }
+
+    /** Reads pages from {@code first} until {@code limit} resources are found, or all of them when it is 0. */
+    private Found serverRead(
+            KindId kind, ResourceQuery query, Set<String> nodes, int first, int limit, Deadline deadline) {
+        Feed feed = feeds.get(kind);
+        Map<String, String> params = listParams(kind, query, limit);
         String path = path(feed, query);
         List<Resource> out = new ArrayList<>();
         int page = first;
@@ -220,22 +226,28 @@ final class RabbitMqResources implements Resources {
             params.put("page", Integer.toString(page));
             JsonNode body =
                     cluster.management().get(path, params, deadline, LISTING).body();
-            JsonNode items = body.isArray() ? body : body.path("items");
             int pages = body.isArray() ? 1 : body.path("page_count").asInt(1);
-            for (JsonNode item : items) {
-                if (selected(feed, kind, item, query)) {
-                    Resource resource = read(kind, item);
-                    if (onNodes(resource, nodes)) {
-                        out.add(resource);
-                    }
-                }
-            }
+            collect(feed, kind, body.isArray() ? body : body.path("items"), query, nodes, out);
             if (page >= pages) {
                 return new Found(out, 0);
             }
             page++;
             if (limit > 0 && !out.isEmpty()) {
                 return new Found(out, page);
+            }
+        }
+    }
+
+    /** Adds the resources of {@code items} that belong to {@code kind}, match {@code query} and sit on {@code nodes}. */
+    private void collect(
+            Feed feed, KindId kind, JsonNode items, ResourceQuery query, Set<String> nodes, List<Resource> out) {
+        for (JsonNode item : items) {
+            if (!selected(feed, kind, item, query)) {
+                continue;
+            }
+            Resource resource = read(kind, item);
+            if (onNodes(resource, nodes)) {
+                out.add(resource);
             }
         }
     }
@@ -298,18 +310,22 @@ final class RabbitMqResources implements Resources {
         return out;
     }
 
-    private List<Resource> shovels(Feed feed, ResourceQuery query, Deadline deadline) {
+    /** The runtime state of each shovel, by virtual host and name, when the broker has the shovel plugin. */
+    private Map<String, JsonNode> shovelStates(ResourceQuery query, Deadline deadline) {
         Map<String, JsonNode> states = new LinkedHashMap<>();
-        if (cluster.features().shovels()) {
-            String statuses = query.fieldSelector().containsKey(VHOST)
-                    ? "/api/shovels/"
-                            + ManagementPaths.segment(query.fieldSelector().get(VHOST))
-                    : "/api/shovels";
-            for (JsonNode state : list(statuses, deadline)) {
-                states.put(
-                        state.path(VHOST).asString() + '\0' + state.path(NAME).asString(), state);
-            }
+        if (!cluster.features().shovels()) {
+            return states;
         }
+        String vhost = query.fieldSelector().get(VHOST);
+        String statuses = vhost == null ? "/api/shovels" : "/api/shovels/" + ManagementPaths.segment(vhost);
+        for (JsonNode state : list(statuses, deadline)) {
+            states.put(state.path(VHOST).asString() + '\0' + state.path(NAME).asString(), state);
+        }
+        return states;
+    }
+
+    private List<Resource> shovels(Feed feed, ResourceQuery query, Deadline deadline) {
+        Map<String, JsonNode> states = shovelStates(query, deadline);
         List<Resource> out = new ArrayList<>();
         for (JsonNode parameter : array(feed, query, deadline)) {
             if (selected(feed, RabbitMqKinds.SHOVEL, parameter, query)) {
@@ -367,16 +383,7 @@ final class RabbitMqResources implements Resources {
 
     /** Whether {@code item} belongs to {@code kind} and matches the field selector. */
     private static boolean selected(Feed feed, KindId kind, JsonNode item, ResourceQuery query) {
-        if (isQueue(kind)) {
-            if (!Queues.kind(item.path("type").asString()).filter(kind::equals).isPresent()) {
-                return false;
-            }
-        } else if (RabbitMqKinds.BINDING.equals(kind) || RabbitMqKinds.EXCHANGE_BINDING.equals(kind)) {
-            if (Bindings.fromDefaultExchange(item) || !Bindings.kind(item).equals(kind)) {
-                return false;
-            }
-        } else if (RabbitMqKinds.PERMISSION.equals(kind) && item.has("exchange")
-                || RabbitMqKinds.TOPIC_PERMISSION.equals(kind) && !item.has("exchange")) {
+        if (!ofKind(kind, item)) {
             return false;
         }
         for (Map.Entry<String, String> selector : query.fieldSelector().entrySet()) {
@@ -384,6 +391,25 @@ final class RabbitMqResources implements Resources {
             if (!selector.getValue().equals(ReadSupport.at(item, field).asString())) {
                 return false;
             }
+        }
+        return true;
+    }
+
+    /** Whether {@code item}, from a feed that several kinds share, is one of {@code kind}. */
+    private static boolean ofKind(KindId kind, JsonNode item) {
+        if (isQueue(kind)) {
+            return Queues.kind(item.path("type").asString())
+                    .filter(kind::equals)
+                    .isPresent();
+        }
+        if (RabbitMqKinds.BINDING.equals(kind) || RabbitMqKinds.EXCHANGE_BINDING.equals(kind)) {
+            return !Bindings.fromDefaultExchange(item) && Bindings.kind(item).equals(kind);
+        }
+        if (RabbitMqKinds.PERMISSION.equals(kind)) {
+            return !item.has("exchange");
+        }
+        if (RabbitMqKinds.TOPIC_PERMISSION.equals(kind)) {
+            return item.has("exchange");
         }
         return true;
     }

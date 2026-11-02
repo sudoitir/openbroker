@@ -63,7 +63,8 @@ class ClusterFeaturesTest {
     @Test
     void refusesAnOlderVersionNamingWhatItFound() {
         server.json("GET", "/api/overview", "overview-3.12.json");
-        assertThatThrownBy(() -> features().require("[3.13.0,)")).isInstanceOfSatisfying(BrokerException.class, e -> {
+        ClusterFeatures subject = features();
+        assertThatThrownBy(() -> subject.require("[3.13.0,)")).isInstanceOfSatisfying(BrokerException.class, e -> {
             assertThat(e.status()).isEqualTo(Status.FAILED_PRECONDITION);
             assertThat(e.reason()).isEqualTo(ErrorReasons.UNSUPPORTED_VERSION);
             assertThat(e.getMessage()).contains("3.12.14").contains("[3.13.0,)");
@@ -73,32 +74,35 @@ class ClusterFeaturesTest {
     @Test
     void refusesAVersionAboveTheRangeAndOnTheExclusiveBound() {
         healthy();
-        assertThatThrownBy(() -> features().require("[3.0.0,3.13.7)")).isInstanceOf(BrokerException.class);
-        assertThatThrownBy(() -> features().require("(3.13.7,)")).isInstanceOf(BrokerException.class);
-        assertThatCode(() -> features().require("[3.13.7,3.13.7]")).doesNotThrowAnyException();
-        assertThatCode(() -> features().require("3.13.0")).doesNotThrowAnyException();
+        ClusterFeatures subject = features();
+        assertThatThrownBy(() -> subject.require("[3.0.0,3.13.7)")).isInstanceOf(BrokerException.class);
+        assertThatThrownBy(() -> subject.require("(3.13.7,)")).isInstanceOf(BrokerException.class);
+        assertThatCode(() -> subject.require("[3.13.7,3.13.7]")).doesNotThrowAnyException();
+        assertThatCode(() -> subject.require("3.13.0")).doesNotThrowAnyException();
     }
 
     @Test
     void readsAnIntervalWithBlanksAndSurvivesALongMalformedOne() {
         healthy();
-        assertThatCode(() -> features().require("[ 3.13.0 , )")).doesNotThrowAnyException();
-        assertThatCode(() -> features().require("[3.13.0,,4.0)")).doesNotThrowAnyException();
-        String adversarial = "[" + " ".repeat(200_000) + "1 2" + " ".repeat(200_000) + ",";
         ClusterFeatures features = features();
+        assertThatCode(() -> features.require("[ 3.13.0 , )")).doesNotThrowAnyException();
+        assertThatCode(() -> features.require("[3.13.0,,4.0)")).doesNotThrowAnyException();
+        String adversarial = "[" + " ".repeat(200_000) + "1 2" + " ".repeat(200_000) + ",";
         assertTimeoutPreemptively(Duration.ofSeconds(5), () -> features.require(adversarial));
     }
 
     @Test
     void aReleaseCandidateCountsByItsNumbers() {
         server.respond("GET", "/api/overview", 200, Map.of(), "{\"rabbitmq_version\":\"4.0.0-rc.2\"}");
-        assertThatCode(() -> features().require("[3.13.0,)")).doesNotThrowAnyException();
+        ClusterFeatures subject = features();
+        assertThatCode(() -> subject.require("[3.13.0,)")).doesNotThrowAnyException();
     }
 
     @Test
     void anAnswerWithoutAVersionIsNotRabbitMq() {
         server.json("GET", "/api/overview", "overview-no-version.json");
-        assertThatThrownBy(() -> features().require("[3.13.0,)"))
+        ClusterFeatures subject = features();
+        assertThatThrownBy(() -> subject.require("[3.13.0,)"))
                 .isInstanceOfSatisfying(
                         BrokerException.class, e -> assertThat(e.reason()).isEqualTo(ErrorReasons.UNEXPECTED_SYSTEM));
     }
@@ -106,13 +110,13 @@ class ClusterFeaturesTest {
     @Test
     void anAnswerThatIsNotJsonOrNotAnObjectIsNotRabbitMq() {
         server.respond("GET", "/api/overview", 200, Map.of(), "<html></html>");
-        assertThatThrownBy(() -> features().version())
+        assertThatThrownBy(features()::version)
                 .isInstanceOfSatisfying(
                         BrokerException.class, e -> assertThat(e.reason()).isEqualTo(ErrorReasons.UNEXPECTED_SYSTEM));
         server.close();
         server = new FakeManagement();
         server.respond("GET", "/api/overview", 200, Map.of(), "[1]");
-        assertThatThrownBy(() -> features().version())
+        assertThatThrownBy(features()::version)
                 .isInstanceOfSatisfying(
                         BrokerException.class, e -> assertThat(e.reason()).isEqualTo(ErrorReasons.UNEXPECTED_SYSTEM));
     }
@@ -120,13 +124,13 @@ class ClusterFeaturesTest {
     @Test
     void aVersionItCannotReadIsNotRabbitMq() {
         server.respond("GET", "/api/overview", 200, Map.of(), "{\"rabbitmq_version\":\"soon\"}");
-        assertThatThrownBy(() -> features().version()).isInstanceOf(BrokerException.class);
+        assertThatThrownBy(features()::version).isInstanceOf(BrokerException.class);
     }
 
     @Test
     void aFailedOverviewKeepsItsOwnReason() {
         server.respond("GET", "/api/overview", 500, Map.of(), "");
-        assertThatThrownBy(() -> features().version())
+        assertThatThrownBy(features()::version)
                 .isInstanceOfSatisfying(
                         BrokerException.class, e -> assertThat(e.reason()).isEqualTo(ErrorReasons.BAD_RESPONSE));
     }
@@ -190,7 +194,7 @@ class ClusterFeaturesTest {
     @Test
     void otherFailuresOfTheSecondaryReadsPropagate() {
         server.json("GET", "/api/overview", "overview.json").respond("GET", "/api/nodes", 503, Map.of(), "");
-        assertThatThrownBy(() -> features().plugins()).isInstanceOf(BrokerException.class);
+        assertThatThrownBy(features()::plugins).isInstanceOf(BrokerException.class);
         server.close();
         server = new FakeManagement();
         server.json("GET", "/api/overview", "overview.json")
