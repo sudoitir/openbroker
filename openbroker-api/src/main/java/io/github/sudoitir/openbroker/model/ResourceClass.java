@@ -37,5 +37,7 @@ public enum ResourceClass {
     /** A client receiving messages. */
     CONSUMER,
     /** A transaction the system tracks: an in-doubt XA transaction, a Kafka transactional id. */
-    TRANSACTION
+    TRANSACTION,
+    /** Settings of a node or of the whole cluster: Kafka broker and cluster-default configs, RabbitMQ runtime parameters. */
+    CONFIGURATION
 }
