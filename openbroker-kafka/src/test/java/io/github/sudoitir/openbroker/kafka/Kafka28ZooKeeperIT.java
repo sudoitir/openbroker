@@ -40,6 +40,8 @@ class Kafka28ZooKeeperIT {
 
     private static final KindId HANGING_TRANSACTION = KindId.of("kafka.hanging-transaction");
 
+    private static final KindId TRANSACTIONAL_ID = KindId.of("kafka.transactional-id");
+
     private static Network network;
     private static GenericContainer<?> zookeeper;
     private static ZooKeeperKafkaBroker broker;
@@ -111,23 +113,26 @@ class Kafka28ZooKeeperIT {
     }
 
     @Test
-    void theHangingTransactionKindIsNotListedAndReadingItNamesWhy() {
+    void theTransactionKindsAreNotListedAndReadingThemNamesWhy() {
         try (BrokerDrivers drivers = BrokerDrivers.load();
                 ClusterConnection connection = connect(drivers)) {
             assertThat(connection.resources().kinds().stream().map(k -> k.id().value()))
-                    .as("transactional ids are still listed; hanging transactions need Kafka 3.0")
-                    .contains("kafka.transactional-id")
-                    .doesNotContain(HANGING_TRANSACTION.value());
+                    .as("listing transactional ids and hanging transactions needs Kafka 3.0")
+                    .contains("kafka.topic")
+                    .doesNotContain(TRANSACTIONAL_ID.value(), HANGING_TRANSACTION.value());
 
-            assertThatThrownBy(() -> connection
-                            .resources()
-                            .read(ResourceQuery.of(HANGING_TRANSACTION))
-                            .orThrow())
-                    .isInstanceOfSatisfying(BrokerException.class, e -> {
-                        assertThat(e.status()).isEqualTo(Status.FAILED_PRECONDITION);
-                        assertThat(e.reason()).isEqualTo(ErrorReasons.NOT_SUPPORTED);
-                        assertThat(e.getMessage()).contains("Kafka 3.0 or later");
-                    });
+            for (KindId kind : List.of(TRANSACTIONAL_ID, HANGING_TRANSACTION)) {
+                assertThatThrownBy(() -> connection
+                                .resources()
+                                .read(ResourceQuery.of(kind))
+                                .orThrow())
+                        .as(kind.value())
+                        .isInstanceOfSatisfying(BrokerException.class, e -> {
+                            assertThat(e.status()).isEqualTo(Status.FAILED_PRECONDITION);
+                            assertThat(e.reason()).isEqualTo(ErrorReasons.NOT_SUPPORTED);
+                            assertThat(e.getMessage()).contains("Kafka 3.0 or later");
+                        });
+            }
         }
     }
 }

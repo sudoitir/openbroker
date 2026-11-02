@@ -271,8 +271,8 @@ public record ClusterFeatures(
 
     /**
      * Whether the cluster lists transactions and the producers in them (KIP-664), which Kafka 3.0 added. A 2.8
-     * cluster serves neither {@code ListTransactions} nor {@code DescribeTransactions}, so its transactions are not
-     * listed; the transactional ids themselves still are, from the coordinator's own requests.
+     * cluster serves neither {@code ListTransactions} nor {@code DescribeTransactions}, so neither its transactional
+     * ids nor its hanging transactions are listed.
      */
     public boolean transactions() {
         // A cluster reporting metadata.version at all is 3.0 or later; below that, only its API keys say it is.
