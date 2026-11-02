@@ -11,8 +11,10 @@ import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.errors.GroupAuthorizationException;
 import org.apache.kafka.common.errors.NotLeaderOrFollowerException;
 import org.apache.kafka.common.errors.SaslAuthenticationException;
+import org.apache.kafka.common.errors.SecurityDisabledException;
 import org.apache.kafka.common.errors.SslAuthenticationException;
 import org.apache.kafka.common.errors.TimeoutException;
+import org.apache.kafka.common.errors.TopicDeletionDisabledException;
 import org.apache.kafka.common.errors.TopicExistsException;
 import org.apache.kafka.common.errors.UnknownTopicOrPartitionException;
 import org.junit.jupiter.api.Test;
@@ -58,6 +60,31 @@ class KafkaErrorsTest {
                         .reason())
                 .isEqualTo(ErrorReasons.RESOURCE_GONE);
         assertThat(KafkaErrors.of(new TopicExistsException("t"), null).status()).isEqualTo(Status.ALREADY_EXISTS);
+    }
+
+    @Test
+    void aClusterWithoutAnAuthorizerSaysSoInsteadOfAnUnexpectedAnswer() {
+        BrokerException e = KafkaErrors.of(new SecurityDisabledException("no authorizer"), null);
+
+        assertThat(e.status()).isEqualTo(Status.FAILED_PRECONDITION);
+        assertThat(e.reason()).isEqualTo(ErrorReasons.NOT_SUPPORTED);
+        assertThat(e.getMessage()).contains("authorizer.class.name");
+    }
+
+    @Test
+    void disabledTopicDeletionIsAPreconditionThatNamesTheSetting() {
+        BrokerException e = KafkaErrors.of(new TopicDeletionDisabledException("off"), null);
+
+        assertThat(e.status()).isEqualTo(Status.FAILED_PRECONDITION);
+        assertThat(e.getMessage()).contains("delete.topic.enable");
+    }
+
+    @Test
+    void anUnmappedKafkaErrorNamesItsClassSoItCanBeFoundInTheDocs() {
+        BrokerException e = KafkaErrors.of(new KafkaException("weird"), null);
+
+        assertThat(e.reason()).isEqualTo(ErrorReasons.UNEXPECTED_SYSTEM);
+        assertThat(e.getMessage()).contains("KafkaException", "weird");
     }
 
     @Test

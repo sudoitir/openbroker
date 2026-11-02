@@ -16,11 +16,16 @@ import org.apache.kafka.common.errors.DisconnectException;
 import org.apache.kafka.common.errors.GroupIdNotFoundException;
 import org.apache.kafka.common.errors.InvalidConfigurationException;
 import org.apache.kafka.common.errors.InvalidPartitionsException;
+import org.apache.kafka.common.errors.InvalidReplicationFactorException;
 import org.apache.kafka.common.errors.InvalidRequestException;
+import org.apache.kafka.common.errors.InvalidTopicException;
 import org.apache.kafka.common.errors.NetworkException;
+import org.apache.kafka.common.errors.PolicyViolationException;
 import org.apache.kafka.common.errors.RetriableException;
+import org.apache.kafka.common.errors.SecurityDisabledException;
 import org.apache.kafka.common.errors.SslAuthenticationException;
 import org.apache.kafka.common.errors.TimeoutException;
+import org.apache.kafka.common.errors.TopicDeletionDisabledException;
 import org.apache.kafka.common.errors.TopicExistsException;
 import org.apache.kafka.common.errors.UnknownTopicOrPartitionException;
 import org.apache.kafka.common.errors.UnsupportedVersionException;
@@ -135,6 +140,18 @@ public final class KafkaErrors {
                         ErrorReasons.RESOURCE_EXISTS,
                         Dispatch.REJECTED,
                         "The topic already exists");
+            case InvalidTopicException e ->
+                new Mapped(
+                        Status.INVALID_ARGUMENT,
+                        ErrorReasons.INVALID_ARGUMENT,
+                        Dispatch.REJECTED,
+                        "The topic name is not valid");
+            case InvalidReplicationFactorException e ->
+                new Mapped(
+                        Status.INVALID_ARGUMENT,
+                        ErrorReasons.INVALID_ARGUMENT,
+                        Dispatch.REJECTED,
+                        "The replication factor is not valid for this cluster");
             case InvalidConfigurationException e ->
                 new Mapped(
                         Status.INVALID_ARGUMENT,
@@ -153,6 +170,26 @@ public final class KafkaErrors {
                         ErrorReasons.INVALID_ARGUMENT,
                         Dispatch.REJECTED,
                         "The partition count is invalid");
+            // No authorizer on the brokers: every ACL call is refused with this, which is not an outage.
+            case SecurityDisabledException e ->
+                new Mapped(
+                        Status.FAILED_PRECONDITION,
+                        ErrorReasons.NOT_SUPPORTED,
+                        Dispatch.REJECTED,
+                        "The cluster has no ACL authorizer, so ACLs cannot be read or changed;"
+                                + " set authorizer.class.name on the brokers");
+            case TopicDeletionDisabledException e ->
+                new Mapped(
+                        Status.FAILED_PRECONDITION,
+                        ErrorReasons.NOT_SUPPORTED,
+                        Dispatch.REJECTED,
+                        "The cluster does not allow topic deletion; set delete.topic.enable=true on the brokers");
+            case PolicyViolationException e ->
+                new Mapped(
+                        Status.FAILED_PRECONDITION,
+                        ErrorReasons.INVALID_ARGUMENT,
+                        Dispatch.REJECTED,
+                        "A policy on the cluster refused this");
             case TimeoutException _ -> unreachable();
             case DisconnectException _ -> unreachable();
             case NetworkException _ -> unreachable();
@@ -164,7 +201,8 @@ public final class KafkaErrors {
                         Status.INTERNAL,
                         ErrorReasons.UNEXPECTED_SYSTEM,
                         Dispatch.REJECTED,
-                        "The cluster answered unexpectedly");
+                        "The cluster answered with an error this driver does not map ("
+                                + failure.getClass().getSimpleName() + ")");
         };
     }
 
