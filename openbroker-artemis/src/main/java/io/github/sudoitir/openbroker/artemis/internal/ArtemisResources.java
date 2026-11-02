@@ -248,7 +248,8 @@ public final class ArtemisResources implements Resources {
             case PRINCIPAL -> ArtemisKinds.USER;
             case TRANSACTION -> ArtemisKinds.TRANSACTION;
             case ROUTE -> throw Queries.invalid("Artemis has two route kinds; name artemis.divert or artemis.bridge.");
-            case NAMESPACE, PARTITION, CONSUMER_GROUP, CONFIGURATION -> throw Unimplemented.of("hold a " + resourceClass);
+            case NAMESPACE, PARTITION, CONSUMER_GROUP, CONFIGURATION ->
+                throw Unimplemented.of("hold a " + resourceClass);
         };
     }
 }
