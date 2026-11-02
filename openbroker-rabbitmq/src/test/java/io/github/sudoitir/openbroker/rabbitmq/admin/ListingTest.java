@@ -46,7 +46,8 @@ class ListingTest {
             Base64.getUrlEncoder().encodeToString("p:0".getBytes(StandardCharsets.UTF_8)),
             Base64.getUrlEncoder().encodeToString("o:x".getBytes(StandardCharsets.UTF_8))
         }) {
-            assertThatThrownBy(() -> Listing.decode(Optional.of(bad)))
+            Optional<String> token = Optional.of(bad);
+            assertThatThrownBy(() -> Listing.decode(token))
                     .isInstanceOfSatisfying(
                             BrokerException.class, e -> assertThat(e.status()).isEqualTo(Status.INVALID_ARGUMENT));
         }

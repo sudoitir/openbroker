@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -30,8 +31,10 @@ import io.github.sudoitir.openbroker.messaging.FlowControl;
 import io.github.sudoitir.openbroker.messaging.Guarantee;
 import io.github.sudoitir.openbroker.messaging.LinkState;
 import io.github.sudoitir.openbroker.messaging.Message;
+import io.github.sudoitir.openbroker.messaging.MessageFilter;
 import io.github.sudoitir.openbroker.messaging.MessagingObserver;
 import io.github.sudoitir.openbroker.messaging.Observation;
+import io.github.sudoitir.openbroker.messaging.ReceiveMode;
 import io.github.sudoitir.openbroker.messaging.ReceiverOptions;
 import io.github.sudoitir.openbroker.messaging.Recovery;
 import io.github.sudoitir.openbroker.messaging.SendTarget;
@@ -39,6 +42,7 @@ import io.github.sudoitir.openbroker.model.ResourceId;
 import io.github.sudoitir.openbroker.rabbitmq.admin.RabbitMqKinds;
 import java.io.IOException;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
@@ -46,6 +50,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.ArgumentMatchers;
 
 class RabbitMqReceiverTest {
 
@@ -160,7 +165,7 @@ class RabbitMqReceiverTest {
     }
 
     private static long anyLong() {
-        return org.mockito.ArgumentMatchers.anyLong();
+        return ArgumentMatchers.anyLong();
     }
 
     @Test
@@ -226,8 +231,8 @@ class RabbitMqReceiverTest {
         Message message = receiver.receive(1, Duration.ofSeconds(5)).getFirst();
 
         receiver.settle(message, Disposition.accept());
-        assertThatThrownBy(() -> receiver.settle(message, new Disposition.Reject(Optional.empty())))
-                .isInstanceOf(BrokerException.class);
+        Disposition reject = new Disposition.Reject(Optional.empty());
+        assertThatThrownBy(() -> receiver.settle(message, reject)).isInstanceOf(BrokerException.class);
         verify(channel(0), never()).basicAck(anyLong(), anyBoolean());
     }
 
@@ -263,33 +268,30 @@ class RabbitMqReceiverTest {
         Message message = receiver.receive(1, Duration.ofSeconds(5)).getFirst();
         receiver.settle(message, Disposition.accept());
 
-        verify(observation, org.mockito.Mockito.times(2)).end(null);
+        verify(observation, times(2)).end(null);
     }
 
     @Test
     void whatTheBrokerCannotDoIsRefusedBeforeAnyChannel() {
         ResourceId stream = ResourceId.of(RabbitMqKinds.STREAM.value(), "/", "s");
-        assertThatThrownBy(() -> RabbitMqReceiver.check(stream, ReceiverOptions.consume()))
+        ReceiverOptions consume = ReceiverOptions.consume();
+        assertThatThrownBy(() -> RabbitMqReceiver.check(stream, consume))
                 .isInstanceOfSatisfying(
                         BrokerException.class, e -> assertThat(e.status()).isEqualTo(Status.UNIMPLEMENTED));
-        assertThatThrownBy(() -> RabbitMqReceiver.check(QUEUE, ReceiverOptions.browse(Optional.empty())))
-                .isInstanceOf(BrokerException.class);
-        assertThatThrownBy(() -> RabbitMqReceiver.check(
-                        QUEUE, ReceiverOptions.consume().producedAtOrBefore(java.time.Instant.now())))
-                .isInstanceOf(BrokerException.class);
-        assertThatThrownBy(() -> RabbitMqReceiver.check(
-                        QUEUE,
-                        new ReceiverOptions(
-                                io.github.sudoitir.openbroker.messaging.ReceiveMode.CONSUME,
-                                Guarantee.AT_LEAST_ONCE,
-                                Optional.of(mock(io.github.sudoitir.openbroker.messaging.MessageFilter.class)),
-                                Optional.empty(),
-                                FlowControl.defaults(),
-                                Recovery.defaults())))
-                .isInstanceOf(BrokerException.class);
-        assertThatThrownBy(
-                        () -> RabbitMqReceiver.check(ResourceId.of("rabbitmq.queue", "q"), ReceiverOptions.consume()))
-                .isInstanceOf(BrokerException.class);
+        ReceiverOptions browse = ReceiverOptions.browse(Optional.empty());
+        assertThatThrownBy(() -> RabbitMqReceiver.check(QUEUE, browse)).isInstanceOf(BrokerException.class);
+        ReceiverOptions bounded = consume.producedAtOrBefore(Instant.now());
+        assertThatThrownBy(() -> RabbitMqReceiver.check(QUEUE, bounded)).isInstanceOf(BrokerException.class);
+        ReceiverOptions filtered = new ReceiverOptions(
+                ReceiveMode.CONSUME,
+                Guarantee.AT_LEAST_ONCE,
+                Optional.of(mock(MessageFilter.class)),
+                Optional.empty(),
+                FlowControl.defaults(),
+                Recovery.defaults());
+        assertThatThrownBy(() -> RabbitMqReceiver.check(QUEUE, filtered)).isInstanceOf(BrokerException.class);
+        ResourceId unknownKind = ResourceId.of("rabbitmq.queue", "q");
+        assertThatThrownBy(() -> RabbitMqReceiver.check(unknownKind, consume)).isInstanceOf(BrokerException.class);
         assertThat(fixtures.channels).isEmpty();
     }
 

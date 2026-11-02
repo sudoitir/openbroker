@@ -93,63 +93,78 @@ public final class PollingNotifications implements Notifications {
             Map<NodeId, Set<ResourceId>> seen = new HashMap<>();
             Map<NodeId, BrokerException> failed = new HashMap<>();
             for (ResourceQuery q : queries) {
-                ResourceQuery query = q.in(scope);
-                while (true) {
-                    Partial<ResourcePage> page = resources.read(query);
-                    failed.putAll(page.failures());
-                    // A node that answered and has nothing is still watched: the stream starts, and what
-                    // appears on it later is news.
-                    Set<NodeId> answered = new HashSet<>();
-                    page.outcomes().forEach((node, outcome) -> {
-                        if (outcome == NodeOutcome.APPLIED) {
-                            answered.add(node);
-                            seen.computeIfAbsent(node, n -> new HashSet<>());
-                        }
-                    });
-                    for (Resource r : page.value().items()) {
-                        // A resource is the news of the node that answered for it: its own node where that node
-                        // was read, else the nodes that read it, such as a whole cluster read as one. Filing it
-                        // under a node that never answered would announce that node's start instead of the resource.
-                        List<NodeId> on = r.placements().stream()
-                                .map(Placement::node)
-                                .filter(answered::contains)
-                                .toList();
-                        for (NodeId node : on.isEmpty() ? answered : on) {
-                            seen.computeIfAbsent(node, n -> new HashSet<>()).add(r.id());
-                        }
-                    }
-                    Optional<String> next = page.value().continueToken();
-                    if (next.isEmpty()) {
-                        break;
-                    }
-                    query = query.continueFrom(next.get());
-                }
+                readAll(q.in(scope), seen, failed);
             }
-            failed.forEach((node, error) -> {
-                // The state is published first, so a listener told of the gap finds the node backing off.
-                states.put(node, new StreamState(StreamState.Phase.BACKING_OFF, Optional.of(now), Optional.of(error)));
-                if (known.remove(node) != null) {
-                    dispatcher.gap(new Gap(node, now, Gap.Cause.RECONNECTED));
+            failed.forEach((node, error) -> fail(node, error, now));
+            seen.forEach((node, ids) -> {
+                if (!failed.containsKey(node)) {
+                    observe(node, ids, now);
                 }
             });
-            seen.forEach((node, ids) -> {
-                if (failed.containsKey(node)) {
+        }
+
+        /** Reads every page of {@code first} into {@code seen}, and the nodes that failed into {@code failed}. */
+        private void readAll(
+                ResourceQuery first, Map<NodeId, Set<ResourceId>> seen, Map<NodeId, BrokerException> failed) {
+            ResourceQuery query = first;
+            while (true) {
+                Partial<ResourcePage> page = resources.read(query);
+                failed.putAll(page.failures());
+                file(page, seen);
+                Optional<String> next = page.value().continueToken();
+                if (next.isEmpty()) {
                     return;
                 }
-                Set<ResourceId> before = known.get(node);
-                if (before == null) {
-                    dispatcher.gap(new Gap(node, now, Gap.Cause.STARTED));
-                } else {
-                    ids.stream()
-                            .filter(id -> !before.contains(id))
-                            .forEach(id -> emit(node, EventTypes.RESOURCE_CREATED, id, now));
-                    before.stream()
-                            .filter(id -> !ids.contains(id))
-                            .forEach(id -> emit(node, EventTypes.RESOURCE_DELETED, id, now));
+                query = query.continueFrom(next.get());
+            }
+        }
+
+        private static void file(Partial<ResourcePage> page, Map<NodeId, Set<ResourceId>> seen) {
+            // A node that answered and has nothing is still watched: the stream starts, and what
+            // appears on it later is news.
+            Set<NodeId> answered = new HashSet<>();
+            page.outcomes().forEach((node, outcome) -> {
+                if (outcome == NodeOutcome.APPLIED) {
+                    answered.add(node);
+                    seen.computeIfAbsent(node, n -> new HashSet<>());
                 }
-                known.put(node, ids);
-                states.put(node, new StreamState(StreamState.Phase.ACTIVE, Optional.of(now), Optional.empty()));
             });
+            for (Resource r : page.value().items()) {
+                // A resource is the news of the node that answered for it: its own node where that node
+                // was read, else the nodes that read it, such as a whole cluster read as one. Filing it
+                // under a node that never answered would announce that node's start instead of the resource.
+                List<NodeId> on = r.placements().stream()
+                        .map(Placement::node)
+                        .filter(answered::contains)
+                        .toList();
+                for (NodeId node : on.isEmpty() ? answered : on) {
+                    seen.computeIfAbsent(node, n -> new HashSet<>()).add(r.id());
+                }
+            }
+        }
+
+        private void fail(NodeId node, BrokerException error, Instant now) {
+            // The state is published first, so a listener told of the gap finds the node backing off.
+            states.put(node, new StreamState(StreamState.Phase.BACKING_OFF, Optional.of(now), Optional.of(error)));
+            if (known.remove(node) != null) {
+                dispatcher.gap(new Gap(node, now, Gap.Cause.RECONNECTED));
+            }
+        }
+
+        private void observe(NodeId node, Set<ResourceId> ids, Instant now) {
+            Set<ResourceId> before = known.get(node);
+            if (before == null) {
+                dispatcher.gap(new Gap(node, now, Gap.Cause.STARTED));
+            } else {
+                ids.stream()
+                        .filter(id -> !before.contains(id))
+                        .forEach(id -> emit(node, EventTypes.RESOURCE_CREATED, id, now));
+                before.stream()
+                        .filter(id -> !ids.contains(id))
+                        .forEach(id -> emit(node, EventTypes.RESOURCE_DELETED, id, now));
+            }
+            known.put(node, ids);
+            states.put(node, new StreamState(StreamState.Phase.ACTIVE, Optional.of(now), Optional.empty()));
         }
 
         private void emit(NodeId node, String type, ResourceId id, Instant at) {

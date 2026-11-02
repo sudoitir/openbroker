@@ -41,6 +41,7 @@ final class EventExchangeStream implements AutoCloseable {
     /** The exchange the event exchange plugin publishes to. */
     static final String EXCHANGE = "amq.rabbitmq.event";
 
+    private static final String KEY_SEPARATOR = "\u0000";
     private static final int BUFFER = 1024;
     private static final Duration FIRST_RETRY = Duration.ofSeconds(1);
 
@@ -170,7 +171,7 @@ final class EventExchangeStream implements AutoCloseable {
     /** Keeps the kind of each queue created, so its deletion, which the listing no longer holds, names it right. */
     private void remember(String routingKey, ResourceId queue) {
         List<String> path = queue.path().segments();
-        String key = path.getFirst() + "\u0000" + path.getLast();
+        String key = path.getFirst() + KEY_SEPARATOR + path.getLast();
         if ("queue.created".equals(routingKey)) {
             queueKinds.put(key, queue.kind());
         } else if ("queue.deleted".equals(routingKey)) {
@@ -179,14 +180,14 @@ final class EventExchangeStream implements AutoCloseable {
     }
 
     private KindId queueKind(String queueVhost, String queue) {
-        KindId known = queueKinds.get(queueVhost + "\u0000" + queue);
+        KindId known = queueKinds.get(queueVhost + KEY_SEPARATOR + queue);
         if (known != null) {
             return known;
         }
         try {
             // Only a kind the broker confirmed is kept; a queue it no longer has is reported as classic and not cached.
             Optional<KindId> kind = cluster.queueTypes().knownKindOf(queueVhost, queue);
-            kind.ifPresent(k -> queueKinds.put(queueVhost + "\u0000" + queue, k));
+            kind.ifPresent(k -> queueKinds.put(queueVhost + KEY_SEPARATOR + queue, k));
             return kind.orElse(RabbitMqKinds.CLASSIC_QUEUE);
         } catch (BrokerException _) {
             return RabbitMqKinds.CLASSIC_QUEUE; // A listing that fails must not lose the event.

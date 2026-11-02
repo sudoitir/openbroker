@@ -17,12 +17,14 @@ import io.github.sudoitir.openbroker.messaging.OutboundMessage;
 import io.github.sudoitir.openbroker.messaging.PropertyValue;
 import io.github.sudoitir.openbroker.model.Attributes;
 import io.github.sudoitir.openbroker.model.ResourceId;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -148,9 +150,9 @@ class MessageCodecTest {
     }
 
     @Test
-    void theBodyIsTakenAsItIs() throws IOException {
+    void theBodyIsTakenAsItIs() {
         assertThat(MessageCodec.body(outbound(MessageHeaders.empty()))).isEqualTo("hello".getBytes());
-        MessageBody streamed = MessageBody.streamed(3, () -> new java.io.ByteArrayInputStream(new byte[] {1, 2, 3}));
+        MessageBody streamed = MessageBody.streamed(3, () -> new ByteArrayInputStream(new byte[] {1, 2, 3}));
         assertThat(MessageCodec.body(new OutboundMessage(MessageHeaders.empty(), Map.of(), streamed, Map.of())))
                 .containsExactly(1, 2, 3);
         MessageBody broken = MessageBody.streamed(1, () -> {
@@ -158,15 +160,16 @@ class MessageCodecTest {
         });
         OutboundMessage unreadable = new OutboundMessage(MessageHeaders.empty(), Map.of(), broken, Map.of());
         assertThatThrownBy(() -> MessageCodec.body(unreadable)).isInstanceOf(BrokerException.class);
-        assertThatThrownBy(() -> MessageCodec.body(
-                        new OutboundMessage(MessageHeaders.empty(), Map.of(), MessageBody.tombstone(), Map.of())))
+        OutboundMessage tombstone =
+                new OutboundMessage(MessageHeaders.empty(), Map.of(), MessageBody.tombstone(), Map.of());
+        assertThatThrownBy(() -> MessageCodec.body(tombstone))
                 .isInstanceOfSatisfying(
                         BrokerException.class, e -> assertThat(e.status()).isEqualTo(Status.INVALID_ARGUMENT));
     }
 
     @Test
     void aDeliveryKeepsTheTagOutOfTheMessage() {
-        Map<String, Object> headers = new java.util.HashMap<>();
+        Map<String, Object> headers = new HashMap<>();
         headers.put("name", LongStringHelper.asLongString("v"));
         headers.put("n", 4L);
         headers.put("flag", false);
@@ -340,6 +343,6 @@ class MessageCodecTest {
         assertThat(again.getPriority()).isEqualTo(1);
         assertThat(again.getTimestamp()).isEqualTo(Date.from(NOW));
         assertThat(again.getHeaders()).containsEntry("name", "v").containsEntry("when", Date.from(NOW));
-        assertThat(again.getHeaders().get("table")).isEqualTo(Map.of("k", "w"));
+        assertThat(again.getHeaders()).containsEntry("table", Map.of("k", "w"));
     }
 }

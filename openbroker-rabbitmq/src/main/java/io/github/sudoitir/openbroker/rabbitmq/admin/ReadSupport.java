@@ -15,8 +15,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import tools.jackson.databind.JsonNode;
 
 /** Small readers of the management API's JSON that the families share. */
@@ -109,17 +107,51 @@ final class ReadSupport {
         return List.of(Placement.instance(RabbitMqCluster.CLUSTER, Attributes.empty()));
     }
 
-    private static final Pattern URI_PARTS = Pattern.compile("^([A-Za-z][A-Za-z0-9+.-]*)://(?:[^@/?#]*@)?([^?#]*).*$");
+    /** A URI split into its scheme and what follows the user information, up to the query or fragment. */
+    private record UriParts(String scheme, String hostAndPath) {}
+
+    private static Optional<UriParts> uriParts(String uri) {
+        int separator = uri.indexOf("://");
+        if (separator <= 0 || !isScheme(uri.substring(0, separator))) {
+            return Optional.empty();
+        }
+        String rest = uri.substring(separator + 3);
+        int stop = firstOf(rest, "@/?#");
+        String hostAndPath = stop < rest.length() && rest.charAt(stop) == '@' ? rest.substring(stop + 1) : rest;
+        int cut = firstOf(hostAndPath, "?#");
+        return Optional.of(new UriParts(uri.substring(0, separator), hostAndPath.substring(0, cut)));
+    }
+
+    private static boolean isScheme(String text) {
+        if (!isAsciiLetter(text.charAt(0))) {
+            return false;
+        }
+        return text.chars().allMatch(c -> isAsciiLetter((char) c) || (c >= '0' && c <= '9') || "+.-".indexOf(c) >= 0);
+    }
+
+    private static boolean isAsciiLetter(char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+    }
+
+    /** The index of the first character of {@code text} that is one of {@code any}, or its length when none is. */
+    private static int firstOf(String text, String any) {
+        for (int i = 0; i < text.length(); i++) {
+            if (any.indexOf(text.charAt(i)) >= 0) {
+                return i;
+            }
+        }
+        return text.length();
+    }
 
     /**
      * {@code uri} without its user information, query and fragment, so that no credential or key file path reaches an
      * attribute. Text that is not a URI at all becomes {@code amqp://unknown}.
      */
     static URI redacted(String uri) {
-        Matcher parts = URI_PARTS.matcher(uri);
-        if (parts.matches()) {
+        Optional<UriParts> parts = uriParts(uri);
+        if (parts.isPresent()) {
             try {
-                return new URI(parts.group(1) + "://" + parts.group(2));
+                return new URI(parts.get().scheme() + "://" + parts.get().hostAndPath());
             } catch (URISyntaxException _) {
                 // Falls through to the placeholder below: nothing of a malformed address is worth keeping.
             }
@@ -129,15 +161,19 @@ final class ReadSupport {
 
     /** Whether {@code uri} names no host, which an {@code amqp://} address does for the cluster that holds it. */
     static boolean isLocal(String uri) {
-        Matcher parts = URI_PARTS.matcher(uri);
-        return !parts.matches() || parts.group(2).isEmpty() || parts.group(2).startsWith("/");
+        Optional<UriParts> parts = uriParts(uri);
+        return parts.isEmpty()
+                || parts.get().hostAndPath().isEmpty()
+                || parts.get().hostAndPath().startsWith("/");
     }
 
     /** The virtual host that a local {@code amqp:///vhost} address names, or {@code fallback} when it names none. */
     static String localVhost(String uri, String fallback) {
-        Matcher parts = URI_PARTS.matcher(uri);
-        if (parts.matches() && parts.group(2).startsWith("/") && parts.group(2).length() > 1) {
-            return URLDecoder.decode(parts.group(2).substring(1), StandardCharsets.UTF_8);
+        Optional<UriParts> parts = uriParts(uri);
+        if (parts.isPresent()
+                && parts.get().hostAndPath().startsWith("/")
+                && parts.get().hostAndPath().length() > 1) {
+            return URLDecoder.decode(parts.get().hostAndPath().substring(1), StandardCharsets.UTF_8);
         }
         return fallback;
     }

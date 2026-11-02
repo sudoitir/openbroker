@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.LockSupport;
 import java.util.function.Supplier;
 
 /** A cluster, connections and channels that are mocks, and an engine context that never sleeps. */
@@ -91,7 +92,7 @@ final class MessagingFixtures {
             if (System.nanoTime() > end) {
                 throw new AssertionError("no channel " + index);
             }
-            java.util.concurrent.locks.LockSupport.parkNanos(1_000_000);
+            LockSupport.parkNanos(1_000_000);
         }
         return channels.get(index);
     }

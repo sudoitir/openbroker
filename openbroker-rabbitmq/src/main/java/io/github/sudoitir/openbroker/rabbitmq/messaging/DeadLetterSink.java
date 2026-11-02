@@ -30,7 +30,7 @@ interface DeadLetterSink {
 
         private final LinkEnv env;
         private final RetryPolicy policy;
-        private final Map<SendTarget, Sender> senders = new HashMap<>();
+        private final Map<SendTarget, Sender> opened = new HashMap<>();
 
         Senders(LinkEnv env, RetryPolicy policy) {
             this.env = env;
@@ -54,14 +54,14 @@ interface DeadLetterSink {
 
         @Override
         public synchronized Sender sender(SendTarget policyTarget) {
-            return senders.computeIfAbsent(
+            return opened.computeIfAbsent(
                     policyTarget, target -> env.track(new RabbitMqSender(env, target, SenderOptions.defaults())));
         }
 
         @Override
         public synchronized void close() {
-            senders.values().forEach(Sender::close);
-            senders.clear();
+            opened.values().forEach(Sender::close);
+            opened.clear();
         }
     }
 }

@@ -142,6 +142,7 @@ class RabbitMqNotificationsTest {
         RabbitMqNotifications n = notifications(Optional.of(connections));
         AutoCloseable subscription = n.subscribe(Scope.whole(), LISTENER);
         subscription.close();
+        verify(channel).queueBind(anyString(), anyString(), anyString());
     }
 
     @Test

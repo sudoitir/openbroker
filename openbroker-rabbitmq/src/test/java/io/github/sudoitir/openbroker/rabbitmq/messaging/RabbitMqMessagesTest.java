@@ -502,8 +502,9 @@ class RabbitMqMessagesTest {
                 .basicPublish(anyString(), anyString(), anyBoolean(), any(AMQP.BasicProperties.class), any());
         RabbitMqMessages messages = new RabbitMqMessages(m.cluster, m.connections);
 
-        assertThatThrownBy(() -> messages.send(SendTarget.subscription(CLASSIC), Scope.whole(), HELLO))
-                .isInstanceOf(BrokerException.class);
+        SendTarget target = SendTarget.subscription(CLASSIC);
+        Scope whole = Scope.whole();
+        assertThatThrownBy(() -> messages.send(target, whole, HELLO)).isInstanceOf(BrokerException.class);
     }
 
     @Test

@@ -88,14 +88,15 @@ class RabbitMqConnectionIT {
                 List.of(Endpoint.of(Plane.MANAGEMENT, RabbitMqOptions.HTTP, "http://" + amqpAddress)),
                 Map.of());
 
-        assertThatThrownBy(() -> drivers.verify(request(notRabbit, cluster.credentials())))
-                .isInstanceOf(BrokerException.class);
+        ConnectRequest request = request(notRabbit, cluster.credentials());
+        assertThatThrownBy(() -> drivers.verify(request)).isInstanceOf(BrokerException.class);
     }
 
     @Test
     void wrongCredentialsAreUnauthenticated() {
-        assertThatThrownBy(() -> drivers.verify(
-                        request(cluster.spec(), Credentials.usernamePassword(RabbitMqTestCluster.ADMIN_USER, "wrong"))))
+        ConnectRequest request =
+                request(cluster.spec(), Credentials.usernamePassword(RabbitMqTestCluster.ADMIN_USER, "wrong"));
+        assertThatThrownBy(() -> drivers.verify(request))
                 .isInstanceOfSatisfying(
                         BrokerException.class, e -> assertThat(e.status()).isEqualTo(Status.UNAUTHENTICATED));
     }

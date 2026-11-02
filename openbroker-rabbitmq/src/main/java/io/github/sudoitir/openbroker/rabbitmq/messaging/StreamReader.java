@@ -37,7 +37,6 @@ import io.github.sudoitir.openbroker.rabbitmq.amqp.StreamOffsets;
 import io.github.sudoitir.openbroker.support.Deadlines;
 import io.github.sudoitir.openbroker.support.PortableFilter;
 import java.io.IOException;
-import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -187,16 +186,7 @@ final class StreamReader implements Receiver {
             BrowseRequest request, Object argument, Optional<PortableFilter> filter, Deadline deadline) {
         Stats stats = stats(deadline);
         if (request.position() instanceof Position.After(Cursor cursor)) {
-            long issued = StreamOffsets.cursorFirstTimestamp(cursor).toEpochMilli();
-            // Management reports 0 until the stream's statistics are first emitted: then nothing can be compared.
-            if (issued != 0 && stats.firstTimestamp() != 0 && issued != stats.firstTimestamp()) {
-                throw new BrokerException(
-                        Status.FAILED_PRECONDITION,
-                        ErrorInfo.of(ErrorReasons.PRECONDITION_FAILED),
-                        Dispatch.NOT_SENT,
-                        null,
-                        "The stream was recreated or truncated past the cursor: browse it again from the start.");
-            }
+            requireSameStream(cursor, stats);
         }
         long end = stats.end();
         boolean empty = nothingToRead(argument, stats);
@@ -213,16 +203,36 @@ final class StreamReader implements Receiver {
         if (StreamOffsets.FIRST.equals(argument) && read.firstOffset() != NONE) {
             known.put(stream, new Known(read.firstOffset(), now));
         }
-        long hint = hint(stats);
-        boolean more = read.lastOffset() != NONE
-                && (stats.knownEnd()
-                        ? read.lastOffset() < end
-                        : read.messages().size() >= request.limit()
-                                || (hint != UNKNOWN_END && read.lastOffset() < hint));
-        Optional<Cursor> next = more
+        Optional<Cursor> next = more(read, stats, request.limit())
                 ? Optional.of(StreamOffsets.cursor(read.lastOffset(), Instant.ofEpochMilli(stats.firstTimestamp())))
                 : Optional.empty();
         return new BrowsePage(read.messages(), next, total(stats));
+    }
+
+    /** Refuses a cursor issued for a stream that was recreated or truncated since. */
+    private static void requireSameStream(Cursor cursor, Stats stats) {
+        long issued = StreamOffsets.cursorFirstTimestamp(cursor).toEpochMilli();
+        // Management reports 0 until the stream's statistics are first emitted: then nothing can be compared.
+        if (issued != 0 && stats.firstTimestamp() != 0 && issued != stats.firstTimestamp()) {
+            throw new BrokerException(
+                    Status.FAILED_PRECONDITION,
+                    ErrorInfo.of(ErrorReasons.PRECONDITION_FAILED),
+                    Dispatch.NOT_SENT,
+                    null,
+                    "The stream was recreated or truncated past the cursor: browse it again from the start.");
+        }
+    }
+
+    /** Whether messages remain after {@code read}: to the known end, or as far as the limit and the hint tell. */
+    private boolean more(Page read, Stats stats, int limit) {
+        if (read.lastOffset() == NONE) {
+            return false;
+        }
+        if (stats.knownEnd()) {
+            return read.lastOffset() < stats.end();
+        }
+        long hint = hint(stats);
+        return read.messages().size() >= limit || (hint != UNKNOWN_END && read.lastOffset() < hint);
     }
 
     private static boolean nothingToRead(Object argument, Stats stats) {
@@ -316,7 +326,6 @@ final class StreamReader implements Receiver {
             long end,
             long hint,
             Deadline deadline) {
-        Clock clock = cluster.options().clock();
         Connection connection = connections.connection(vhost, deadline);
         Channel channel;
         try {
@@ -325,9 +334,6 @@ final class StreamReader implements Receiver {
             throw RabbitMqErrors.fromIo(e, false);
         }
         BlockingQueue<Event> events = new LinkedBlockingQueue<>();
-        List<Message> messages = new ArrayList<>();
-        long first = NONE;
-        long last = NONE;
         try {
             channel.basicQos(Math.min(limit, MAX_PREFETCH));
             String tag = channel.basicConsume(
@@ -338,38 +344,9 @@ final class StreamReader implements Receiver {
                     consumerTag -> events.add(new Event(
                             null, new IOException("RabbitMQ cancelled the consumer of the stream " + name + "."))),
                     (consumerTag, signal) -> events.add(new Event(null, signal)));
-            while (messages.size() < limit) {
-                long idle = (last != NONE && last >= hint ? HINTED_IDLE : IDLE).toMillis();
-                long wait = Math.min(deadline.remaining(clock).toMillis(), idle);
-                Event event = wait <= 0 ? null : events.poll(wait, TimeUnit.MILLISECONDS);
-                if (event == null) {
-                    break;
-                }
-                Throwable failure = event.failure();
-                if (failure != null) {
-                    throw RabbitMqErrors.fromIo(failure, false);
-                }
-                Delivery delivery = event.delivery();
-                Map<String, Object> headers = delivery.getProperties().getHeaders() == null
-                        ? Map.of()
-                        : delivery.getProperties().getHeaders();
-                long offset = StreamOffsets.offset(headers);
-                if (offset > end) {
-                    break;
-                }
-                channel.basicAck(delivery.getEnvelope().getDeliveryTag(), false);
-                first = first == NONE ? offset : first;
-                last = offset;
-                Message message = MessageCodec.message(
-                        stream, delivery.getEnvelope(), delivery.getProperties(), delivery.getBody(), maxBodyBytes);
-                if (filter.map(f -> f.test(message)).orElse(true)) {
-                    messages.add(message);
-                }
-                if (offset >= end) {
-                    break;
-                }
-            }
+            Page page = drain(channel, events, limit, filter, maxBodyBytes, end, hint, deadline);
             cancelQuietly(channel, tag);
+            return page;
         } catch (IOException e) {
             throw RabbitMqErrors.fromIo(e, false);
         } catch (InterruptedException e) {
@@ -377,7 +354,62 @@ final class StreamReader implements Receiver {
         } finally {
             closeQuietly(channel);
         }
+    }
+
+    /** Takes deliveries from {@code events} and acknowledges them until the limit, the end or an idle gap. */
+    private Page drain(
+            Channel channel,
+            BlockingQueue<Event> events,
+            int limit,
+            Optional<PortableFilter> filter,
+            long maxBodyBytes,
+            long end,
+            long hint,
+            Deadline deadline)
+            throws IOException, InterruptedException {
+        List<Message> messages = new ArrayList<>();
+        long first = NONE;
+        long last = NONE;
+        while (messages.size() < limit) {
+            Event event = nextEvent(events, last >= hint && last != NONE, deadline);
+            if (event == null) {
+                break;
+            }
+            Throwable failure = event.failure();
+            if (failure != null) {
+                throw RabbitMqErrors.fromIo(failure, false);
+            }
+            Delivery delivery = event.delivery();
+            long offset = StreamOffsets.offset(headersOf(delivery));
+            if (offset > end) {
+                break;
+            }
+            channel.basicAck(delivery.getEnvelope().getDeliveryTag(), false);
+            first = first == NONE ? offset : first;
+            last = offset;
+            Message message = MessageCodec.message(
+                    stream, delivery.getEnvelope(), delivery.getProperties(), delivery.getBody(), maxBodyBytes);
+            if (filter.map(f -> f.test(message)).orElse(true)) {
+                messages.add(message);
+            }
+            if (offset >= end) {
+                break;
+            }
+        }
         return new Page(messages, first, last);
+    }
+
+    /** The next event, or null when the deadline or the idle gap passes first. */
+    private @Nullable Event nextEvent(BlockingQueue<Event> events, boolean pastHint, Deadline deadline)
+            throws InterruptedException {
+        long idle = (pastHint ? HINTED_IDLE : IDLE).toMillis();
+        long wait = Math.min(deadline.remaining(cluster.options().clock()).toMillis(), idle);
+        return wait <= 0 ? null : events.poll(wait, TimeUnit.MILLISECONDS);
+    }
+
+    private static Map<String, Object> headersOf(Delivery delivery) {
+        Map<String, Object> headers = delivery.getProperties().getHeaders();
+        return headers == null ? Map.of() : headers;
     }
 
     private static void cancelQuietly(Channel channel, String tag) {

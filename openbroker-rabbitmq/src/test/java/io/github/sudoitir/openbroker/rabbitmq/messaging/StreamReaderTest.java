@@ -203,7 +203,8 @@ class StreamReaderTest {
     void aReaderOfAQueueIsRefusedAtOnce() throws Exception {
         MessagingMocks m = new MessagingMocks(MessagingMocks.WITH_DATA);
 
-        assertThatThrownBy(() -> new StreamReader(m.cluster, ResourceId.of("rabbitmq.classic-queue", "/", "q")))
+        ResourceId queue = ResourceId.of("rabbitmq.classic-queue", "/", "q");
+        assertThatThrownBy(() -> new StreamReader(m.cluster, queue))
                 .isInstanceOfSatisfying(
                         BrokerException.class, e -> assertThat(e.status()).isEqualTo(Status.UNIMPLEMENTED));
     }

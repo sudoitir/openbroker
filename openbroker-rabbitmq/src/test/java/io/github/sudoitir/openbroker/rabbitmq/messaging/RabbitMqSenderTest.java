@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
@@ -35,10 +37,12 @@ import io.github.sudoitir.openbroker.model.ResourceId;
 import io.github.sudoitir.openbroker.rabbitmq.admin.RabbitMqKinds;
 import java.io.IOException;
 import java.time.Duration;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -60,10 +64,7 @@ class RabbitMqSenderTest {
 
     private static OutboundMessage message(String id) {
         return new OutboundMessage(
-                MessageHeaders.builder().id(id).build(),
-                java.util.Map.of(),
-                MessageBody.of(new byte[] {1}),
-                java.util.Map.of());
+                MessageHeaders.builder().id(id).build(), Map.of(), MessageBody.of(new byte[] {1}), Map.of());
     }
 
     private RabbitMqSender open(SendTarget target, SenderOptions options) {
@@ -82,7 +83,7 @@ class RabbitMqSenderTest {
         return ack.getValue();
     }
 
-    private ConfirmCallback nack(Channel channel) throws IOException {
+    private ConfirmCallback nack(Channel channel) {
         ArgumentCaptor<ConfirmCallback> nack = ArgumentCaptor.forClass(ConfirmCallback.class);
         verify(channel).addConfirmListener(any(ConfirmCallback.class), nack.capture());
         return nack.getValue();
@@ -94,7 +95,7 @@ class RabbitMqSenderTest {
             throw new AssertionError("expected a failure");
         } catch (ExecutionException e) {
             return (BrokerException) e.getCause();
-        } catch (java.util.concurrent.TimeoutException e) {
+        } catch (TimeoutException e) {
             throw new AssertionError(e);
         }
     }
@@ -219,8 +220,8 @@ class RabbitMqSenderTest {
 
     @Test
     void aMissingTargetFailsTheOpenWithoutALinkChannel() throws Exception {
-        org.mockito.Mockito.doAnswer(call -> {
-                    Channel passive = org.mockito.Mockito.mock(Channel.class);
+        doAnswer(call -> {
+                    Channel passive = mock(Channel.class);
                     when(passive.isOpen()).thenReturn(true);
                     when(passive.queueDeclarePassive(any()))
                             .thenThrow(new IOException(
@@ -236,7 +237,9 @@ class RabbitMqSenderTest {
                 .when(fixtures.connection)
                 .createChannel();
 
-        assertThatThrownBy(() -> open(SendTarget.subscription(QUEUE), SenderOptions.defaults()))
+        SendTarget target = SendTarget.subscription(QUEUE);
+        SenderOptions defaults = SenderOptions.defaults();
+        assertThatThrownBy(() -> open(target, defaults))
                 .isInstanceOfSatisfying(
                         BrokerException.class, e -> assertThat(e.status()).isEqualTo(Status.NOT_FOUND));
         assertThat(fixtures.channels).hasSize(1);

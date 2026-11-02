@@ -58,15 +58,15 @@ public final class AmqpFactory {
         factory.getClientProperties().put("connection_name", name(vhost));
         Credentials credentials = cluster.credentials().forPlane(Plane.DATA);
         switch (credentials) {
-            case Credentials.UsernamePassword account -> {
-                factory.setUsername(account.username());
-                factory.setPassword(account.password().reveal());
+            case Credentials.UsernamePassword(var username, var password) -> {
+                factory.setUsername(username);
+                factory.setPassword(password.reveal());
             }
             case Credentials.BearerToken token -> {
                 factory.setUsername("");
                 factory.setPassword(token.token().reveal());
             }
-            case Credentials.None none -> {
+            case Credentials.None _ -> {
                 if (!tls) {
                     throw RabbitMqErrors.invalid(
                             "The data plane has no credentials: give a user name and password, or use amqps with a"

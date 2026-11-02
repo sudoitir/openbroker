@@ -59,7 +59,8 @@ class StreamOffsetsTest {
     void theDeliveredHeaderIsTheOffset() {
         assertThat(StreamOffsets.offset(Map.of("x-stream-offset", 7L))).isEqualTo(7);
         assertThat(StreamOffsets.offset(Map.of("x-stream-offset", 8))).isEqualTo(8);
-        assertThatThrownBy(() -> StreamOffsets.offset(Map.of()))
+        Map<String, Object> noHeaders = Map.of();
+        assertThatThrownBy(() -> StreamOffsets.offset(noHeaders))
                 .isInstanceOfSatisfying(
                         BrokerException.class, e -> assertThat(e.status()).isEqualTo(Status.INVALID_ARGUMENT));
     }

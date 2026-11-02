@@ -107,7 +107,7 @@ class ManagementClientTest {
         ManagementClient.Response deleted = client.delete("/api/queues/%2F/q", Map.of(), deadline(), "delete");
         assertThat(server.received().get(0).query()).isEqualTo("name=a%20b%26c");
         assertThat(server.received().get(1).body()).isEqualTo("{\"durable\":true}");
-        assertThat(server.received().get(1).header("Content-Type")).isEqualTo("application/json");
+        assertThat(server.received().get(1).header(JSON)).isEqualTo("application/json");
         assertThat(created.body()).isEqualTo(MissingNode.getInstance());
         assertThat(deleted.location()).contains("/x");
         assertThat(server.received())

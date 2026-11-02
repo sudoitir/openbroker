@@ -149,8 +149,9 @@ class RabbitMqOperationsTest {
         BrokerException e = failure(run(STREAM, Operation.purge()));
         assertThat(e.status()).isEqualTo(Status.UNIMPLEMENTED);
         assertThat(e.reason()).isEqualTo(ErrorReasons.NOT_SUPPORTED);
-        assertThatThrownBy(() -> operations.preview(STREAM, Operation.purge(), Scope.whole()))
-                .isInstanceOf(BrokerException.class);
+        Operation purge = Operation.purge();
+        Scope whole = Scope.whole();
+        assertThatThrownBy(() -> operations.preview(STREAM, purge, whole)).isInstanceOf(BrokerException.class);
         assertThat(server.received()).isEmpty();
     }
 

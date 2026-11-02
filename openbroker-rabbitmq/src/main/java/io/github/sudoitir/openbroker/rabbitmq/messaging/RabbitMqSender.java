@@ -56,6 +56,7 @@ final class RabbitMqSender implements Sender {
     private static final Set<KindId> QUEUES =
             Set.of(RabbitMqKinds.CLASSIC_QUEUE, RabbitMqKinds.QUORUM_QUEUE, RabbitMqKinds.STREAM);
     private static final String DEFAULT_EXCHANGE = "amq.default";
+    private static final String CHANNEL = "The channel";
 
     /** Where a sender publishes. */
     record Destination(String vhost, String exchange, String routingKey, ResourceId resource, boolean queue) {
@@ -63,34 +64,33 @@ final class RabbitMqSender implements Sender {
         /** The destination a send target names. */
         static Destination of(SendTarget target) {
             return switch (target) {
-                case SendTarget.ToDestination(var resource, var routingKey, var partition) -> {
-                    if (partition.isPresent()) {
-                        throw RabbitMqErrors.invalid("A RabbitMQ destination has no partitions.");
+                case SendTarget.ToDestination(var resource, var routingKey, var partition) ->
+                    toDestination(resource, routingKey.orElse(""), partition.isPresent());
+                case SendTarget.ToSubscription(var subscription) -> {
+                    if (!QUEUES.contains(subscription.kind())) {
+                        throw RabbitMqErrors.invalid(
+                                "A RabbitMQ subscription is a queue or a stream, not " + subscription.kind() + ".");
                     }
-                    if (QUEUES.contains(resource.kind())) {
-                        yield viaDefaultExchange(resource);
-                    }
-                    if (!RabbitMqKinds.EXCHANGE.equals(resource.kind())) {
-                        throw RabbitMqErrors.invalid("A RabbitMQ message is sent to an exchange or a queue, not to "
-                                + resource.kind() + ".");
-                    }
-                    List<String> segments = segments(resource);
-                    String name = segments.get(1);
-                    yield new Destination(
-                            segments.get(0),
-                            DEFAULT_EXCHANGE.equals(name) ? "" : name,
-                            routingKey.orElse(""),
-                            resource,
-                            false);
-                }
-                case SendTarget.ToSubscription to -> {
-                    if (!QUEUES.contains(to.subscription().kind())) {
-                        throw RabbitMqErrors.invalid("A RabbitMQ subscription is a queue or a stream, not "
-                                + to.subscription().kind() + ".");
-                    }
-                    yield viaDefaultExchange(to.subscription());
+                    yield viaDefaultExchange(subscription);
                 }
             };
+        }
+
+        private static Destination toDestination(ResourceId resource, String routingKey, boolean partitioned) {
+            if (partitioned) {
+                throw RabbitMqErrors.invalid("A RabbitMQ destination has no partitions.");
+            }
+            if (QUEUES.contains(resource.kind())) {
+                return viaDefaultExchange(resource);
+            }
+            if (!RabbitMqKinds.EXCHANGE.equals(resource.kind())) {
+                throw RabbitMqErrors.invalid(
+                        "A RabbitMQ message is sent to an exchange or a queue, not to " + resource.kind() + ".");
+            }
+            List<String> segments = segments(resource);
+            String name = segments.get(1);
+            return new Destination(
+                    segments.get(0), DEFAULT_EXCHANGE.equals(name) ? "" : name, routingKey, resource, false);
         }
 
         private static Destination viaDefaultExchange(ResourceId queue) {
@@ -253,7 +253,7 @@ final class RabbitMqSender implements Sender {
 
     private void lost(int generation, Throwable cause) {
         if (!closed && supervisor != null && generation == current.get().generation()) {
-            supervisor.lost(LinkEnv.down("The channel", cause));
+            supervisor.lost(LinkEnv.down(CHANNEL, cause));
         }
     }
 
@@ -273,7 +273,7 @@ final class RabbitMqSender implements Sender {
         if (!link.channel().isOpen()) {
             IOException closedChannel = new IOException("The channel is closed");
             lost(link.generation(), closedChannel);
-            throw LinkEnv.down("The channel", closedChannel);
+            throw LinkEnv.down(CHANNEL, closedChannel);
         }
         SendReceipt receipt =
                 new SendReceipt(message.headers().id(), Optional.empty(), Optional.of(link.served()), false);
@@ -297,7 +297,7 @@ final class RabbitMqSender implements Sender {
         } catch (IOException | ShutdownSignalException e) {
             link.tracker().withdraw(sequence);
             lost(link.generation(), e);
-            throw LinkEnv.down("The channel", e);
+            throw LinkEnv.down(CHANNEL, e);
         }
         if (!confirms) {
             confirmation.confirmed(receipt);

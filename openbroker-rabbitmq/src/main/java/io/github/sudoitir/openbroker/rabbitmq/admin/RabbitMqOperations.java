@@ -7,6 +7,7 @@ import io.github.sudoitir.openbroker.NodeOutcome;
 import io.github.sudoitir.openbroker.Partial;
 import io.github.sudoitir.openbroker.Status;
 import io.github.sudoitir.openbroker.messaging.Count;
+import io.github.sudoitir.openbroker.model.Attributes;
 import io.github.sudoitir.openbroker.model.KindId;
 import io.github.sudoitir.openbroker.model.ResourceId;
 import io.github.sudoitir.openbroker.model.Scope;
@@ -37,6 +38,7 @@ import tools.jackson.databind.JsonNode;
 final class RabbitMqOperations implements Operations {
 
     private static final String MESSAGES = "{message}";
+    private static final String MESSAGE_COUNT = "messages";
     private static final Set<KindId> CREATE = Set.of(
             RabbitMqKinds.VHOST,
             RabbitMqKinds.EXCHANGE,
@@ -114,18 +116,18 @@ final class RabbitMqOperations implements Operations {
 
     private OperationResult run(ResourceId id, Operation operation, Precondition precondition, Deadline deadline) {
         Plan plan = plan(id, operation, deadline);
-        if (precondition instanceof Precondition.IfMatch match && !match.etag().equals(plan.etag())) {
+        if (precondition instanceof Precondition.IfMatch(String etag) && !etag.equals(plan.etag())) {
             throw Writes.refused(
                     Status.FAILED_PRECONDITION,
                     ErrorReasons.PRECONDITION_FAILED,
                     id + " changed since the preview; preview it again.");
         }
         switch (operation) {
-            case Operation.Create create -> writes.put(id, create.attributes().asMap(), deadline);
-            case Operation.Update update -> {
+            case Operation.Create(Attributes attributes) -> writes.put(id, attributes.asMap(), deadline);
+            case Operation.Update(Attributes patch) -> {
                 Map<String, Object> merged = new LinkedHashMap<>(
                         Writes.attributes(id.kind(), plan.current().orElseThrow()));
-                merged.putAll(update.patch().asMap());
+                merged.putAll(patch.asMap());
                 writes.put(id, merged, deadline);
             }
             case Operation.Delete delete -> delete(id, delete, plan.current().orElseThrow(), deadline);
@@ -148,7 +150,7 @@ final class RabbitMqOperations implements Operations {
                     "if-unused", Boolean.toString(!delete.disconnectConsumers()));
         } else if (Writes.isQueue(kind)) {
             // Quorum queues and streams refuse the conditions as flags, so they are checked here, from the read above.
-            if (delete.ifEmpty() && current.path("messages").asLong(0) > 0) {
+            if (delete.ifEmpty() && current.path(MESSAGE_COUNT).asLong(0) > 0) {
                 throw Writes.refused(Status.FAILED_PRECONDITION, ErrorReasons.NOT_EMPTY, id + " holds messages.");
             }
             if (!delete.disconnectConsumers() && current.path("consumers").asLong(0) > 0) {
@@ -200,14 +202,14 @@ final class RabbitMqOperations implements Operations {
         }
         Map<String, Object> before =
                 current.map(json -> Writes.attributes(kind, json)).orElse(Map.of());
-        long messages = current.map(json -> json.path("messages").asLong(0)).orElse(0L);
+        long messages = current.map(json -> json.path(MESSAGE_COUNT).asLong(0)).orElse(0L);
         long ready = current.map(json -> json.path("messages_ready").asLong(0)).orElse(0L);
         List<AttributeChange> diff = new ArrayList<>();
         switch (operation) {
-            case Operation.Create create ->
-                create.attributes().asMap().forEach((k, v) -> diff.add(change(k, before.get(k), v)));
-            case Operation.Update update ->
-                update.patch().asMap().forEach((k, v) -> {
+            case Operation.Create(Attributes attributes) ->
+                attributes.asMap().forEach((k, v) -> diff.add(change(k, before.get(k), v)));
+            case Operation.Update(Attributes patch) ->
+                patch.asMap().forEach((k, v) -> {
                     if (!v.equals(before.get(k))) {
                         diff.add(change(k, before.get(k), v));
                     }
@@ -219,7 +221,7 @@ final class RabbitMqOperations implements Operations {
         }
         if (kind.equals(RabbitMqKinds.VHOST) && operation instanceof Operation.Delete) {
             messages = writes.queues(id.name(), deadline).stream()
-                    .mapToLong(q -> q.path("messages").asLong(0))
+                    .mapToLong(q -> q.path(MESSAGE_COUNT).asLong(0))
                     .sum();
         }
         Count count =
@@ -250,7 +252,7 @@ final class RabbitMqOperations implements Operations {
         if (!allowed) {
             throw unsupported(id, operation);
         }
-        if (operation instanceof Operation.Update update && update.patch().isEmpty()) {
+        if (operation instanceof Operation.Update(Attributes patch) && patch.isEmpty()) {
             throw RabbitMqErrors.invalid("An update of " + id + " names no attribute.");
         }
     }

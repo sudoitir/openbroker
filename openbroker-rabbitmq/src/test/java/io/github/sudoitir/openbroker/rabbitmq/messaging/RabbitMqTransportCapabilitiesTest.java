@@ -149,6 +149,7 @@ class RabbitMqTransportCapabilitiesTest {
                         Scope.whole(),
                         SenderOptions.defaults()),
                 Status.INVALID_ARGUMENT);
+        verifyNoInteractions(fixtures.connections);
     }
 
     @Test
