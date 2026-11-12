@@ -25,9 +25,12 @@ import java.util.Set;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.ListTopicsOptions;
 import org.apache.kafka.clients.admin.NewTopic;
+import org.apache.kafka.clients.admin.OffsetSpec;
+import org.apache.kafka.clients.admin.TopicDescription;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.TopicPartitionInfo;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -360,7 +363,37 @@ class KafkaTopicLifecycleIT {
         // producer then waits out its delivery timeout.
         topic.configs(Map.of("min.insync.replicas", "1"));
         admin.createTopics(List.of(topic)).all().get();
+        // The create future completes when the controller accepts the topic. Another broker can still answer
+        // that it does not host the partition, which Kafka 3.9 and 4.0 do while the rest of the suite is running.
+        assertThat(hosted(name)).isTrue();
         return name;
+    }
+
+    private static boolean hosted(String name) {
+        return Boolean.TRUE.equals(Kafka.eventually(
+                () -> {
+                    try {
+                        TopicDescription description = admin.describeTopics(List.of(name))
+                                .allTopicNames()
+                                .get()
+                                .get(name);
+                        if (description == null
+                                || description.partitions().stream()
+                                        .anyMatch(partition -> partition.leader() == null
+                                                || partition.leader().isEmpty())) {
+                            return false;
+                        }
+                        Map<TopicPartition, OffsetSpec> latest = new HashMap<>();
+                        for (TopicPartitionInfo partition : description.partitions()) {
+                            latest.put(new TopicPartition(name, partition.partition()), OffsetSpec.latest());
+                        }
+                        admin.listOffsets(latest).all().get();
+                        return true;
+                    } catch (Exception e) {
+                        return false;
+                    }
+                },
+                Boolean.TRUE::equals));
     }
 
     private static void commit(String group, String topic, long... offsets) throws Exception {
@@ -386,12 +419,16 @@ class KafkaTopicLifecycleIT {
                 .get();
     }
 
+    /** Delete completes when the controller accepts it. The name can stay listed until each broker catches up. */
     private static void assertAbsent(String name) throws Exception {
-        long until = System.nanoTime() + Duration.ofSeconds(2).toNanos();
-        do {
-            assertThat(names()).doesNotContain(name);
-            Thread.sleep(200);
-        } while (System.nanoTime() < until);
+        long until = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+        while (names().contains(name)) {
+            if (System.nanoTime() > until) {
+                assertThat(names()).doesNotContain(name);
+                return;
+            }
+            Thread.sleep(100);
+        }
     }
 
     private static String note(Preview preview) {

@@ -289,8 +289,10 @@ final class Topics implements Handler {
                         PreconditionEnforcement.CHECKED_BEFORE);
             }
             case Operation.Update update -> {
-                TopicDescription topic = described(context, id);
+                // A replica assignment is refused before any broker read, so a topic the cluster has not
+                // hosted yet still never receives the assignment.
                 refuseAssignment(update.patch());
+                TopicDescription topic = described(context, id);
                 long now = topic.partitions().size();
                 Optional<Long> partitions = Attrs.number(update.patch(), KafkaKinds.PARTITIONS);
                 if (partitions.isPresent() && partitions.get() < now) {
