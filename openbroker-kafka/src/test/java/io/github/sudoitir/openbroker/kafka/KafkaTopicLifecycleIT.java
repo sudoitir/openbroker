@@ -411,10 +411,30 @@ class KafkaTopicLifecycleIT {
         // producer then waits out its delivery timeout.
         topic.configs(Map.of("min.insync.replicas", "1"));
         admin.createTopics(List.of(topic)).all().get();
-        // The create future completes when the controller accepts the topic. Another broker can still answer
-        // that it does not host the partition, which Kafka 3.9 and 4.0 do while the rest of the suite is running.
+        // The create future completes when the controller accepts the topic. Another broker, and the driver's
+        // own client, can still answer that it does not host the partition. Kafka 3.9 and 4.0 do this while the
+        // rest of the suite is running.
         assertThat(hosted(name)).isTrue();
+        assertThat(visible(name, partitions)).isTrue();
         return name;
+    }
+
+    /** The driver's client is not the one that created the topic, so it can lag that client by a moment. */
+    private static boolean visible(String name, int partitions) {
+        ResourceId id = topic(name);
+        Operation same = new Operation.Update(Attributes.builder()
+                .putRaw(KafkaKinds.PARTITIONS, (long) partitions)
+                .build());
+        return Boolean.TRUE.equals(Kafka.eventually(
+                () -> {
+                    try {
+                        preview(id, same);
+                        return true;
+                    } catch (RuntimeException _) {
+                        return false;
+                    }
+                },
+                Boolean.TRUE::equals));
     }
 
     private static boolean hosted(String name) {
