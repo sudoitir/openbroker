@@ -149,7 +149,7 @@ class KafkaTopicLifecycleIT {
     }
 
     @Test
-    void aBrokerRejectionLeavesNoTopic() throws Exception {
+    void aBrokerRejectionLeavesNoTopic() {
         String name = Kafka.unique("rejected");
         ResourceId id = topic(name);
         Attributes attributes = Attributes.builder()
