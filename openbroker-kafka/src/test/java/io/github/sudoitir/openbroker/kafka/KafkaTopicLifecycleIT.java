@@ -86,7 +86,7 @@ class KafkaTopicLifecycleIT {
                 .operations()
                 .execute(id, new Operation.Create(attributes), Scope.whole())
                 .orThrow();
-        assertThat(partitions(name)).isEqualTo(6);
+        assertThat(awaitPartitions(name, 6)).isEqualTo(6);
     }
 
     @Test
@@ -216,14 +216,31 @@ class KafkaTopicLifecycleIT {
                                 .build()),
                         Scope.whole())
                 .orThrow();
+        // The controller can accept the increase while a broker still describes the old count. The etag is that
+        // count, so the delete waits until a preview sees the new one and the old etag is actually stale.
+        String stale = preview.etag();
+        assertThat(awaitPartitions(name, 4)).isEqualTo(4);
+        assertThat(Kafka.eventually(
+                        () -> {
+                            try {
+                                return connection
+                                        .operations()
+                                        .preview(id, Operation.delete(), Scope.whole())
+                                        .etag();
+                            } catch (RuntimeException _) {
+                                return stale;
+                            }
+                        },
+                        etag -> !etag.equals(stale)))
+                .isNotEqualTo(stale);
 
         assertThatThrownBy(() -> connection
                         .operations()
-                        .execute(id, Operation.delete(), Scope.whole(), Precondition.ifMatch(preview.etag()))
+                        .execute(id, Operation.delete(), Scope.whole(), Precondition.ifMatch(stale))
                         .orThrow())
                 .isInstanceOfSatisfying(
                         BrokerException.class, e -> assertThat(e.reason()).isEqualTo(ErrorReasons.PRECONDITION_FAILED));
-        assertThat(partitions(name)).isEqualTo(4);
+        assertThat(awaitPartitions(name, 4)).isEqualTo(4);
     }
 
     @Test
@@ -241,7 +258,7 @@ class KafkaTopicLifecycleIT {
                 .operations()
                 .execute(id, increase, Scope.whole(), Precondition.ifMatch(preview.etag()))
                 .orThrow();
-        assertThat(partitions(name)).isEqualTo(12);
+        assertThat(awaitPartitions(name, 12)).isEqualTo(12);
     }
 
     @Test
@@ -470,6 +487,22 @@ class KafkaTopicLifecycleIT {
             at.put(new TopicPartition(topic, p), new OffsetAndMetadata(offsets[p]));
         }
         admin.alterConsumerGroupOffsets(group, at).all().get();
+    }
+
+    /**
+     * The partition count once a describe agrees, or the last count after ten seconds. A 3.9 broker can still report
+     * the previous count after {@code createPartitions} has been accepted.
+     */
+    private static int awaitPartitions(String name, int expected) {
+        return Kafka.eventually(
+                () -> {
+                    try {
+                        return partitions(name);
+                    } catch (Exception _) {
+                        return -1;
+                    }
+                },
+                count -> count == expected);
     }
 
     private static int partitions(String name) throws Exception {
