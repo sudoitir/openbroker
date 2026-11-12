@@ -2,6 +2,7 @@ package io.github.sudoitir.openbroker.kafka;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import io.github.sudoitir.openbroker.BrokerDrivers;
 import io.github.sudoitir.openbroker.BrokerException;
@@ -28,6 +29,7 @@ import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.admin.OffsetSpec;
 import org.apache.kafka.clients.admin.TopicDescription;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.clients.consumer.KafkaShareConsumer;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.TopicPartitionInfo;
@@ -156,9 +158,10 @@ class KafkaTopicLifecycleIT {
                 .putRaw(KafkaKinds.CONFIG_PREFIX + "cleanup.policy", "banana")
                 .build();
 
-        assertThatThrownBy(() -> preview(id, new Operation.Create(attributes))).isInstanceOf(BrokerException.class);
+        Operation rejected = new Operation.Create(attributes);
+        assertThatThrownBy(() -> preview(id, rejected)).isInstanceOf(BrokerException.class);
         assertAbsent(name);
-        assertThatThrownBy(() -> apply(id, new Operation.Create(attributes))).isInstanceOf(BrokerException.class);
+        assertThatThrownBy(() -> apply(id, rejected)).isInstanceOf(BrokerException.class);
         assertAbsent(name);
     }
 
@@ -284,6 +287,47 @@ class KafkaTopicLifecycleIT {
         apply(id, same);
 
         assertThat(partitions(name)).isEqualTo(6);
+    }
+
+    @Test
+    void deleteIfEmptyRemovesATopicThatHoldsNoRecords() throws Exception {
+        String name = topicWith(1);
+        ResourceId id = topic(name);
+        Operation delete = new Operation.Delete(true, false);
+
+        Preview preview = connection.operations().preview(id, delete, Scope.whole());
+        connection
+                .operations()
+                .execute(id, delete, Scope.whole(), Precondition.ifMatch(preview.etag()))
+                .orThrow();
+
+        assertAbsent(name);
+    }
+
+    @Test
+    void aShareGroupOffsetIsNamedAndTheEmptyGroupCanBeDeleted() throws Exception {
+        assumeTrue(kafka.supports("share.version", 1), "Share groups are a production feature from Kafka 4.2");
+        String name = topicWith(1);
+        String share = Kafka.unique("share");
+        try (KafkaShareConsumer<byte[], byte[]> member = Kafka.shareMember(kafka, share, name)) {
+            assertThat(member.subscription()).contains(name);
+        }
+        admin.alterShareGroupOffsets(share, Map.of(new TopicPartition(name, 0), 0L))
+                .all()
+                .get();
+        ResourceId topicId = topic(name);
+
+        Preview topicPreview = connection.operations().preview(topicId, Operation.delete(), Scope.whole());
+
+        assertThat(groups(topicPreview)).contains(share);
+        ResourceId shareId = group(share);
+        Preview groupPreview = connection.operations().preview(shareId, Operation.delete(), Scope.whole());
+        connection
+                .operations()
+                .execute(shareId, Operation.delete(), Scope.whole(), Precondition.ifMatch(groupPreview.etag()))
+                .orThrow();
+        assertThat(admin.listGroups().all().get().stream().map(g -> g.groupId()))
+                .doesNotContain(share);
     }
 
     @Test
@@ -424,7 +468,7 @@ class KafkaTopicLifecycleIT {
     }
 
     /** Delete completes when the controller accepts it. The name can stay listed until each broker catches up. */
-    private static void assertAbsent(String name) throws Exception {
+    private static void assertAbsent(String name) {
         assertThat(Kafka.eventually(
                         () -> {
                             try {
