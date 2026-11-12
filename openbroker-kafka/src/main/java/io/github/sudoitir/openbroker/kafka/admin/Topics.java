@@ -625,7 +625,8 @@ final class Topics implements Handler {
     }
 
     private static BrokerException internal() {
-        return KafkaErrors.refused(Status.FAILED_PRECONDITION, ErrorReasons.PRECONDITION_FAILED, INTERNAL_REASON);
+        // NOT_SUPPORTED, not PRECONDITION_FAILED: a caller maps the latter to "preview again".
+        return KafkaErrors.refused(Status.FAILED_PRECONDITION, ErrorReasons.NOT_SUPPORTED, INTERNAL_REASON);
     }
 
     private static void refuseShrink(long now, long asked) {
