@@ -151,7 +151,7 @@ final class Groups implements Handler {
         if (!(operation instanceof Operation.Delete)) {
             throw unsupported(operation);
         }
-        GroupInfo info = manageable(context, id);
+        GroupInfo info = deletable(context, id);
         Attributes.Builder before = Attributes.builder()
                 .putRaw(KafkaKinds.GROUP_STATE, info.state().toString())
                 .putRaw(
@@ -174,22 +174,10 @@ final class Groups implements Handler {
 
     @Override
     public OperationResult execute(Context context, ResourceId id, Operation operation, Scope scope) {
-        if (!(operation instanceof Operation.Delete delete)) {
+        if (!(operation instanceof Operation.Delete)) {
             throw refusePurgeOrSeek(context, id, operation);
         }
-        GroupInfo info = manageable(context, id);
-        if (!info.members().isEmpty()) {
-            if (!delete.disconnectConsumers() || GroupType.SHARE.equals(info.type())) {
-                throw KafkaErrors.refused(
-                        Status.FAILED_PRECONDITION,
-                        ErrorReasons.HAS_CONSUMERS,
-                        id + " has active members: "
-                                + info.members().stream()
-                                        .map(GroupInfo.Member::describe)
-                                        .toList() + ".");
-            }
-            removeMembers(context, id.name());
-        }
+        GroupInfo info = deletable(context, id);
         int timeout = context.await().timeoutMs();
         if (GroupType.SHARE.equals(info.type())) {
             context.await()
@@ -204,6 +192,42 @@ final class Groups implements Handler {
                             .all());
         }
         return OperationResult.done();
+    }
+
+    /**
+     * The group when it can be deleted. A group with members, or one that is rebalancing, is refused by name, and
+     * those members are not removed. {@code disconnectConsumers} is ignored so a caller cannot empty the group first.
+     */
+    private GroupInfo deletable(Context context, ResourceId id) {
+        GroupInfo info = manageable(context, id);
+        if (GroupType.SHARE.equals(info.type())
+                && !context.cluster()
+                        .features(context.admin(), context.await())
+                        .share()
+                        .available()) {
+            throw KafkaErrors.refused(
+                    Status.FAILED_PRECONDITION,
+                    ErrorReasons.NOT_SUPPORTED,
+                    id + " is a share group. "
+                            + context.cluster()
+                                    .features(context.admin(), context.await())
+                                    .share()
+                                    .unavailableReason()
+                                    .orElse("Share groups are not declared on this cluster."));
+        }
+        if (!info.members().isEmpty() || info.rebalancing()) {
+            throw KafkaErrors.refused(
+                    Status.FAILED_PRECONDITION,
+                    ErrorReasons.HAS_CONSUMERS,
+                    id + " has members"
+                            + (info.rebalancing() ? " and is rebalancing" : "")
+                            + ": "
+                            + info.members().stream()
+                                    .map(GroupInfo.Member::describe)
+                                    .toList()
+                            + ". This driver does not remove members in order to delete a group.");
+        }
+        return info;
     }
 
     /** The group, if the driver changes its offsets; a streams group is refused with why. */
