@@ -14,10 +14,10 @@ import io.github.sudoitir.openbroker.model.Attributes;
 import io.github.sudoitir.openbroker.model.ResourceId;
 import io.github.sudoitir.openbroker.model.ResourcePath;
 import io.github.sudoitir.openbroker.model.Scope;
+import io.github.sudoitir.openbroker.operation.AttributeChange;
 import io.github.sudoitir.openbroker.operation.Operation;
 import io.github.sudoitir.openbroker.operation.Precondition;
 import io.github.sudoitir.openbroker.operation.Preview;
-import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -156,14 +156,9 @@ class KafkaTopicLifecycleIT {
                 .putRaw(KafkaKinds.CONFIG_PREFIX + "cleanup.policy", "banana")
                 .build();
 
-        assertThatThrownBy(() -> connection.operations().preview(id, new Operation.Create(attributes), Scope.whole()))
-                .isInstanceOf(BrokerException.class);
+        assertThatThrownBy(() -> preview(id, new Operation.Create(attributes))).isInstanceOf(BrokerException.class);
         assertAbsent(name);
-        assertThatThrownBy(() -> connection
-                        .operations()
-                        .execute(id, new Operation.Create(attributes), Scope.whole())
-                        .orThrow())
-                .isInstanceOf(BrokerException.class);
+        assertThatThrownBy(() -> apply(id, new Operation.Create(attributes))).isInstanceOf(BrokerException.class);
         assertAbsent(name);
     }
 
@@ -270,15 +265,24 @@ class KafkaTopicLifecycleIT {
                 .putRaw(KafkaKinds.REPLICAS, List.of(1))
                 .build());
 
-        assertThatThrownBy(() -> connection.operations().preview(id, assigned, Scope.whole()))
+        assertThatThrownBy(() -> preview(id, assigned))
                 .isInstanceOfSatisfying(
                         BrokerException.class,
                         e -> assertThat(e.dispatch().name()).isEqualTo("NOT_SENT"));
-        assertThatThrownBy(() -> connection
-                        .operations()
-                        .execute(id, assigned, Scope.whole())
-                        .orThrow())
-                .isInstanceOf(BrokerException.class);
+        assertThatThrownBy(() -> apply(id, assigned)).isInstanceOf(BrokerException.class);
+        assertThat(partitions(name)).isEqualTo(6);
+    }
+
+    @Test
+    void theSamePartitionCountChangesNothing() throws Exception {
+        String name = topicWith(6);
+        ResourceId id = topic(name);
+        Operation same = new Operation.Update(
+                Attributes.builder().putRaw(KafkaKinds.PARTITIONS, 6L).build());
+
+        preview(id, same);
+        apply(id, same);
+
         assertThat(partitions(name)).isEqualTo(6);
     }
 
@@ -389,7 +393,7 @@ class KafkaTopicLifecycleIT {
                         }
                         admin.listOffsets(latest).all().get();
                         return true;
-                    } catch (Exception e) {
+                    } catch (Exception _) {
                         return false;
                     }
                 },
@@ -421,14 +425,24 @@ class KafkaTopicLifecycleIT {
 
     /** Delete completes when the controller accepts it. The name can stay listed until each broker catches up. */
     private static void assertAbsent(String name) throws Exception {
-        long until = System.nanoTime() + Duration.ofSeconds(10).toNanos();
-        while (names().contains(name)) {
-            if (System.nanoTime() > until) {
-                assertThat(names()).doesNotContain(name);
-                return;
-            }
-            Thread.sleep(100);
-        }
+        assertThat(Kafka.eventually(
+                        () -> {
+                            try {
+                                return !names().contains(name);
+                            } catch (Exception _) {
+                                return false;
+                            }
+                        },
+                        Boolean.TRUE::equals))
+                .isTrue();
+    }
+
+    private static void preview(ResourceId id, Operation operation) {
+        connection.operations().preview(id, operation, Scope.whole());
+    }
+
+    private static void apply(ResourceId id, Operation operation) {
+        connection.operations().execute(id, operation, Scope.whole()).orThrow();
     }
 
     private static String note(Preview preview) {
@@ -441,7 +455,7 @@ class KafkaTopicLifecycleIT {
 
     private static List<String> groups(Preview preview) {
         return preview.diff().stream()
-                .map(change -> change.key())
+                .map(AttributeChange::key)
                 .filter(key -> key.startsWith(KafkaKinds.OFFSETS_KEPT))
                 .map(key -> key.substring(KafkaKinds.OFFSETS_KEPT.length()))
                 .toList();

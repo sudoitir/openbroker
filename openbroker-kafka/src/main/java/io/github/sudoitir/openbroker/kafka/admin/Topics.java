@@ -275,10 +275,10 @@ final class Topics implements Handler {
     @Override
     public Preview preview(Context context, ResourceId id, Operation operation, Scope scope) {
         switch (operation) {
-            case Operation.Create create -> {
-                checkCreate(context, id, create.attributes());
-                validateNewTopic(context, id, create.attributes());
-                List<AttributeChange> diff = new ArrayList<>(Attrs.diff(Attributes.empty(), create.attributes()));
+            case Operation.Create(var attributes) -> {
+                checkCreate(context, id, attributes);
+                validateNewTopic(context, id, attributes);
+                List<AttributeChange> diff = new ArrayList<>(Attrs.diff(Attributes.empty(), attributes));
                 diff.add(new AttributeChange(KafkaKinds.NOTE, Optional.empty(), Optional.of(CREATE_NOTE)));
                 return new Preview(
                         diff,
@@ -288,13 +288,13 @@ final class Topics implements Handler {
                         EtagBasis.CONFIGURATION,
                         PreconditionEnforcement.CHECKED_BEFORE);
             }
-            case Operation.Update update -> {
+            case Operation.Update(var patch) -> {
                 // A replica assignment is refused before any broker read, so a topic the cluster has not
                 // hosted yet still never receives the assignment.
-                refuseAssignment(update.patch());
+                refuseAssignment(patch);
                 TopicDescription topic = described(context, id);
                 long now = topic.partitions().size();
-                Optional<Long> partitions = Attrs.number(update.patch(), KafkaKinds.PARTITIONS);
+                Optional<Long> partitions = Attrs.number(patch, KafkaKinds.PARTITIONS);
                 if (partitions.isPresent() && partitions.get() < now) {
                     refuseShrink(now, partitions.get());
                 }
@@ -303,11 +303,8 @@ final class Topics implements Handler {
                 }
                 Resource current = find(context, id).orElseThrow(() -> Handler.gone(id));
                 Attributes.Builder before = Attributes.builder();
-                update.patch()
-                        .asMap()
-                        .keySet()
-                        .forEach(k -> current.attributes().raw(k).ifPresent(v -> before.putRaw(k, v)));
-                List<AttributeChange> diff = new ArrayList<>(Attrs.diff(before.build(), update.patch()));
+                patch.asMap().keySet().forEach(k -> current.attributes().raw(k).ifPresent(v -> before.putRaw(k, v)));
+                List<AttributeChange> diff = new ArrayList<>(Attrs.diff(before.build(), patch));
                 if (partitions.isPresent() && partitions.get() > now) {
                     diff.add(new AttributeChange(KafkaKinds.NOTE, Optional.empty(), Optional.of(INCREASE_NOTE)));
                 }
@@ -367,11 +364,11 @@ final class Topics implements Handler {
     @Override
     public OperationResult execute(Context context, ResourceId id, Operation operation, Scope scope) {
         return switch (operation) {
-            case Operation.Create create -> create(context, id, create.attributes());
-            case Operation.Update update -> update(context, id, update.patch());
+            case Operation.Create(var attributes) -> create(context, id, attributes);
+            case Operation.Update(var patch) -> update(context, id, patch);
             case Operation.Delete delete -> delete(context, id, delete);
-            case Operation.Truncate truncate ->
-                Truncation.execute(context, id.name(), Optional.empty(), scope, truncate.position());
+            case Operation.Truncate(var position) ->
+                Truncation.execute(context, id.name(), Optional.empty(), scope, position);
             default -> throw unsupported(operation);
         };
     }
@@ -539,8 +536,7 @@ final class Topics implements Handler {
     }
 
     private static boolean increases(Operation operation) {
-        return operation instanceof Operation.Update update
-                && update.patch().asMap().containsKey(KafkaKinds.PARTITIONS);
+        return operation instanceof Operation.Update(var patch) && patch.asMap().containsKey(KafkaKinds.PARTITIONS);
     }
 
     /** The settings the topic kind declares. A create that names another is refused before the broker is asked. */
@@ -559,37 +555,47 @@ final class Topics implements Handler {
         if (id.name().startsWith(INTERNAL_PREFIX)) {
             throw internal();
         }
-        Optional<Integer> partitions = Attrs.number(attributes, KafkaKinds.PARTITIONS)
-                .map(count -> {
-                    if (count < 1 || count > Integer.MAX_VALUE) {
-                        throw Attrs.invalid("A topic needs at least 1 partition, not " + count + ".");
-                    }
-                    return count.intValue();
-                });
-        Optional<Short> replication = Attrs.number(attributes, KafkaKinds.REPLICATION_FACTOR)
-                .map(factor -> {
-                    int brokers = brokersReached(context);
-                    if (factor < 1 || factor > brokers) {
-                        throw Attrs.invalid("Replication factor " + factor + " is outside 1.." + brokers
-                                + ", and this connection reached " + brokers + " brokers.");
-                    }
-                    return factor.shortValue();
-                });
+        return new NewTopic(id.name(), partitionCount(attributes), replication(context, attributes))
+                .configs(declaredConfigs(attributes));
+    }
+
+    private static Optional<Integer> partitionCount(Attributes attributes) {
+        return Attrs.number(attributes, KafkaKinds.PARTITIONS).map(count -> {
+            if (count < 1 || count > Integer.MAX_VALUE) {
+                throw Attrs.invalid("A topic needs at least 1 partition, not " + count + ".");
+            }
+            return count.intValue();
+        });
+    }
+
+    private static Optional<Short> replication(Context context, Attributes attributes) {
+        return Attrs.number(attributes, KafkaKinds.REPLICATION_FACTOR).map(factor -> {
+            int brokers = brokersReached(context);
+            if (factor < 1 || factor > brokers) {
+                throw Attrs.invalid("Replication factor " + factor + " is outside 1.." + brokers
+                        + ", and this connection reached " + brokers + " brokers.");
+            }
+            return factor.shortValue();
+        });
+    }
+
+    private static Map<String, String> declaredConfigs(Attributes attributes) {
         Map<String, String> configs = new LinkedHashMap<>();
-        attributes.asMap().forEach((key, value) -> {
+        for (Map.Entry<String, Object> entry : attributes.asMap().entrySet()) {
+            String key = entry.getKey();
             if (key.startsWith(KafkaKinds.CONFIG_PREFIX)) {
                 if (!DECLARED_SETTINGS.contains(key)) {
                     throw Attrs.invalid(
                             "A topic has no setting " + key.substring(KafkaKinds.CONFIG_PREFIX.length()) + ".");
                 }
-                configs.put(key.substring(KafkaKinds.CONFIG_PREFIX.length()), String.valueOf(value));
-            } else if (!key.equals(KafkaKinds.PARTITIONS) && !key.equals(KafkaKinds.REPLICATION_FACTOR)) {
-                if (!key.startsWith("openbroker.")) {
-                    throw Attrs.invalid("A topic has no attribute " + key + ".");
-                }
+                configs.put(key.substring(KafkaKinds.CONFIG_PREFIX.length()), String.valueOf(entry.getValue()));
+            } else if (!key.equals(KafkaKinds.PARTITIONS)
+                    && !key.equals(KafkaKinds.REPLICATION_FACTOR)
+                    && !key.startsWith("openbroker.")) {
+                throw Attrs.invalid("A topic has no attribute " + key + ".");
             }
-        });
-        return new NewTopic(id.name(), partitions, replication).configs(configs);
+        }
+        return configs;
     }
 
     /** Asks the broker to accept the topic and creates nothing. */
