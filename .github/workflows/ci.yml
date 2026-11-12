@@ -205,7 +205,12 @@ jobs:
   sonar:
     runs-on: ubuntu-latest
     needs: [verify, spring]
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    # Dependabot runs cannot read Actions secrets, so SONAR_TOKEN is empty and the scanner
+    # answers "not authorized". Maintainer pull requests still analyse.
+    if: >-
+      github.event_name == 'pull_request'
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && github.actor != 'dependabot[bot]'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
