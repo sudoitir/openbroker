@@ -99,6 +99,12 @@ public final class KafkaKinds {
     /** What a preview of a subscription's reset adds that is not an attribute: a note for the operator. */
     public static final String NOTE = "kafka.note";
 
+    /**
+     * A group that still has offsets on a topic a delete would remove, followed by the group's name. The offsets
+     * themselves are not erased.
+     */
+    public static final String OFFSETS_KEPT = "kafka.offsets_kept.";
+
     public static final String COORDINATOR = "kafka.coordinator";
     public static final String ASSIGNOR = "kafka.assignor";
     /** Why a group's offsets cannot be changed through this driver; absent when they can. */

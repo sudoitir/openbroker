@@ -18,6 +18,7 @@ import io.github.sudoitir.openbroker.model.ResourcePath;
 import io.github.sudoitir.openbroker.model.ResourceQuery;
 import io.github.sudoitir.openbroker.model.Scope;
 import io.github.sudoitir.openbroker.model.StandardAttributes;
+import io.github.sudoitir.openbroker.operation.AttributeChange;
 import io.github.sudoitir.openbroker.operation.Estimate;
 import io.github.sudoitir.openbroker.operation.EtagBasis;
 import io.github.sudoitir.openbroker.operation.Operation;
@@ -41,8 +42,16 @@ import org.apache.kafka.clients.admin.ConfigEntry;
 import org.apache.kafka.clients.admin.CreatePartitionsOptions;
 import org.apache.kafka.clients.admin.CreateTopicsOptions;
 import org.apache.kafka.clients.admin.DeleteTopicsOptions;
+import org.apache.kafka.clients.admin.DescribeClusterOptions;
 import org.apache.kafka.clients.admin.DescribeConfigsOptions;
 import org.apache.kafka.clients.admin.DescribeTopicsOptions;
+import org.apache.kafka.clients.admin.GroupListing;
+import org.apache.kafka.clients.admin.ListConsumerGroupOffsetsOptions;
+import org.apache.kafka.clients.admin.ListConsumerGroupOffsetsSpec;
+import org.apache.kafka.clients.admin.ListShareGroupOffsetsOptions;
+import org.apache.kafka.clients.admin.ListShareGroupOffsetsSpec;
+import org.apache.kafka.clients.admin.ListStreamsGroupOffsetsOptions;
+import org.apache.kafka.clients.admin.ListStreamsGroupOffsetsSpec;
 import org.apache.kafka.clients.admin.ListTopicsOptions;
 import org.apache.kafka.clients.admin.NewPartitions;
 import org.apache.kafka.clients.admin.NewTopic;
@@ -247,28 +256,60 @@ final class Topics implements Handler {
                 context.now());
     }
 
+    /** Why an internal topic is refused. The same words the configuration screen uses. */
+    static final String INTERNAL_REASON = "The cluster manages internal topics.";
+
+    private static final String INTERNAL_PREFIX = "__";
+
+    private static final String CREATE_NOTE = "The cluster accepted this topic. Nothing has been created.";
+
+    private static final String DELETE_NOTE =
+            "Deleting this topic does not erase those groups' offsets. The groups will show the topic as deleted. "
+                    + Subscriptions.ESTIMATE_REASON;
+
+    private static final String INCREASE_NOTE =
+            "Records already written stay on their partitions. A key can land on a new partition afterwards.";
+
     // Operations.
 
     @Override
     public Preview preview(Context context, ResourceId id, Operation operation, Scope scope) {
         switch (operation) {
-            case Operation.Create create -> {
-                Attributes after = create.attributes();
+            case Operation.Create(var attributes) -> {
+                checkCreate(context, id, attributes);
+                validateNewTopic(context, id, attributes);
+                List<AttributeChange> diff = new ArrayList<>(Attrs.diff(Attributes.empty(), attributes));
+                diff.add(new AttributeChange(KafkaKinds.NOTE, Optional.empty(), Optional.of(CREATE_NOTE)));
                 return new Preview(
-                        Attrs.diff(Attributes.empty(), after),
+                        diff,
                         Set.of(),
                         new Estimate(Count.exact(1), "{topic}"),
                         Etags.of(id.format(), "absent"),
                         EtagBasis.CONFIGURATION,
                         PreconditionEnforcement.CHECKED_BEFORE);
             }
-            case Operation.Update update -> {
+            case Operation.Update(var patch) -> {
+                // A replica assignment is refused before any broker read, so a topic the cluster has not
+                // hosted yet still never receives the assignment.
+                refuseAssignment(patch);
+                TopicDescription topic = described(context, id);
+                long now = topic.partitions().size();
+                Optional<Long> partitions = Attrs.number(patch, KafkaKinds.PARTITIONS);
+                if (partitions.isPresent() && partitions.get() < now) {
+                    refuseShrink(now, partitions.get());
+                }
+                if (partitions.isPresent() && partitions.get() > now) {
+                    increase(context, id, partitions.get().intValue(), true);
+                }
                 Resource current = find(context, id).orElseThrow(() -> Handler.gone(id));
-                Attributes patch = update.patch();
                 Attributes.Builder before = Attributes.builder();
                 patch.asMap().keySet().forEach(k -> current.attributes().raw(k).ifPresent(v -> before.putRaw(k, v)));
+                List<AttributeChange> diff = new ArrayList<>(Attrs.diff(before.build(), patch));
+                if (partitions.isPresent() && partitions.get() > now) {
+                    diff.add(new AttributeChange(KafkaKinds.NOTE, Optional.empty(), Optional.of(INCREASE_NOTE)));
+                }
                 return new Preview(
-                        Attrs.diff(before.build(), patch),
+                        diff,
                         Set.of(),
                         new Estimate(Count.exact(1), "{topic}"),
                         etag(context, id, operation, scope),
@@ -276,11 +317,27 @@ final class Topics implements Handler {
                         PreconditionEnforcement.CHECKED_BEFORE);
             }
             case Operation.Delete delete -> {
-                Resource current = find(context, id).orElseThrow(() -> Handler.gone(id));
+                TopicDescription topic = described(context, id);
+                refuseIfInternal(topic);
+                long records = records(context, id.name());
+                if (delete.ifEmpty() && records > 0) {
+                    refuseNotEmpty(id, records);
+                }
+                List<AttributeChange> diff = new ArrayList<>();
+                diff.add(new AttributeChange(
+                        KafkaKinds.PARTITIONS,
+                        Optional.of((long) topic.partitions().size()),
+                        Optional.empty()));
+                diff.add(new AttributeChange(
+                        KafkaKinds.REPLICATION_FACTOR, Optional.of(replicationFactor(topic)), Optional.empty()));
+                groupsHolding(context, id.name())
+                        .forEach(group -> diff.add(new AttributeChange(
+                                KafkaKinds.OFFSETS_KEPT + group, Optional.empty(), Optional.of("offsets remain"))));
+                diff.add(new AttributeChange(KafkaKinds.NOTE, Optional.empty(), Optional.of(DELETE_NOTE)));
                 return new Preview(
-                        Attrs.diff(current.attributes(), Attributes.empty()),
+                        diff,
                         Set.of(),
-                        new Estimate(Count.exact(1), "{topic}"),
+                        new Estimate(Count.estimate(records), "{message}"),
                         etag(context, id, operation, scope),
                         EtagBasis.INCARNATION,
                         PreconditionEnforcement.CHECKED_BEFORE);
@@ -297,38 +354,27 @@ final class Topics implements Handler {
         if (operation instanceof Operation.Truncate) {
             return Truncation.etag(context, id, id.name(), Optional.empty(), scope);
         }
+        if (operation instanceof Operation.Delete || increases(operation)) {
+            TopicDescription topic = described(context, id);
+            return Etags.of(id.format(), topic.topicId(), topic.partitions().size());
+        }
         return Handler.super.etag(context, id, operation, scope);
     }
 
     @Override
     public OperationResult execute(Context context, ResourceId id, Operation operation, Scope scope) {
         return switch (operation) {
-            case Operation.Create create -> create(context, id, create.attributes());
-            case Operation.Update update -> update(context, id, update.patch());
+            case Operation.Create(var attributes) -> create(context, id, attributes);
+            case Operation.Update(var patch) -> update(context, id, patch);
             case Operation.Delete delete -> delete(context, id, delete);
-            case Operation.Truncate truncate ->
-                Truncation.execute(context, id.name(), Optional.empty(), scope, truncate.position());
+            case Operation.Truncate(var position) ->
+                Truncation.execute(context, id.name(), Optional.empty(), scope, position);
             default -> throw unsupported(operation);
         };
     }
 
     static OperationResult create(Context context, ResourceId id, Attributes attributes) {
-        Optional<Integer> partitions =
-                Attrs.number(attributes, KafkaKinds.PARTITIONS).map(Long::intValue);
-        Optional<Short> replication =
-                Attrs.number(attributes, KafkaKinds.REPLICATION_FACTOR).map(Long::shortValue);
-        Map<String, String> configs = new LinkedHashMap<>();
-        attributes.asMap().forEach((k, v) -> {
-            if (k.startsWith(KafkaKinds.CONFIG_PREFIX)) {
-                configs.put(k.substring(KafkaKinds.CONFIG_PREFIX.length()), String.valueOf(v));
-            } else if (!k.equals(KafkaKinds.PARTITIONS) && !k.equals(KafkaKinds.REPLICATION_FACTOR)) {
-                // Anything else, such as a delivery mode, is a hint a Kafka topic has no use for.
-                if (!k.startsWith("openbroker.")) {
-                    throw Attrs.invalid("A topic has no attribute " + k + ".");
-                }
-            }
-        });
-        NewTopic topic = new NewTopic(id.name(), partitions, replication).configs(configs);
+        NewTopic topic = newTopic(context, id, attributes);
         try {
             context.await()
                     .get(context.admin()
@@ -400,6 +446,7 @@ final class Topics implements Handler {
     }
 
     private OperationResult update(Context context, ResourceId id, Attributes patch) {
+        refuseAssignment(patch);
         Resource current = find(context, id).orElseThrow(() -> Handler.gone(id));
         List<AlterConfigOp> ops = new ArrayList<>();
         Optional<Long> partitions = Optional.empty();
@@ -427,24 +474,12 @@ final class Topics implements Handler {
         }
         long now = (Long) current.attributes().raw(KafkaKinds.PARTITIONS).orElse(0L);
         if (partitions.isPresent() && partitions.get() < now) {
-            throw KafkaErrors.refused(
-                    Status.INVALID_ARGUMENT,
-                    ErrorReasons.IMMUTABLE_FIELD,
-                    "A topic's partitions can only be increased: it has " + now + ", not " + partitions.get() + ".");
+            refuseShrink(now, partitions.get());
         }
         boolean changed = false;
         try {
             if (partitions.isPresent() && partitions.get() > now) {
-                context.await()
-                        .get(context.admin()
-                                .createPartitions(
-                                        Map.of(
-                                                id.name(),
-                                                NewPartitions.increaseTo(
-                                                        partitions.get().intValue())),
-                                        new CreatePartitionsOptions()
-                                                .timeoutMs(context.await().timeoutMs()))
-                                .all());
+                increase(context, id, partitions.get().intValue(), false);
                 changed = true;
             }
             if (!ops.isEmpty()) {
@@ -468,17 +503,12 @@ final class Topics implements Handler {
     }
 
     private OperationResult delete(Context context, ResourceId id, Operation.Delete delete) {
+        TopicDescription topic = described(context, id);
+        refuseIfInternal(topic);
         if (delete.ifEmpty()) {
-            Map<TopicPartition, Long> start = Offsets.earliest(context, Offsets.partitions(context, id.name()));
-            Map<TopicPartition, Long> end = Offsets.latest(context, start.keySet());
-            long records = end.entrySet().stream()
-                    .mapToLong(e -> e.getValue() - start.get(e.getKey()))
-                    .sum();
+            long records = records(context, id.name());
             if (records > 0) {
-                throw KafkaErrors.refused(
-                        Status.FAILED_PRECONDITION,
-                        ErrorReasons.NOT_EMPTY,
-                        id + " still holds about " + records + " records.");
+                refuseNotEmpty(id, records);
             }
         }
         try {
@@ -494,5 +524,227 @@ final class Topics implements Handler {
             context.topology().invalidate();
         }
         return OperationResult.done();
+    }
+
+    /** The topic, or a not-found refusal when the broker no longer has it. */
+    private static TopicDescription described(Context context, ResourceId id) {
+        TopicDescription topic = describe(context, List.of(id.name())).get(id.name());
+        if (topic == null) {
+            throw Handler.gone(id);
+        }
+        return topic;
+    }
+
+    private static boolean increases(Operation operation) {
+        return operation instanceof Operation.Update(var patch) && patch.asMap().containsKey(KafkaKinds.PARTITIONS);
+    }
+
+    /** The settings the topic kind declares. A create that names another is refused before the broker is asked. */
+    private static final Set<String> DECLARED_SETTINGS = Set.of(
+            KafkaKinds.CONFIG_PREFIX + "cleanup.policy",
+            KafkaKinds.CONFIG_PREFIX + "retention.ms",
+            KafkaKinds.CONFIG_PREFIX + "retention.bytes",
+            KafkaKinds.CONFIG_PREFIX + "max.message.bytes",
+            KafkaKinds.CONFIG_PREFIX + "min.insync.replicas");
+
+    private static void checkCreate(Context context, ResourceId id, Attributes attributes) {
+        newTopic(context, id, attributes);
+    }
+
+    private static NewTopic newTopic(Context context, ResourceId id, Attributes attributes) {
+        if (id.name().startsWith(INTERNAL_PREFIX)) {
+            throw internal();
+        }
+        return new NewTopic(id.name(), partitionCount(attributes), replication(context, attributes))
+                .configs(declaredConfigs(attributes));
+    }
+
+    private static Optional<Integer> partitionCount(Attributes attributes) {
+        return Attrs.number(attributes, KafkaKinds.PARTITIONS).map(count -> {
+            if (count < 1 || count > Integer.MAX_VALUE) {
+                throw Attrs.invalid("A topic needs at least 1 partition, not " + count + ".");
+            }
+            return count.intValue();
+        });
+    }
+
+    private static Optional<Short> replication(Context context, Attributes attributes) {
+        return Attrs.number(attributes, KafkaKinds.REPLICATION_FACTOR).map(factor -> {
+            int brokers = brokersReached(context);
+            if (factor < 1 || factor > brokers) {
+                throw Attrs.invalid("Replication factor " + factor + " is outside 1.." + brokers
+                        + ", and this connection reached " + brokers + " brokers.");
+            }
+            return factor.shortValue();
+        });
+    }
+
+    private static Map<String, String> declaredConfigs(Attributes attributes) {
+        Map<String, String> configs = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : attributes.asMap().entrySet()) {
+            String key = entry.getKey();
+            if (key.startsWith(KafkaKinds.CONFIG_PREFIX)) {
+                if (!DECLARED_SETTINGS.contains(key)) {
+                    throw Attrs.invalid(
+                            "A topic has no setting " + key.substring(KafkaKinds.CONFIG_PREFIX.length()) + ".");
+                }
+                configs.put(key.substring(KafkaKinds.CONFIG_PREFIX.length()), String.valueOf(entry.getValue()));
+            } else if (!key.equals(KafkaKinds.PARTITIONS)
+                    && !key.equals(KafkaKinds.REPLICATION_FACTOR)
+                    && !key.startsWith("openbroker.")) {
+                throw Attrs.invalid("A topic has no attribute " + key + ".");
+            }
+        }
+        return configs;
+    }
+
+    /** Asks the broker to accept the topic and creates nothing. */
+    private static void validateNewTopic(Context context, ResourceId id, Attributes attributes) {
+        try {
+            context.await()
+                    .get(context.admin()
+                            .createTopics(
+                                    List.of(newTopic(context, id, attributes)),
+                                    new CreateTopicsOptions()
+                                            .validateOnly(true)
+                                            .timeoutMs(context.await().timeoutMs()))
+                            .all());
+        } catch (BrokerException e) {
+            if (e.getCause() instanceof TopicExistsException) {
+                throw KafkaErrors.refused(Status.ALREADY_EXISTS, ErrorReasons.RESOURCE_EXISTS, id + " already exists.");
+            }
+            throw e;
+        }
+    }
+
+    private static int brokersReached(Context context) {
+        return context.await()
+                .get(context.admin()
+                        .describeCluster(new DescribeClusterOptions()
+                                .timeoutMs(context.await().timeoutMs()))
+                        .nodes())
+                .size();
+    }
+
+    private static void refuseIfInternal(TopicDescription topic) {
+        if (topic.isInternal() || topic.name().startsWith(INTERNAL_PREFIX)) {
+            throw internal();
+        }
+    }
+
+    private static BrokerException internal() {
+        // NOT_SUPPORTED, not PRECONDITION_FAILED: a caller maps the latter to "preview again".
+        return KafkaErrors.refused(Status.FAILED_PRECONDITION, ErrorReasons.NOT_SUPPORTED, INTERNAL_REASON);
+    }
+
+    private static void refuseShrink(long now, long asked) {
+        throw KafkaErrors.refused(
+                Status.INVALID_ARGUMENT,
+                ErrorReasons.IMMUTABLE_FIELD,
+                "A topic's partitions can only be increased: it has " + now + ", not " + asked + ".");
+    }
+
+    private static void refuseAssignment(Attributes patch) {
+        if (patch.asMap().containsKey(KafkaKinds.REPLICAS)) {
+            throw KafkaErrors.refused(
+                    Status.INVALID_ARGUMENT,
+                    ErrorReasons.INVALID_ARGUMENT,
+                    "A partition increase does not assign replicas.");
+        }
+    }
+
+    private static void refuseNotEmpty(ResourceId id, long records) {
+        throw KafkaErrors.refused(
+                Status.FAILED_PRECONDITION,
+                ErrorReasons.NOT_EMPTY,
+                id + " still holds an estimate of " + records + " records.");
+    }
+
+    private static long replicationFactor(TopicDescription topic) {
+        return topic.partitions().isEmpty()
+                ? 0L
+                : topic.partitions().getFirst().replicas().size();
+    }
+
+    /** End offset minus log start, summed. Compaction and transaction markers can overcount. */
+    private static long records(Context context, String topic) {
+        List<TopicPartition> partitions = Offsets.partitions(context, topic);
+        Map<TopicPartition, Long> start = Offsets.earliest(context, partitions);
+        Map<TopicPartition, Long> end = Offsets.latest(context, partitions);
+        long total = 0;
+        for (TopicPartition partition : partitions) {
+            Long first = start.get(partition);
+            Long last = end.get(partition);
+            if (first == null || last == null) {
+                throw KafkaErrors.refused(
+                        Status.UNAVAILABLE,
+                        ErrorReasons.UNREACHABLE,
+                        "The record estimate for " + topic + " could not be read.");
+            }
+            total += Math.max(0, last - first);
+        }
+        return total;
+    }
+
+    /** Groups that have committed or start offsets on the topic. A short read fails the preview. */
+    private static Set<String> groupsHolding(Context context, String topic) {
+        List<TopicPartition> partitions = Offsets.partitions(context, topic);
+        if (partitions.isEmpty()) {
+            return Set.of();
+        }
+        Map<String, ListConsumerGroupOffsetsSpec> consumers = new LinkedHashMap<>();
+        Map<String, ListShareGroupOffsetsSpec> shares = new LinkedHashMap<>();
+        Map<String, ListStreamsGroupOffsetsSpec> streams = new LinkedHashMap<>();
+        for (GroupListing group : GroupInfo.list(context)) {
+            switch (GroupInfo.typeOf(group)) {
+                case SHARE -> shares.put(group.groupId(), new ListShareGroupOffsetsSpec().topicPartitions(partitions));
+                case STREAMS ->
+                    streams.put(group.groupId(), new ListStreamsGroupOffsetsSpec().topicPartitions(partitions));
+                default ->
+                    consumers.put(group.groupId(), new ListConsumerGroupOffsetsSpec().topicPartitions(partitions));
+            }
+        }
+        Set<String> named = new TreeSet<>();
+        int timeout = context.await().timeoutMs();
+        if (!consumers.isEmpty()) {
+            context.await()
+                    .get(context.admin()
+                            .listConsumerGroupOffsets(
+                                    consumers, new ListConsumerGroupOffsetsOptions().timeoutMs(timeout))
+                            .all())
+                    .forEach((group, offsets) -> keep(named, group, topic, offsets.keySet()));
+        }
+        if (!streams.isEmpty()) {
+            context.await()
+                    .get(context.admin()
+                            .listStreamsGroupOffsets(streams, new ListStreamsGroupOffsetsOptions().timeoutMs(timeout))
+                            .all())
+                    .forEach((group, offsets) -> keep(named, group, topic, offsets.keySet()));
+        }
+        if (!shares.isEmpty()) {
+            context.await()
+                    .get(context.admin()
+                            .listShareGroupOffsets(shares, new ListShareGroupOffsetsOptions().timeoutMs(timeout))
+                            .all())
+                    .forEach((group, offsets) -> keep(named, group, topic, offsets.keySet()));
+        }
+        return named;
+    }
+
+    private static void keep(Set<String> named, String group, String topic, Set<TopicPartition> partitions) {
+        if (partitions.stream().anyMatch(partition -> topic.equals(partition.topic()))) {
+            named.add(group);
+        }
+    }
+
+    private static void increase(Context context, ResourceId id, int partitions, boolean validateOnly) {
+        context.await()
+                .get(context.admin()
+                        .createPartitions(
+                                Map.of(id.name(), NewPartitions.increaseTo(partitions)),
+                                new CreatePartitionsOptions()
+                                        .validateOnly(validateOnly)
+                                        .timeoutMs(context.await().timeoutMs()))
+                        .all());
     }
 }
