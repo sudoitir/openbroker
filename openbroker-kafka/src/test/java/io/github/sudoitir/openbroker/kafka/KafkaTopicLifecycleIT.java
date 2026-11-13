@@ -33,6 +33,7 @@ import org.apache.kafka.clients.consumer.KafkaShareConsumer;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.TopicPartitionInfo;
+import org.apache.kafka.common.errors.UnknownTopicOrPartitionException;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -481,12 +482,35 @@ class KafkaTopicLifecycleIT {
                 Boolean.TRUE::equals));
     }
 
-    private static void commit(String group, String topic, long... offsets) throws Exception {
+    private static void commit(String group, String topic, long... offsets) {
         Map<TopicPartition, OffsetAndMetadata> at = new HashMap<>();
         for (int p = 0; p < offsets.length; p++) {
             at.put(new TopicPartition(topic, p), new OffsetAndMetadata(offsets[p]));
         }
-        admin.alterConsumerGroupOffsets(group, at).all().get();
+        // The group coordinator can still refuse the partition after describe and listOffsets already see it.
+        assertThat(Kafka.eventually(
+                        () -> {
+                            try {
+                                admin.alterConsumerGroupOffsets(group, at).all().get();
+                                return true;
+                            } catch (Exception e) {
+                                if (causedByUnknownPartition(e)) {
+                                    return false;
+                                }
+                                throw new IllegalStateException(e);
+                            }
+                        },
+                        Boolean.TRUE::equals))
+                .isTrue();
+    }
+
+    private static boolean causedByUnknownPartition(Throwable error) {
+        for (Throwable current = error; current != null; current = current.getCause()) {
+            if (current instanceof UnknownTopicOrPartitionException) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
