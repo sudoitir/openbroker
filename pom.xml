@@ -68,7 +68,7 @@
         <artemis.version>2.57.0</artemis.version>
         <!-- The Artemis client's own tree asks for two slf4j versions; this one is Artemis's. -->
         <slf4j.version>2.0.20</slf4j.version>
-        <jackson-bom.version>3.2.4</jackson-bom.version>
+        <jackson-bom.version>3.3.0</jackson-bom.version>
         <junit.version>6.1.3</junit.version>
         <assertj.version>3.27.7</assertj.version>
         <mockito.version>5.24.0</mockito.version>
