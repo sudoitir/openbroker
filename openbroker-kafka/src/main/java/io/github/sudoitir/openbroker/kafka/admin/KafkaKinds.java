@@ -89,7 +89,16 @@ public final class KafkaKinds {
     public static final String LAST_KNOWN_ELIGIBLE_LEADER_REPLICAS = "kafka.last_known_elr";
     public static final String LOG_START_OFFSET = "kafka.log_start_offset";
     public static final String LOG_END_OFFSET = "kafka.log_end_offset";
+    /** The leader replica's bytes on its broker, not a record count and not remote storage. */
     public static final String SIZE_BYTES = "kafka.size_bytes";
+    /** One replica's bytes on its broker, from that broker's log directory. Excludes remote storage. */
+    public static final String REPLICA_SIZE_BYTES = "kafka.replica_size_bytes";
+    /** One replica's offset lag, as that broker reports it. */
+    public static final String OFFSET_LAG = "kafka.offset_lag";
+    /** True when the replica is a future log that has not replaced the current one. */
+    public static final String FUTURE_REPLICA = "kafka.future_replica";
+    /** Brokers that did not answer {@code describeLogDirs}, each with the error. Empty when all answered. */
+    public static final String LOG_DIRS_UNAVAILABLE = "kafka.log_dirs_unavailable";
 
     public static final String GROUP_TYPE = "kafka.group_type";
     public static final String GROUP_STATE = "kafka.group_state";
@@ -190,7 +199,11 @@ public final class KafkaKinds {
                         AttributeSpec.status(LAST_KNOWN_ELIGIBLE_LEADER_REPLICAS),
                         AttributeSpec.metric(LOG_START_OFFSET, Instrument.GAUGE, "{offset}"),
                         AttributeSpec.metric(LOG_END_OFFSET, Instrument.GAUGE, "{offset}"),
-                        AttributeSpec.metric(SIZE_BYTES, Instrument.GAUGE, "By"))));
+                        AttributeSpec.metric(SIZE_BYTES, Instrument.GAUGE, "By"),
+                        AttributeSpec.status(REPLICA_SIZE_BYTES),
+                        AttributeSpec.status(OFFSET_LAG),
+                        AttributeSpec.status(FUTURE_REPLICA),
+                        AttributeSpec.status(LOG_DIRS_UNAVAILABLE))));
         kinds.add(kind(
                 GROUP,
                 KindLabel.of("Group", "Groups"),
