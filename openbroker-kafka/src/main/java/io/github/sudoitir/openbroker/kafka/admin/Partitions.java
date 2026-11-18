@@ -1,5 +1,6 @@
 package io.github.sudoitir.openbroker.kafka.admin;
 
+import io.github.sudoitir.openbroker.BrokerException;
 import io.github.sudoitir.openbroker.NodeId;
 import io.github.sudoitir.openbroker.model.Attributes;
 import io.github.sudoitir.openbroker.model.Condition;
@@ -24,14 +25,16 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import org.apache.kafka.clients.admin.DescribeLogDirsOptions;
-import org.apache.kafka.clients.admin.LogDirDescription;
+import org.apache.kafka.clients.admin.PartitionReassignment;
 import org.apache.kafka.clients.admin.ReplicaInfo;
 import org.apache.kafka.clients.admin.TopicDescription;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.TopicPartitionInfo;
+import org.jspecify.annotations.Nullable;
 
 /** Partitions: where a topic's log is, who leads it and keeps it in sync, and how much it holds. */
 final class Partitions implements Handler {
@@ -89,19 +92,41 @@ final class Partitions implements Handler {
     }
 
     private static List<Placement> placements(TopicPartitionInfo info) {
+        return placements(info, null, null);
+    }
+
+    private static List<Placement> placements(
+            TopicPartitionInfo info, ReplicaLogs.@Nullable Read logs, @Nullable TopicPartition partition) {
         Set<Integer> inSync = new HashSet<>();
         info.isr().forEach(n -> inSync.add(n.id()));
         List<Placement> out = new ArrayList<>();
         for (Node replica : info.replicas()) {
             boolean leader = info.leader() != null && info.leader().id() == replica.id();
+            Attributes attributes = logs == null || partition == null
+                    ? Attributes.empty()
+                    : replicaAttributes(logs, replica.id(), partition);
             out.add(new Placement(
                     NodeId.of(replica.idString()),
                     Optional.of(PartitionId.of(String.valueOf(info.partition()))),
                     leader ? PlacementRole.LEADER : PlacementRole.FOLLOWER,
                     Optional.of(inSync.contains(replica.id())),
-                    Attributes.empty()));
+                    attributes));
         }
         return out;
+    }
+
+    /** The current log's bytes and lag. A future log is flagged and does not supply those. */
+    private static Attributes replicaAttributes(ReplicaLogs.Read logs, int broker, TopicPartition partition) {
+        Attributes.Builder attributes = Attributes.builder();
+        ReplicaInfo current = logs.current(broker, partition);
+        if (current != null) {
+            attributes.putAll(ReplicaLogs.attributes(current));
+        }
+        ReplicaInfo future = logs.future(broker, partition);
+        if (future != null) {
+            attributes.putRaw(KafkaKinds.FUTURE_REPLICA, true);
+        }
+        return attributes.build();
     }
 
     /** Every partition of the shared topic description, by topic and number. */
@@ -170,8 +195,13 @@ final class Partitions implements Handler {
                 listing.wants(KafkaKinds.LOG_START_OFFSET) ? Offsets.earliest(context, wanted) : Map.of();
         Map<TopicPartition, Long> end =
                 listing.wants(KafkaKinds.LOG_END_OFFSET) ? Offsets.latest(context, wanted) : Map.of();
-        Map<TopicPartition, Long> sizes =
-                listing.wants(KafkaKinds.SIZE_BYTES) ? sizes(context, infos, wanted) : Map.of();
+        TieredOffsets.Read tiered =
+                wantsTiered(listing) ? TieredOffsets.fetch(context, wanted) : TieredOffsets.Read.none();
+        boolean logDirs = wantsLogDirs(listing);
+        ReplicaLogs.Read logs = logDirs ? logDirs(context, infos, wanted) : null;
+        Map<TopicPartition, PartitionReassignment> moving = listing.wants(KafkaKinds.REASSIGNMENT)
+                ? ReplicaMoves.reassignments(context, new LinkedHashSet<>(wanted))
+                : Map.of();
         boolean eligibleLeaders =
                 context.cluster().features(context.admin(), context.await()).eligibleLeaders();
         List<Resource> out = new ArrayList<>();
@@ -184,50 +214,74 @@ final class Partitions implements Handler {
             Attributes.Builder attributes = placementAttributes(info, eligibleLeaders);
             putIfKnown(attributes, KafkaKinds.LOG_START_OFFSET, start, tp);
             putIfKnown(attributes, KafkaKinds.LOG_END_OFFSET, end, tp);
-            putIfKnown(attributes, KafkaKinds.SIZE_BYTES, sizes, tp);
+            TieredOffsets.put(attributes, tiered.local(), tiered.tiered(), tp);
+            PartitionReassignment reassignment = moving.get(tp);
+            if (reassignment != null) {
+                attributes.putRaw(KafkaKinds.REASSIGNMENT, ReplicaMoves.reassignmentId(reassignment));
+            }
+            if (logs != null) {
+                OptionalLong size = ReplicaLogs.leaderSize(logs, info.leader(), tp);
+                if (size.isPresent()) {
+                    attributes.putRaw(KafkaKinds.SIZE_BYTES, size.getAsLong());
+                }
+                if (!logs.unavailable().isEmpty()) {
+                    attributes.putRaw(KafkaKinds.LOG_DIRS_UNAVAILABLE, logs.unavailable());
+                }
+            }
             List<Condition> conditions = List.of(underReplication(info));
             out.add(new Resource(
                     candidate.id(),
                     Attrs.project(attributes.build(), listing.query().projection()),
                     conditions,
-                    candidate.placements(),
+                    logs == null ? candidate.placements() : placements(info, logs, tp),
                     context.now()));
         }
         return out;
     }
 
-    /** The bytes the leader's replica holds, from the log directories of the brokers that lead. */
-    private static Map<TopicPartition, Long> sizes(
+    private static boolean wantsTiered(Listing listing) {
+        return listing.wants(KafkaKinds.LOCAL_LOG_START_OFFSET)
+                || listing.wants(KafkaKinds.TIERED_OFFSET)
+                || listing.wants(KafkaKinds.TIERED_OFFSET_REASON);
+    }
+
+    private static boolean wantsLogDirs(Listing listing) {
+        return listing.wants(KafkaKinds.SIZE_BYTES)
+                || listing.wants(KafkaKinds.REPLICA_SIZE_BYTES)
+                || listing.wants(KafkaKinds.OFFSET_LAG)
+                || listing.wants(KafkaKinds.FUTURE_REPLICA)
+                || listing.wants(KafkaKinds.LOG_DIRS_UNAVAILABLE);
+    }
+
+    /**
+     * One {@code describeLogDirs} for every broker that holds a replica on the page. Each broker is its own future, so
+     * one that fails does not drop the others.
+     */
+    private static ReplicaLogs.Read logDirs(
             Context context, Map<TopicPartition, TopicPartitionInfo> infos, List<TopicPartition> wanted) {
         Set<Integer> brokers = new LinkedHashSet<>();
         for (TopicPartition tp : wanted) {
             TopicPartitionInfo info = infos.get(tp);
-            if (info != null && info.leader() != null) {
-                brokers.add(info.leader().id());
+            if (info == null) {
+                continue;
+            }
+            for (Node replica : info.replicas()) {
+                if (replica.id() >= 0) {
+                    brokers.add(replica.id());
+                }
             }
         }
-        Map<Integer, Map<String, LogDirDescription>> dirs = context.await()
-                .get(context.admin()
+        if (brokers.isEmpty()) {
+            return new ReplicaLogs.Read(Map.of(), "");
+        }
+        return ReplicaLogs.read(
+                context.await(),
+                context.admin()
                         .describeLogDirs(
                                 brokers,
                                 new DescribeLogDirsOptions()
                                         .timeoutMs(context.await().timeoutMs()))
-                        .allDescriptions());
-        Map<TopicPartition, Long> out = new HashMap<>();
-        for (TopicPartition tp : wanted) {
-            TopicPartitionInfo info = infos.get(tp);
-            if (info == null || info.leader() == null) {
-                continue;
-            }
-            for (LogDirDescription dir :
-                    dirs.getOrDefault(info.leader().id(), Map.of()).values()) {
-                ReplicaInfo replica = dir.replicaInfos().get(tp);
-                if (replica != null) {
-                    out.put(tp, replica.size());
-                }
-            }
-        }
-        return out;
+                        .descriptions());
     }
 
     @Override
@@ -243,28 +297,62 @@ final class Partitions implements Handler {
 
     @Override
     public Preview preview(Context context, ResourceId id, Operation operation, Scope scope) {
-        if (!(operation instanceof Operation.Truncate truncate)) {
-            throw unsupported(operation);
-        }
-        TopicPartition tp = partition(id);
-        return Truncation.preview(context, id, tp.topic(), Optional.of(tp.partition()), scope, truncate.position());
+        return switch (operation) {
+            case Operation.Truncate truncate -> {
+                TopicPartition tp = partition(id);
+                yield Truncation.preview(
+                        context, id, tp.topic(), Optional.of(tp.partition()), scope, truncate.position());
+            }
+            case Operation.ElectLeader election -> ReplicaMoves.previewElection(context, id, election);
+            case Operation.Reassign reassign -> ReplicaMoves.previewReassign(context, id, reassign);
+            default -> throw unsupported(operation);
+        };
     }
 
     @Override
     public String etag(Context context, ResourceId id, Operation operation, Scope scope) {
-        if (!(operation instanceof Operation.Truncate)) {
-            throw unsupported(operation);
-        }
-        TopicPartition tp = partition(id);
-        return Truncation.etag(context, id, tp.topic(), Optional.of(tp.partition()), scope);
+        return switch (operation) {
+            case Operation.Truncate ignored -> {
+                TopicPartition tp = partition(id);
+                yield Truncation.etag(context, id, tp.topic(), Optional.of(tp.partition()), scope);
+            }
+            case Operation.ElectLeader ignored -> ReplicaMoves.electionEtag(context, id);
+            case Operation.Reassign ignored -> ReplicaMoves.reassignmentEtag(context, id);
+            default -> throw unsupported(operation);
+        };
     }
 
     @Override
     public OperationResult execute(Context context, ResourceId id, Operation operation, Scope scope) {
-        if (!(operation instanceof Operation.Truncate truncate)) {
-            throw unsupported(operation);
+        return switch (operation) {
+            case Operation.Truncate truncate -> {
+                TopicPartition tp = partition(id);
+                yield Truncation.execute(context, tp.topic(), Optional.of(tp.partition()), scope, truncate.position());
+            }
+            case Operation.ElectLeader election -> ReplicaMoves.elect(context, id, election);
+            case Operation.Reassign reassign -> finish(context, id, ReplicaMoves.apply(context, id, reassign));
+            default -> throw unsupported(operation);
+        };
+    }
+
+    private OperationResult finish(Context context, ResourceId id, ReplicaMoves.Applied applied) {
+        if (applied.alreadyInState()) {
+            return OperationResult.already();
         }
-        TopicPartition tp = partition(id);
-        return Truncation.execute(context, tp.topic(), Optional.of(tp.partition()), scope, truncate.position());
+        Resource current;
+        try {
+            current = find(context, id).orElse(null);
+        } catch (BrokerException e) {
+            current = null;
+        }
+        Attributes attributes =
+                current == null ? applied.throttle() : current.attributes().merge(applied.throttle());
+        Resource resource = new Resource(
+                id,
+                attributes,
+                current == null ? List.of() : current.conditions(),
+                current == null ? List.of() : current.placements(),
+                context.now());
+        return new OperationResult(OptionalLong.empty(), Optional.of(resource), false);
     }
 }

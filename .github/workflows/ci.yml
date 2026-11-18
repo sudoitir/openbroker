@@ -130,9 +130,9 @@ jobs:
           cache: maven
       - name: Compare with the last release
         run: |
-          previous=$(./mvnw -B -q help:evaluate -Dexpression=openbroker.previous.version -DforceStdout)
+          previous=$(./mvnw -B -q help:evaluate -Dexpression=openbroker.previous.version -DforceStdout | tail -n 1)
           if [ -z "$previous" ]; then echo "No release yet; nothing to compare."; exit 0; fi
-          current=$(./mvnw -B -q help:evaluate -Dexpression=project.version -DforceStdout)
+          current=$(./mvnw -B -q help:evaluate -Dexpression=project.version -DforceStdout | tail -n 1)
           strict=true
           # While 0.x, raising the minor version declares a break (ADR-0008).
           if [ "${current%%.*}" = 0 ] && [ "$(echo "$current" | cut -d. -f2)" -gt "$(echo "$previous" | cut -d. -f2)" ]; then

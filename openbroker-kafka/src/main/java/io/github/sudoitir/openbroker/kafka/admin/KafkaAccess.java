@@ -32,6 +32,18 @@ public final class KafkaAccess implements Access {
     /** The cluster lists transactions and the producers in them (KIP-664), which Kafka 3.0 added. */
     public static final Capability TRANSACTION_LISTING = new Capability("kafka.transaction-listing");
 
+    /**
+     * Earliest-local and latest-tiered offsets, which Kafka 3.9 added. Probed once per connection; a broker that
+     * rejects the spec is unavailable, with its reason, and is not asked again.
+     */
+    public static final Capability TIERED_OFFSETS = new Capability("kafka.tiered-offsets");
+
+    /** Preferred leader election. Unavailable, with the broker's reason, when the broker rejects the call. */
+    public static final Capability PREFERRED_ELECTION = new Capability("kafka.preferred-election");
+
+    /** Partition reassignment. Unavailable, with the broker's reason, when the broker rejects the call. */
+    public static final Capability REASSIGNMENT = new Capability("kafka.reassignment");
+
     private final KafkaCluster cluster;
 
     public KafkaAccess(KafkaCluster cluster) {
@@ -74,8 +86,20 @@ public final class KafkaAccess implements Access {
             } catch (BrokerException _) {
                 // A cluster that would not say what it offers leaves those capabilities out.
             }
+            try {
+                out.put(TIERED_OFFSETS, cluster.tieredOffsets());
+            } catch (BrokerException e) {
+                out.put(TIERED_OFFSETS, Assessment.unknown(e.getMessage()));
+            }
+            out.put(PREFERRED_ELECTION, reported(cluster, PREFERRED_ELECTION, "Preferred leader election is sent."));
+            out.put(REASSIGNMENT, reported(cluster, REASSIGNMENT, "Partition reassignment is sent."));
         }
         return new AccessSnapshot(out, cluster.options().clock().instant());
+    }
+
+    /** The refusal recorded on this connection, or available until a broker rejects the call. */
+    private static Assessment reported(KafkaCluster cluster, Capability capability, String available) {
+        return cluster.decided(capability).orElseGet(() -> Assessment.available(available));
     }
 
     private Assessment read(Deadline deadline) {

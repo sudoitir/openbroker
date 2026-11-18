@@ -16,6 +16,8 @@ import io.github.sudoitir.openbroker.Outcome;
 import io.github.sudoitir.openbroker.Permit;
 import io.github.sudoitir.openbroker.Plane;
 import io.github.sudoitir.openbroker.Status;
+import io.github.sudoitir.openbroker.access.Assessment;
+import io.github.sudoitir.openbroker.access.Capability;
 import io.github.sudoitir.openbroker.kafka.KafkaOptions;
 import io.github.sudoitir.openbroker.kafka.security.CredentialCallbackHandler;
 import io.github.sudoitir.openbroker.kafka.security.TlsEngineFactory;
@@ -32,6 +34,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -66,6 +69,9 @@ public final class KafkaCluster implements AutoCloseable {
     private volatile ClusterSpec spec;
     private @Nullable Admin admin;
     private final AtomicReference<@Nullable ClusterFeatures> features = new AtomicReference<>();
+    /** A spec the broker refused, or one probe that succeeded. The first decision sticks for this connection. */
+    private final Map<Capability, Assessment> decided = new ConcurrentHashMap<>();
+
     private boolean closed;
 
     public KafkaCluster(ClusterSpec spec, CredentialSource credentials, DriverContext context) {
@@ -109,7 +115,61 @@ public final class KafkaCluster implements AutoCloseable {
     public void reconfigure(ClusterSpec spec) {
         this.spec = spec;
         features.set(null);
+        decided.clear();
         closeAdmin();
+    }
+
+    /** A capability already decided on this connection, such as a spec the broker refused. */
+    Optional<Assessment> decided(Capability capability) {
+        return Optional.ofNullable(decided.get(capability));
+    }
+
+    /**
+     * Keeps the first decision for {@code capability}. A refusal is therefore not retried on this connection, and a
+     * later success does not overwrite it.
+     */
+    Assessment decide(Capability capability, Assessment assessment) {
+        Assessment raced = decided.putIfAbsent(capability, assessment);
+        return raced == null ? assessment : raced;
+    }
+
+    /** {@code ListOffsets}. Earliest-local needs version 8 and latest-tiered needs version 9 (Kafka 3.9). */
+    private static final short LIST_OFFSETS = 2;
+
+    private static final int TIERED_OFFSET_VERSION = 9;
+
+    /** Earliest-local and latest-tiered offsets, probed once per connection. */
+    Assessment tieredOffsets() {
+        Optional<Assessment> known = decided(KafkaAccess.TIERED_OFFSETS);
+        if (known.isPresent()) {
+            return known.get();
+        }
+        Deadline deadline = Deadlines.current(options());
+        Optional<Assessment> probed =
+                call("features.tiered-offsets", Optional.empty(), deadline, ClusterFeatures::assessTieredOffsets);
+        return decide(KafkaAccess.TIERED_OFFSETS, probed.orElseGet(() -> tieredFromApiVersions(deadline)));
+    }
+
+    /**
+     * No partition existed to send the offset spec. The API table is the broker's answer: a ListOffsets version below
+     * 9 cannot carry earliest-local and latest-tiered offsets.
+     */
+    private Assessment tieredFromApiVersions(Deadline deadline) {
+        Optional<ApiVersions.Keys> keys = apiKeys(deadline).get();
+        if (keys.isEmpty()) {
+            return Assessment.unknown(
+                    "No broker answered with the API keys it serves, so earliest local and latest tiered offsets"
+                            + " were not assessed.");
+        }
+        int version = keys.get().newest().getOrDefault(LIST_OFFSETS, -1);
+        if (version < TIERED_OFFSET_VERSION) {
+            return Assessment.unavailable(
+                    "This broker serves ListOffsets version " + version
+                            + ", which does not include earliest local and latest tiered offsets.",
+                    Optional.empty());
+        }
+        return Assessment.available(
+                "The broker's ListOffsets version includes earliest local and latest tiered offsets.");
     }
 
     /** What the cluster is and offers, read on first use and kept until the connection is pointed elsewhere. */

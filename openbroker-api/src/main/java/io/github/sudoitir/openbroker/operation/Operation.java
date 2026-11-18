@@ -78,10 +78,18 @@ public sealed interface Operation {
      */
     record Close() implements Operation {}
 
-    /** Assigns partitions to nodes. */
-    record Reassign(Map<PartitionId, List<NodeId>> assignments) implements Operation {
+    /**
+     * Assigns partitions to nodes. {@code options} carries driver-specific choices such as a replication throttle;
+     * a driver ignores options it does not understand. The one-argument constructor uses empty options.
+     */
+    record Reassign(Map<PartitionId, List<NodeId>> assignments, Attributes options) implements Operation {
         public Reassign {
             assignments = Map.copyOf(assignments);
+            Objects.requireNonNull(options, "options");
+        }
+
+        public Reassign(Map<PartitionId, List<NodeId>> assignments) {
+            this(assignments, Attributes.empty());
         }
     }
 
