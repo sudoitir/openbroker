@@ -224,10 +224,7 @@ class KafkaReplicationIT {
             Preview preview = connection.operations().preview(id, move, Scope.whole());
             assertThat(preview.estimate().count()).isInstanceOfAny(Count.Estimate.class, Count.Unavailable.class);
 
-            OperationResult result = connection
-                    .operations()
-                    .execute(id, move, Scope.whole(), Precondition.ifMatch(preview.etag()))
-                    .orThrow();
+            OperationResult result = apply(id, move);
             Resource reported = result.resource().orElseThrow();
             // A rate this call introduces is marked added. Reading a rate that was already set is
             // covered by ReplicaMovesTest: 3.9 and 4.0 do not always echo it in time.
@@ -242,11 +239,7 @@ class KafkaReplicationIT {
             assertThat(moving.attributes().raw(KafkaKinds.REASSIGNMENT)).isPresent();
 
             Operation cancel = new Operation.Reassign(Map.of(PartitionId.of("0"), List.of()));
-            Preview cancellation = connection.operations().preview(id, cancel, Scope.whole());
-            connection
-                    .operations()
-                    .execute(id, cancel, Scope.whole(), Precondition.ifMatch(cancellation.etag()))
-                    .orThrow();
+            apply(id, cancel);
             List<Integer> restored = replicas(Kafka.eventually(
                     () -> partition(name).orElse(null),
                     resource -> resource != null
@@ -262,6 +255,29 @@ class KafkaReplicationIT {
             clearTopicThrottles(name);
             delete(name);
         }
+    }
+
+    /**
+     * Preview and apply, and preview again when the in-sync set moves between the two. That is the same refusal the
+     * caller gets, and on a three-broker cluster it happens while followers catch up.
+     */
+    private static OperationResult apply(ResourceId id, Operation operation) {
+        BrokerException last = null;
+        for (int attempt = 0; attempt < 5; attempt++) {
+            Preview preview = connection.operations().preview(id, operation, Scope.whole());
+            try {
+                return connection
+                        .operations()
+                        .execute(id, operation, Scope.whole(), Precondition.ifMatch(preview.etag()))
+                        .orThrow();
+            } catch (BrokerException e) {
+                if (e.status() != Status.FAILED_PRECONDITION) {
+                    throw e;
+                }
+                last = e;
+            }
+        }
+        throw last;
     }
 
     private static boolean replicasReported(Resource resource) {
