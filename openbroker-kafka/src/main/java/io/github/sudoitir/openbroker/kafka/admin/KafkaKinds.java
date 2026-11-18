@@ -3,9 +3,11 @@ package io.github.sudoitir.openbroker.kafka.admin;
 import static io.github.sudoitir.openbroker.model.Verb.BROWSE;
 import static io.github.sudoitir.openbroker.model.Verb.CREATE;
 import static io.github.sudoitir.openbroker.model.Verb.DELETE;
+import static io.github.sudoitir.openbroker.model.Verb.ELECT_LEADER;
 import static io.github.sudoitir.openbroker.model.Verb.GET;
 import static io.github.sudoitir.openbroker.model.Verb.LIST;
 import static io.github.sudoitir.openbroker.model.Verb.PURGE;
+import static io.github.sudoitir.openbroker.model.Verb.REASSIGN;
 import static io.github.sudoitir.openbroker.model.Verb.RESOLVE;
 import static io.github.sudoitir.openbroker.model.Verb.SEEK;
 import static io.github.sudoitir.openbroker.model.Verb.SEND;
@@ -105,6 +107,14 @@ public final class KafkaKinds {
     public static final String TIERED_OFFSET = "kafka.tiered_offset";
     /** Why {@link #TIERED_OFFSET} is absent, such as {@code not tiered}. Never a stand-in number. */
     public static final String TIERED_OFFSET_REASON = "kafka.tiered_offset_reason";
+    /** The in-progress reassignment, when one is listed. Its text is the etag's reassignment id. */
+    public static final String REASSIGNMENT = "kafka.reassignment";
+    /** Throttle overrides that were already set, keyed by {@code broker.<id>.<config>} or {@code topic.<config>}. */
+    public static final String THROTTLE_PREVIOUS = "kafka.throttle_previous";
+    /** Throttle keys this call created. A key that already had an override is not here. */
+    public static final String THROTTLE_ADDED = "kafka.throttle_added";
+    /** The throttle a reassignment preview would apply, in bytes per second. */
+    public static final String REPLICATION_THROTTLE = "kafka.replication_throttle_bytes_per_second";
 
     public static final String GROUP_TYPE = "kafka.group_type";
     public static final String GROUP_STATE = "kafka.group_state";
@@ -195,7 +205,7 @@ public final class KafkaKinds {
                 PARTITION,
                 KindLabel.of("Partition", "Partitions"),
                 ResourceClass.PARTITION,
-                Set.of(LIST, GET, TRUNCATE, BROWSE),
+                Set.of(LIST, GET, TRUNCATE, BROWSE, REASSIGN, ELECT_LEADER),
                 Optional.of(TOPIC),
                 List.of(
                         AttributeSpec.status(LEADER),
@@ -212,7 +222,11 @@ public final class KafkaKinds {
                         AttributeSpec.status(LOG_DIRS_UNAVAILABLE),
                         AttributeSpec.status(LOCAL_LOG_START_OFFSET),
                         AttributeSpec.status(TIERED_OFFSET),
-                        AttributeSpec.status(TIERED_OFFSET_REASON))));
+                        AttributeSpec.status(TIERED_OFFSET_REASON),
+                        AttributeSpec.status(REASSIGNMENT),
+                        AttributeSpec.status(THROTTLE_PREVIOUS),
+                        AttributeSpec.status(THROTTLE_ADDED),
+                        AttributeSpec.status(REPLICATION_THROTTLE))));
         kinds.add(kind(
                 GROUP,
                 KindLabel.of("Group", "Groups"),

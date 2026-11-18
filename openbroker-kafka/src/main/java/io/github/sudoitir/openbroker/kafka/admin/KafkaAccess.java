@@ -38,6 +38,12 @@ public final class KafkaAccess implements Access {
      */
     public static final Capability TIERED_OFFSETS = new Capability("kafka.tiered-offsets");
 
+    /** Preferred leader election. Unavailable, with the broker's reason, when the broker rejects the call. */
+    public static final Capability PREFERRED_ELECTION = new Capability("kafka.preferred-election");
+
+    /** Partition reassignment. Unavailable, with the broker's reason, when the broker rejects the call. */
+    public static final Capability REASSIGNMENT = new Capability("kafka.reassignment");
+
     private final KafkaCluster cluster;
 
     public KafkaAccess(KafkaCluster cluster) {
@@ -85,8 +91,15 @@ public final class KafkaAccess implements Access {
             } catch (BrokerException e) {
                 out.put(TIERED_OFFSETS, Assessment.unknown(e.getMessage()));
             }
+            out.put(PREFERRED_ELECTION, reported(cluster, PREFERRED_ELECTION, "Preferred leader election is sent."));
+            out.put(REASSIGNMENT, reported(cluster, REASSIGNMENT, "Partition reassignment is sent."));
         }
         return new AccessSnapshot(out, cluster.options().clock().instant());
+    }
+
+    /** The refusal recorded on this connection, or available until a broker rejects the call. */
+    private static Assessment reported(KafkaCluster cluster, Capability capability, String available) {
+        return cluster.decided(capability).orElseGet(() -> Assessment.available(available));
     }
 
     private Assessment read(Deadline deadline) {

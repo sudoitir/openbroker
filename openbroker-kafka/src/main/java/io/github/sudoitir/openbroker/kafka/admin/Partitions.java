@@ -1,5 +1,6 @@
 package io.github.sudoitir.openbroker.kafka.admin;
 
+import io.github.sudoitir.openbroker.BrokerException;
 import io.github.sudoitir.openbroker.NodeId;
 import io.github.sudoitir.openbroker.model.Attributes;
 import io.github.sudoitir.openbroker.model.Condition;
@@ -27,6 +28,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import org.apache.kafka.clients.admin.DescribeLogDirsOptions;
+import org.apache.kafka.clients.admin.PartitionReassignment;
 import org.apache.kafka.clients.admin.ReplicaInfo;
 import org.apache.kafka.clients.admin.TopicDescription;
 import org.apache.kafka.common.Node;
@@ -197,6 +199,9 @@ final class Partitions implements Handler {
                 wantsTiered(listing) ? TieredOffsets.fetch(context, wanted) : TieredOffsets.Read.none();
         boolean logDirs = wantsLogDirs(listing);
         ReplicaLogs.Read logs = logDirs ? logDirs(context, infos, wanted) : null;
+        Map<TopicPartition, PartitionReassignment> moving = listing.wants(KafkaKinds.REASSIGNMENT)
+                ? ReplicaMoves.reassignments(context, new LinkedHashSet<>(wanted))
+                : Map.of();
         boolean eligibleLeaders =
                 context.cluster().features(context.admin(), context.await()).eligibleLeaders();
         List<Resource> out = new ArrayList<>();
@@ -210,6 +215,10 @@ final class Partitions implements Handler {
             putIfKnown(attributes, KafkaKinds.LOG_START_OFFSET, start, tp);
             putIfKnown(attributes, KafkaKinds.LOG_END_OFFSET, end, tp);
             TieredOffsets.put(attributes, tiered.local(), tiered.tiered(), tp);
+            PartitionReassignment reassignment = moving.get(tp);
+            if (reassignment != null) {
+                attributes.putRaw(KafkaKinds.REASSIGNMENT, ReplicaMoves.reassignmentId(reassignment));
+            }
             if (logs != null) {
                 OptionalLong size = ReplicaLogs.leaderSize(logs, info.leader(), tp);
                 if (size.isPresent()) {
@@ -288,28 +297,62 @@ final class Partitions implements Handler {
 
     @Override
     public Preview preview(Context context, ResourceId id, Operation operation, Scope scope) {
-        if (!(operation instanceof Operation.Truncate truncate)) {
-            throw unsupported(operation);
-        }
-        TopicPartition tp = partition(id);
-        return Truncation.preview(context, id, tp.topic(), Optional.of(tp.partition()), scope, truncate.position());
+        return switch (operation) {
+            case Operation.Truncate truncate -> {
+                TopicPartition tp = partition(id);
+                yield Truncation.preview(
+                        context, id, tp.topic(), Optional.of(tp.partition()), scope, truncate.position());
+            }
+            case Operation.ElectLeader election -> ReplicaMoves.previewElection(context, id, election);
+            case Operation.Reassign reassign -> ReplicaMoves.previewReassign(context, id, reassign);
+            default -> throw unsupported(operation);
+        };
     }
 
     @Override
     public String etag(Context context, ResourceId id, Operation operation, Scope scope) {
-        if (!(operation instanceof Operation.Truncate)) {
-            throw unsupported(operation);
-        }
-        TopicPartition tp = partition(id);
-        return Truncation.etag(context, id, tp.topic(), Optional.of(tp.partition()), scope);
+        return switch (operation) {
+            case Operation.Truncate ignored -> {
+                TopicPartition tp = partition(id);
+                yield Truncation.etag(context, id, tp.topic(), Optional.of(tp.partition()), scope);
+            }
+            case Operation.ElectLeader ignored -> ReplicaMoves.electionEtag(context, id);
+            case Operation.Reassign ignored -> ReplicaMoves.reassignmentEtag(context, id);
+            default -> throw unsupported(operation);
+        };
     }
 
     @Override
     public OperationResult execute(Context context, ResourceId id, Operation operation, Scope scope) {
-        if (!(operation instanceof Operation.Truncate truncate)) {
-            throw unsupported(operation);
+        return switch (operation) {
+            case Operation.Truncate truncate -> {
+                TopicPartition tp = partition(id);
+                yield Truncation.execute(context, tp.topic(), Optional.of(tp.partition()), scope, truncate.position());
+            }
+            case Operation.ElectLeader election -> ReplicaMoves.elect(context, id, election);
+            case Operation.Reassign reassign -> finish(context, id, ReplicaMoves.apply(context, id, reassign));
+            default -> throw unsupported(operation);
+        };
+    }
+
+    private OperationResult finish(Context context, ResourceId id, ReplicaMoves.Applied applied) {
+        if (applied.alreadyInState()) {
+            return OperationResult.already();
         }
-        TopicPartition tp = partition(id);
-        return Truncation.execute(context, tp.topic(), Optional.of(tp.partition()), scope, truncate.position());
+        Resource current;
+        try {
+            current = find(context, id).orElse(null);
+        } catch (BrokerException e) {
+            current = null;
+        }
+        Attributes attributes =
+                current == null ? applied.throttle() : current.attributes().merge(applied.throttle());
+        Resource resource = new Resource(
+                id,
+                attributes,
+                current == null ? List.of() : current.conditions(),
+                current == null ? List.of() : current.placements(),
+                context.now());
+        return new OperationResult(OptionalLong.empty(), Optional.of(resource), false);
     }
 }

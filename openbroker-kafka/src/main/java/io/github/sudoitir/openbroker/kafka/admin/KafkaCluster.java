@@ -133,6 +133,11 @@ public final class KafkaCluster implements AutoCloseable {
         return raced == null ? assessment : raced;
     }
 
+    /** {@code ListOffsets}. Earliest-local needs version 8 and latest-tiered needs version 9 (Kafka 3.9). */
+    private static final short LIST_OFFSETS = 2;
+
+    private static final int TIERED_OFFSET_VERSION = 9;
+
     /** Earliest-local and latest-tiered offsets, probed once per connection. */
     Assessment tieredOffsets() {
         Optional<Assessment> known = decided(KafkaAccess.TIERED_OFFSETS);
@@ -140,9 +145,31 @@ public final class KafkaCluster implements AutoCloseable {
             return known.get();
         }
         Deadline deadline = Deadlines.current(options());
-        return decide(
-                KafkaAccess.TIERED_OFFSETS,
-                call("features.tiered-offsets", Optional.empty(), deadline, ClusterFeatures::assessTieredOffsets));
+        Optional<Assessment> probed =
+                call("features.tiered-offsets", Optional.empty(), deadline, ClusterFeatures::assessTieredOffsets);
+        return decide(KafkaAccess.TIERED_OFFSETS, probed.orElseGet(() -> tieredFromApiVersions(deadline)));
+    }
+
+    /**
+     * No partition existed to send the offset spec. The API table is the broker's answer: a ListOffsets version below
+     * 9 cannot carry earliest-local and latest-tiered offsets.
+     */
+    private Assessment tieredFromApiVersions(Deadline deadline) {
+        Optional<ApiVersions.Keys> keys = apiKeys(deadline).get();
+        if (keys.isEmpty()) {
+            return Assessment.unknown(
+                    "No broker answered with the API keys it serves, so earliest local and latest tiered offsets"
+                            + " were not assessed.");
+        }
+        int version = keys.get().newest().getOrDefault(LIST_OFFSETS, -1);
+        if (version < TIERED_OFFSET_VERSION) {
+            return Assessment.unavailable(
+                    "This broker serves ListOffsets version " + version
+                            + ", which does not include earliest local and latest tiered offsets.",
+                    Optional.empty());
+        }
+        return Assessment.available(
+                "The broker's ListOffsets version includes earliest local and latest tiered offsets.");
     }
 
     /** What the cluster is and offers, read on first use and kept until the connection is pointed elsewhere. */

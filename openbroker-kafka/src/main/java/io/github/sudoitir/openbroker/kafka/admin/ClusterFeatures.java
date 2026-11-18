@@ -13,17 +13,22 @@ import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.function.Supplier;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.DescribeFeaturesOptions;
 import org.apache.kafka.clients.admin.DescribeMetadataQuorumOptions;
+import org.apache.kafka.clients.admin.DescribeTopicsOptions;
 import org.apache.kafka.clients.admin.FeatureMetadata;
 import org.apache.kafka.clients.admin.FinalizedVersionRange;
 import org.apache.kafka.clients.admin.ListOffsetsOptions;
+import org.apache.kafka.clients.admin.ListTopicsOptions;
 import org.apache.kafka.clients.admin.OffsetSpec;
 import org.apache.kafka.clients.admin.SupportedVersionRange;
+import org.apache.kafka.clients.admin.TopicDescription;
 import org.apache.kafka.common.IsolationLevel;
+import org.apache.kafka.common.TopicCollection;
 import org.apache.kafka.common.TopicPartition;
 import org.jspecify.annotations.Nullable;
 
@@ -368,26 +373,50 @@ public record ClusterFeatures(
     }
 
     /**
-     * Whether this cluster serves earliest-local and latest-tiered offsets. One partition is enough: a broker that
-     * does not know the spec refuses the request, and a missing offsets topic still means the spec was accepted.
-     * An unknown tiered offset is a number the caller does not invent; this only says whether the spec exists.
+     * Whether this cluster serves earliest-local and latest-tiered offsets, probed on one partition that exists.
+     * Empty when no partition exists yet: a missing topic is not evidence the spec was accepted. A broker that
+     * rejects the spec is unavailable, with its reason.
      */
-    static Assessment assessTieredOffsets(Admin admin, Await await) {
-        TopicPartition probe = new TopicPartition("__consumer_offsets", 0);
+    static Optional<Assessment> assessTieredOffsets(Admin admin, Await await) {
+        Optional<TopicPartition> probe = firstPartition(admin, await);
+        if (probe.isEmpty()) {
+            return Optional.empty();
+        }
         for (OffsetSpec spec : List.of(OffsetSpec.earliestLocal(), OffsetSpec.latestTiered())) {
             try {
-                probeOffset(admin, await, probe, spec);
+                probeOffset(admin, await, probe.get(), spec);
             } catch (BrokerException e) {
                 if (e.reason().equals(ErrorReasons.UNSUPPORTED_VERSION)) {
-                    return Assessment.unavailable(e.getMessage(), Optional.empty());
+                    return Optional.of(Assessment.unavailable(e.getMessage(), Optional.empty()));
                 }
-                // The offsets topic may not exist yet. The broker still accepted the spec.
-                if (e.status() != Status.NOT_FOUND) {
-                    throw e;
+                if (e.status() == Status.NOT_FOUND) {
+                    return Optional.empty();
                 }
+                throw e;
             }
         }
-        return Assessment.available("The cluster serves earliest local and latest tiered offsets.");
+        return Optional.of(Assessment.available("The cluster serves earliest local and latest tiered offsets."));
+    }
+
+    /** Any partition, so the offset spec is actually sent. Empty when the cluster has no topic yet. */
+    private static Optional<TopicPartition> firstPartition(Admin admin, Await await) {
+        Set<String> names = await.get(
+                admin.listTopics(new ListTopicsOptions().listInternal(true).timeoutMs(await.timeoutMs()))
+                        .names());
+        if (names.isEmpty()) {
+            return Optional.empty();
+        }
+        String name = names.iterator().next();
+        TopicDescription description = await.get(admin.describeTopics(
+                        TopicCollection.ofTopicNames(List.of(name)),
+                        new DescribeTopicsOptions().timeoutMs(await.timeoutMs()))
+                .topicNameValues()
+                .get(name));
+        if (description.partitions().isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(
+                new TopicPartition(name, description.partitions().getFirst().partition()));
     }
 
     private static void probeOffset(Admin admin, Await await, TopicPartition partition, OffsetSpec spec) {

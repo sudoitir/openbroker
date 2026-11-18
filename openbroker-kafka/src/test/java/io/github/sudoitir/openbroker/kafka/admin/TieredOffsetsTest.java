@@ -25,11 +25,21 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Supplier;
 import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.clients.admin.DescribeTopicsOptions;
+import org.apache.kafka.clients.admin.DescribeTopicsResult;
 import org.apache.kafka.clients.admin.ListOffsetsOptions;
 import org.apache.kafka.clients.admin.ListOffsetsResult;
+import org.apache.kafka.clients.admin.ListTopicsOptions;
+import org.apache.kafka.clients.admin.ListTopicsResult;
+import org.apache.kafka.clients.admin.TopicDescription;
+import org.apache.kafka.common.KafkaFuture;
+import org.apache.kafka.common.Node;
+import org.apache.kafka.common.TopicCollection;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.TopicPartitionInfo;
 import org.apache.kafka.common.errors.UnsupportedVersionException;
 import org.apache.kafka.common.internals.KafkaFutureImpl;
 import org.junit.jupiter.api.Test;
@@ -93,9 +103,24 @@ class TieredOffsetsTest {
     @Test
     void aBrokerThatRejectsTheProbeIsUnavailableWithItsReason() {
         Admin admin = mock(Admin.class);
+        ListTopicsResult topics = mock(ListTopicsResult.class);
+        when(topics.names()).thenReturn(KafkaFuture.completedFuture(Set.of("orders")));
+        when(admin.listTopics(any(ListTopicsOptions.class))).thenReturn(topics);
+        DescribeTopicsResult described = mock(DescribeTopicsResult.class);
+        Node node = new Node(1, "one", 9092);
+        when(described.topicNameValues())
+                .thenReturn(Map.of(
+                        "orders",
+                        KafkaFuture.completedFuture(new TopicDescription(
+                                "orders",
+                                false,
+                                List.of(new TopicPartitionInfo(0, node, List.of(node), List.of(node)))))));
+        when(admin.describeTopics(any(TopicCollection.class), any(DescribeTopicsOptions.class)))
+                .thenReturn(described);
         when(admin.listOffsets(anyMap(), any(ListOffsetsOptions.class))).thenReturn(rejected("no tiered offsets"));
 
-        Assessment assessment = ClusterFeatures.assessTieredOffsets(admin, await());
+        Assessment assessment =
+                ClusterFeatures.assessTieredOffsets(admin, await()).orElseThrow();
 
         assertThat(assessment.status()).isEqualTo(Assessment.Status.UNAVAILABLE);
         assertThat(assessment.reason()).contains("no tiered offsets");
