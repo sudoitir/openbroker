@@ -3,7 +3,10 @@ package io.github.sudoitir.openbroker.kafka.admin;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anySet;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -28,6 +31,8 @@ import io.github.sudoitir.openbroker.model.ResourceId;
 import io.github.sudoitir.openbroker.model.ResourcePath;
 import io.github.sudoitir.openbroker.operation.Election;
 import io.github.sudoitir.openbroker.operation.Operation;
+import io.github.sudoitir.openbroker.operation.OperationResult;
+import io.github.sudoitir.openbroker.operation.Preview;
 import io.github.sudoitir.openbroker.spi.DriverContext;
 import java.time.Clock;
 import java.time.Duration;
@@ -41,16 +46,31 @@ import java.util.Set;
 import java.util.function.Supplier;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.AlterConfigOp;
+import org.apache.kafka.clients.admin.AlterConfigsOptions;
+import org.apache.kafka.clients.admin.AlterConfigsResult;
 import org.apache.kafka.clients.admin.Config;
 import org.apache.kafka.clients.admin.ConfigEntry;
+import org.apache.kafka.clients.admin.DescribeConfigsOptions;
+import org.apache.kafka.clients.admin.DescribeConfigsResult;
+import org.apache.kafka.clients.admin.DescribeLogDirsOptions;
+import org.apache.kafka.clients.admin.DescribeLogDirsResult;
+import org.apache.kafka.clients.admin.DescribeTopicsOptions;
+import org.apache.kafka.clients.admin.DescribeTopicsResult;
+import org.apache.kafka.clients.admin.ElectLeadersOptions;
+import org.apache.kafka.clients.admin.ElectLeadersResult;
 import org.apache.kafka.clients.admin.ListPartitionReassignmentsOptions;
 import org.apache.kafka.clients.admin.ListPartitionReassignmentsResult;
 import org.apache.kafka.clients.admin.PartitionReassignment;
 import org.apache.kafka.clients.admin.ReplicaInfo;
+import org.apache.kafka.clients.admin.TopicDescription;
+import org.apache.kafka.common.ElectionType;
 import org.apache.kafka.common.KafkaFuture;
 import org.apache.kafka.common.Node;
+import org.apache.kafka.common.TopicCollection;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.TopicPartitionInfo;
 import org.apache.kafka.common.config.ConfigResource;
+import org.apache.kafka.common.internals.KafkaFutureImpl;
 import org.junit.jupiter.api.Test;
 
 /** Refusals that send nothing, and the decision that puts a throttle back. */
@@ -235,6 +255,90 @@ class ReplicaMovesTest {
     }
 
     @Test
+    void aPreferredElectionIsSentOnlyForTheNamedPartition() {
+        Admin admin = mock(Admin.class);
+        Topology topology = mock(Topology.class);
+        Node first = new Node(1, "a", 9092);
+        Node leader = new Node(2, "b", 9092);
+        described(admin, new TopicPartitionInfo(0, leader, List.of(first, leader), List.of(first, leader)));
+        reassignments(admin, Map.of());
+        ElectLeadersResult elected = mock(ElectLeadersResult.class);
+        when(elected.all()).thenReturn(KafkaFuture.completedFuture(null));
+        when(admin.electLeaders(any(ElectionType.class), anySet(), any(ElectLeadersOptions.class)))
+                .thenReturn(elected);
+        Context context = new Context(cluster(), topology, admin, await(), NOW, null);
+
+        OperationResult result =
+                ReplicaMoves.elect(context, partition(), new Operation.ElectLeader(Election.PREFERRED));
+
+        assertThat(result.alreadyInState()).isFalse();
+        verify(admin).electLeaders(eq(ElectionType.PREFERRED), eq(Set.of(ORDERS)), any(ElectLeadersOptions.class));
+        verify(topology).invalidate();
+    }
+
+    @Test
+    void aMoveOntoTheSameReplicasSendsNothing() {
+        Admin admin = mock(Admin.class);
+        described(admin, new TopicPartitionInfo(0, new Node(1, "a", 9092), List.of(new Node(1, "a", 9092)), List.of()));
+        reassignments(admin, Map.of());
+        configs(admin, "1");
+        logDirs(admin);
+        Context context = new Context(cluster(), mock(Topology.class), admin, await(), NOW, null);
+        Operation.Reassign same = new Operation.Reassign(
+                Map.of(PartitionId.of("0"), List.of(NodeId.of("1"))),
+                Attributes.builder().putRaw(ReplicaMoves.THROTTLE, 1024L).build());
+
+        Preview preview = ReplicaMoves.previewReassign(context, partition(), same);
+        ReplicaMoves.Applied applied = ReplicaMoves.apply(context, partition(), same);
+
+        assertThat(preview.diff())
+                .filteredOn(change -> KafkaKinds.NOTE.equals(change.key()))
+                .singleElement()
+                .satisfies(change ->
+                        assertThat(String.valueOf(change.after().orElseThrow())).contains("nothing would be sent"));
+        assertThat(applied.alreadyInState()).isTrue();
+        verify(admin, never()).alterPartitionReassignments(anyMap(), any());
+    }
+
+    @Test
+    void cancellingWhenNothingIsMovingIsRefused() {
+        Admin admin = mock(Admin.class);
+        described(admin, new TopicPartitionInfo(0, new Node(1, "a", 9092), List.of(new Node(1, "a", 9092)), List.of()));
+        reassignments(admin, Map.of());
+        Context context = new Context(cluster(), mock(Topology.class), admin, await(), NOW, null);
+        Operation.Reassign cancel = new Operation.Reassign(Map.of(PartitionId.of("0"), List.of()), Attributes.empty());
+
+        assertThatThrownBy(() -> ReplicaMoves.previewReassign(context, partition(), cancel))
+                .isInstanceOf(BrokerException.class);
+        assertThatThrownBy(() -> ReplicaMoves.apply(context, partition(), cancel))
+                .isInstanceOf(BrokerException.class);
+        verify(admin, never()).alterPartitionReassignments(anyMap(), any());
+    }
+
+    @Test
+    void aThrottleWriteThatFailsIsPutBack() {
+        Admin admin = mock(Admin.class);
+        Node leader = new Node(1, "a", 9092);
+        described(admin, new TopicPartitionInfo(0, leader, List.of(leader), List.of(leader)));
+        reassignments(admin, Map.of());
+        configs(admin, "1");
+        AlterConfigsResult altered = mock(AlterConfigsResult.class);
+        KafkaFutureImpl<Void> failed = new KafkaFutureImpl<>();
+        failed.completeExceptionally(new org.apache.kafka.common.errors.InvalidRequestException("rejected"));
+        when(altered.all()).thenReturn(failed);
+        when(admin.incrementalAlterConfigs(anyMap(), any(AlterConfigsOptions.class)))
+                .thenReturn(altered);
+        Context context = new Context(cluster(), mock(Topology.class), admin, await(), NOW, null);
+        Operation.Reassign move = new Operation.Reassign(
+                Map.of(PartitionId.of("0"), List.of(NodeId.of("1"), NodeId.of("2"))),
+                Attributes.builder().putRaw(ReplicaMoves.THROTTLE, 1024L).build());
+
+        assertThatThrownBy(() -> ReplicaMoves.apply(context, partition(), move)).isInstanceOf(BrokerException.class);
+        verify(admin, atLeast(2)).incrementalAlterConfigs(anyMap(), any(AlterConfigsOptions.class));
+        verify(admin, never()).alterPartitionReassignments(anyMap(), any());
+    }
+
+    @Test
     void aRateReportedAsTheDefaultIsStillTheOverride() {
         ConfigEntry rate = new ConfigEntry(
                 ReplicaMoves.LEADER_RATE,
@@ -264,6 +368,41 @@ class ReplicaMovesTest {
 
         assertThat(ReplicaMoves.override(new Config(List.of(rate)), ReplicaMoves.LEADER_RATE))
                 .isEmpty();
+    }
+
+    private static ResourceId partition() {
+        return new ResourceId(KafkaKinds.PARTITION, ResourcePath.of("orders", "0"));
+    }
+
+    private static void described(Admin admin, TopicPartitionInfo info) {
+        DescribeTopicsResult described = mock(DescribeTopicsResult.class);
+        when(described.topicNameValues())
+                .thenReturn(Map.of(
+                        "orders", KafkaFuture.completedFuture(new TopicDescription("orders", false, List.of(info)))));
+        when(admin.describeTopics(any(TopicCollection.class), any(DescribeTopicsOptions.class)))
+                .thenReturn(described);
+    }
+
+    private static void reassignments(Admin admin, Map<TopicPartition, PartitionReassignment> moving) {
+        ListPartitionReassignmentsResult result = mock(ListPartitionReassignmentsResult.class);
+        when(result.reassignments()).thenReturn(KafkaFuture.completedFuture(moving));
+        when(admin.listPartitionReassignments(anySet(), any(ListPartitionReassignmentsOptions.class)))
+                .thenReturn(result);
+    }
+
+    private static void configs(Admin admin, String minInSync) {
+        DescribeConfigsResult result = mock(DescribeConfigsResult.class);
+        when(result.all())
+                .thenReturn(KafkaFuture.completedFuture(Map.of(
+                        new ConfigResource(ConfigResource.Type.TOPIC, "orders"),
+                        new Config(List.of(new ConfigEntry("min.insync.replicas", minInSync))))));
+        when(admin.describeConfigs(any(), any(DescribeConfigsOptions.class))).thenReturn(result);
+    }
+
+    private static void logDirs(Admin admin) {
+        DescribeLogDirsResult result = mock(DescribeLogDirsResult.class);
+        when(result.descriptions()).thenReturn(Map.of());
+        when(admin.describeLogDirs(any(), any(DescribeLogDirsOptions.class))).thenReturn(result);
     }
 
     private static Await await() {
