@@ -295,7 +295,14 @@ final class ReplicaMoves {
                 .flatMap(Optional::stream)
                 .toList();
         if (!writes.isEmpty()) {
-            alter(context, sets(writes));
+            try {
+                // One resource can accept the write after another has rejected it. Put every key
+                // this call changed back before the error leaves, or the caller never sees the baseline.
+                alter(context, sets(writes));
+            } catch (BrokerException e) {
+                restoreAfter(context, writes, e);
+                throw e;
+            }
         }
         try {
             alterReassignment(context, tp, Optional.of(new NewPartitionReassignment(target)));
