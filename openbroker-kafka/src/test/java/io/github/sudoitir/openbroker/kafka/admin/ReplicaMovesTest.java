@@ -23,7 +23,11 @@ import io.github.sudoitir.openbroker.access.Assessment;
 import io.github.sudoitir.openbroker.kafka.KafkaOptions;
 import io.github.sudoitir.openbroker.messaging.Count;
 import io.github.sudoitir.openbroker.model.Attributes;
+import io.github.sudoitir.openbroker.model.PartitionId;
+import io.github.sudoitir.openbroker.model.ResourceId;
+import io.github.sudoitir.openbroker.model.ResourcePath;
 import io.github.sudoitir.openbroker.operation.Election;
+import io.github.sudoitir.openbroker.operation.Operation;
 import io.github.sudoitir.openbroker.spi.DriverContext;
 import java.time.Clock;
 import java.time.Duration;
@@ -193,6 +197,33 @@ class ReplicaMovesTest {
                 .contains("10s")
                 .contains("estimate");
         assertThat(ReplicaMoves.duration(Count.unavailable("no leader"), 100)).contains("no leader");
+    }
+
+    @Test
+    void anExactCountAndAnOverflowAreSaidInWords() {
+        assertThat(ReplicaMoves.duration(Count.exact(50), 10)).contains("5s");
+        ReplicaLogs.Broker broker =
+                new ReplicaLogs.Broker(Map.of(ORDERS, new ReplicaInfo(Long.MAX_VALUE, 0, false)), Map.of());
+        Count bytes = ReplicaMoves.bytesToCopy(
+                List.of(1),
+                List.of(2, 3),
+                new ReplicaLogs.Read(Map.of(1, broker), ""),
+                ORDERS,
+                new Node(1, "one", 9092));
+        assertThat(bytes).isInstanceOf(Count.Unavailable.class);
+        assertThat(ReplicaMoves.bytesToCopy(List.of(1), List.of(2), new ReplicaLogs.Read(Map.of(), ""), ORDERS, null))
+                .isInstanceOf(Count.Unavailable.class);
+    }
+
+    @Test
+    void aReplicaThatIsNotANumberOrIsRepeatedIsRefused() {
+        ResourceId id = new ResourceId(KafkaKinds.PARTITION, ResourcePath.of("orders", "0"));
+        Operation.Reassign text =
+                new Operation.Reassign(Map.of(PartitionId.of("0"), List.of(NodeId.of("east"))), Attributes.empty());
+        assertThatThrownBy(() -> ReplicaMoves.assignment(id, text)).isInstanceOf(BrokerException.class);
+        Operation.Reassign twice = new Operation.Reassign(
+                Map.of(PartitionId.of("0"), List.of(NodeId.of("1"), NodeId.of("1"))), Attributes.empty());
+        assertThatThrownBy(() -> ReplicaMoves.assignment(id, twice)).isInstanceOf(BrokerException.class);
     }
 
     @Test
