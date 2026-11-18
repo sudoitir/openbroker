@@ -174,20 +174,25 @@ class ReplicaMovesTest {
 
     @Test
     void aThrottleThatIsNotAPositiveLongIsRefused() {
-        assertThatThrownBy(() -> ReplicaMoves.throttle(Attributes.empty()))
+        assertThatThrownBy(() -> ReplicaMoves.requiredRate(Attributes.empty()))
                 .isInstanceOfSatisfying(
                         BrokerException.class, e -> assertThat(e.status()).isEqualTo(Status.FAILED_PRECONDITION));
-        assertThatThrownBy(() -> ReplicaMoves.throttle(
-                        Attributes.builder().putRaw(ReplicaMoves.THROTTLE, 0L).build()))
-                .isInstanceOf(BrokerException.class);
-        assertThatThrownBy(() -> ReplicaMoves.throttle(Attributes.builder()
-                        .putRaw(ReplicaMoves.THROTTLE, "fast")
-                        .build()))
-                .isInstanceOf(BrokerException.class);
-        assertThat(ReplicaMoves.throttle(Attributes.builder()
-                        .putRaw(ReplicaMoves.THROTTLE, 1024L)
-                        .build()))
-                .isEqualTo(1024L);
+        Attributes zero = Attributes.builder().putRaw(ReplicaMoves.THROTTLE, 0L).build();
+        assertThatThrownBy(() -> ReplicaMoves.requiredRate(zero)).isInstanceOf(BrokerException.class);
+        Attributes text =
+                Attributes.builder().putRaw(ReplicaMoves.THROTTLE, "fast").build();
+        assertThatThrownBy(() -> ReplicaMoves.requiredRate(text)).isInstanceOf(BrokerException.class);
+        Attributes rate =
+                Attributes.builder().putRaw(ReplicaMoves.THROTTLE, "1024").build();
+        assertThat(ReplicaMoves.requiredRate(rate)).isEqualTo(1024L);
+    }
+
+    @Test
+    void durationNamesAnEstimateAndAnUnknownSize() {
+        assertThat(ReplicaMoves.duration(Count.estimate(1000), 100))
+                .contains("10s")
+                .contains("estimate");
+        assertThat(ReplicaMoves.duration(Count.unavailable("no leader"), 100)).contains("no leader");
     }
 
     @Test
@@ -250,7 +255,9 @@ class ReplicaMovesTest {
             }
 
             @Override
-            public void evict(String key) {}
+            public void evict(String key) {
+                // This test does not keep a shared client, so there is nothing to drop.
+            }
         };
         return new KafkaCluster(spec, CredentialSource.none(), context);
     }

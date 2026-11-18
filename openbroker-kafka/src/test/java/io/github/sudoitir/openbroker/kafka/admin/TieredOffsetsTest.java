@@ -153,7 +153,9 @@ class TieredOffsetsTest {
             }
 
             @Override
-            public void evict(String key) {}
+            public void evict(String key) {
+                // This test does not keep a shared client, so there is nothing to drop.
+            }
         };
         return new KafkaCluster(spec, CredentialSource.none(), context);
     }

@@ -24,6 +24,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
@@ -73,7 +74,7 @@ final class ReplicaMoves {
     record ThrottleKey(ConfigResource resource, String key, Optional<String> previous, String desired) {
 
         ThrottleKey {
-            previous = previous == null ? Optional.empty() : previous;
+            previous = Objects.requireNonNull(previous, "previous");
         }
     }
 
@@ -257,7 +258,7 @@ final class ReplicaMoves {
         if (target.isEmpty()) {
             return cancelPreview(id, info, moving);
         }
-        long rate = throttle(operation.options());
+        long rate = requiredRate(operation.options());
         checkFactor(target.size(), minInSync(context, tp.topic()));
         List<Integer> current = replicaIds(info);
         Count bytes = bytesToCopy(current, target, logs(context, info), tp, info.leader());
@@ -284,7 +285,7 @@ final class ReplicaMoves {
             cancel(context, id, tp, moving);
             return Applied.changed(Attributes.empty());
         }
-        long rate = throttle(operation.options());
+        long rate = requiredRate(operation.options());
         checkFactor(target.size(), minInSync(context, tp.topic()));
         if (replicaIds(info).equals(target)) {
             return Applied.unchanged();
@@ -360,15 +361,19 @@ final class ReplicaMoves {
     }
 
     static String duration(Count bytes, long rate) {
-        if (bytes instanceof Count.Unavailable unavailable) {
-            return "The duration is unavailable: " + unavailable.reason();
-        }
-        long amount = bytes instanceof Count.Estimate estimate ? estimate.value() : ((Count.Exact) bytes).value();
+        return switch (bytes) {
+            case Count.Unavailable unavailable -> "The duration is unavailable: " + unavailable.reason();
+            case Count.Estimate estimate -> pace(estimate.value(), rate);
+            case Count.Exact exact -> pace(exact.value(), rate);
+        };
+    }
+
+    private static String pace(long amount, long rate) {
         long seconds = (amount + rate - 1) / rate;
         return "About " + seconds + "s to copy " + amount + " bytes at " + rate + " bytes/s (estimate).";
     }
 
-    static long throttle(Attributes options) {
+    static long requiredRate(Attributes options) {
         Object raw = options.raw(THROTTLE).orElse(null);
         Long rate = null;
         if (raw instanceof Number number) {
