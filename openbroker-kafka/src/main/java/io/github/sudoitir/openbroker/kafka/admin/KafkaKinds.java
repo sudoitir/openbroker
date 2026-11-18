@@ -99,6 +99,12 @@ public final class KafkaKinds {
     public static final String FUTURE_REPLICA = "kafka.future_replica";
     /** Brokers that did not answer {@code describeLogDirs}, each with the error. Empty when all answered. */
     public static final String LOG_DIRS_UNAVAILABLE = "kafka.log_dirs_unavailable";
+    /** The first offset the leader serves from its own disk. Present when the cluster can say. */
+    public static final String LOCAL_LOG_START_OFFSET = "kafka.local_log_start_offset";
+    /** The highest offset stored in remote storage. Absent when the topic is not tiered. */
+    public static final String TIERED_OFFSET = "kafka.tiered_offset";
+    /** Why {@link #TIERED_OFFSET} is absent, such as {@code not tiered}. Never a stand-in number. */
+    public static final String TIERED_OFFSET_REASON = "kafka.tiered_offset_reason";
 
     public static final String GROUP_TYPE = "kafka.group_type";
     public static final String GROUP_STATE = "kafka.group_state";
@@ -203,7 +209,10 @@ public final class KafkaKinds {
                         AttributeSpec.status(REPLICA_SIZE_BYTES),
                         AttributeSpec.status(OFFSET_LAG),
                         AttributeSpec.status(FUTURE_REPLICA),
-                        AttributeSpec.status(LOG_DIRS_UNAVAILABLE))));
+                        AttributeSpec.status(LOG_DIRS_UNAVAILABLE),
+                        AttributeSpec.status(LOCAL_LOG_START_OFFSET),
+                        AttributeSpec.status(TIERED_OFFSET),
+                        AttributeSpec.status(TIERED_OFFSET_REASON))));
         kinds.add(kind(
                 GROUP,
                 KindLabel.of("Group", "Groups"),

@@ -90,6 +90,12 @@ final class Offsets {
         return list(context, partitions, OffsetSpec.latest());
     }
 
+    /** Offsets for an arbitrary spec, such as the local log start or the tiered offset. */
+    static Map<TopicPartition, Long> spec(
+            Context context, Collection<TopicPartition> partitions, OffsetSpec offsetSpec) {
+        return list(context, partitions, offsetSpec);
+    }
+
     /** The first offset at or after {@code epochMillis} on each partition, or the end where none is. */
     static Map<TopicPartition, Long> atTime(Context context, Collection<TopicPartition> partitions, long epochMillis) {
         Map<TopicPartition, Long> found = list(context, partitions, OffsetSpec.forTimestamp(epochMillis));

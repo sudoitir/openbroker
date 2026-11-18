@@ -16,6 +16,8 @@ import io.github.sudoitir.openbroker.Outcome;
 import io.github.sudoitir.openbroker.Permit;
 import io.github.sudoitir.openbroker.Plane;
 import io.github.sudoitir.openbroker.Status;
+import io.github.sudoitir.openbroker.access.Assessment;
+import io.github.sudoitir.openbroker.access.Capability;
 import io.github.sudoitir.openbroker.kafka.KafkaOptions;
 import io.github.sudoitir.openbroker.kafka.security.CredentialCallbackHandler;
 import io.github.sudoitir.openbroker.kafka.security.TlsEngineFactory;
@@ -32,6 +34,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -66,6 +69,9 @@ public final class KafkaCluster implements AutoCloseable {
     private volatile ClusterSpec spec;
     private @Nullable Admin admin;
     private final AtomicReference<@Nullable ClusterFeatures> features = new AtomicReference<>();
+    /** A spec the broker refused, or one probe that succeeded. The first decision sticks for this connection. */
+    private final Map<Capability, Assessment> decided = new ConcurrentHashMap<>();
+
     private boolean closed;
 
     public KafkaCluster(ClusterSpec spec, CredentialSource credentials, DriverContext context) {
@@ -109,7 +115,34 @@ public final class KafkaCluster implements AutoCloseable {
     public void reconfigure(ClusterSpec spec) {
         this.spec = spec;
         features.set(null);
+        decided.clear();
         closeAdmin();
+    }
+
+    /** A capability already decided on this connection, such as a spec the broker refused. */
+    Optional<Assessment> decided(Capability capability) {
+        return Optional.ofNullable(decided.get(capability));
+    }
+
+    /**
+     * Keeps the first decision for {@code capability}. A refusal is therefore not retried on this connection, and a
+     * later success does not overwrite it.
+     */
+    Assessment decide(Capability capability, Assessment assessment) {
+        Assessment raced = decided.putIfAbsent(capability, assessment);
+        return raced == null ? assessment : raced;
+    }
+
+    /** Earliest-local and latest-tiered offsets, probed once per connection. */
+    Assessment tieredOffsets() {
+        Optional<Assessment> known = decided(KafkaAccess.TIERED_OFFSETS);
+        if (known.isPresent()) {
+            return known.get();
+        }
+        Deadline deadline = Deadlines.current(options());
+        return decide(
+                KafkaAccess.TIERED_OFFSETS,
+                call("features.tiered-offsets", Optional.empty(), deadline, ClusterFeatures::assessTieredOffsets));
     }
 
     /** What the cluster is and offers, read on first use and kept until the connection is pointed elsewhere. */

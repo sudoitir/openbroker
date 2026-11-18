@@ -32,6 +32,12 @@ public final class KafkaAccess implements Access {
     /** The cluster lists transactions and the producers in them (KIP-664), which Kafka 3.0 added. */
     public static final Capability TRANSACTION_LISTING = new Capability("kafka.transaction-listing");
 
+    /**
+     * Earliest-local and latest-tiered offsets, which Kafka 3.9 added. Probed once per connection; a broker that
+     * rejects the spec is unavailable, with its reason, and is not asked again.
+     */
+    public static final Capability TIERED_OFFSETS = new Capability("kafka.tiered-offsets");
+
     private final KafkaCluster cluster;
 
     public KafkaAccess(KafkaCluster cluster) {
@@ -73,6 +79,11 @@ public final class KafkaAccess implements Access {
                 out.putAll(cluster.features().assessments());
             } catch (BrokerException _) {
                 // A cluster that would not say what it offers leaves those capabilities out.
+            }
+            try {
+                out.put(TIERED_OFFSETS, cluster.tieredOffsets());
+            } catch (BrokerException e) {
+                out.put(TIERED_OFFSETS, Assessment.unknown(e.getMessage()));
             }
         }
         return new AccessSnapshot(out, cluster.options().clock().instant());

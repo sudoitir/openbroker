@@ -193,6 +193,8 @@ final class Partitions implements Handler {
                 listing.wants(KafkaKinds.LOG_START_OFFSET) ? Offsets.earliest(context, wanted) : Map.of();
         Map<TopicPartition, Long> end =
                 listing.wants(KafkaKinds.LOG_END_OFFSET) ? Offsets.latest(context, wanted) : Map.of();
+        TieredOffsets.Read tiered =
+                wantsTiered(listing) ? TieredOffsets.fetch(context, wanted) : TieredOffsets.Read.none();
         boolean logDirs = wantsLogDirs(listing);
         ReplicaLogs.Read logs = logDirs ? logDirs(context, infos, wanted) : null;
         boolean eligibleLeaders =
@@ -207,6 +209,7 @@ final class Partitions implements Handler {
             Attributes.Builder attributes = placementAttributes(info, eligibleLeaders);
             putIfKnown(attributes, KafkaKinds.LOG_START_OFFSET, start, tp);
             putIfKnown(attributes, KafkaKinds.LOG_END_OFFSET, end, tp);
+            TieredOffsets.put(attributes, tiered.local(), tiered.tiered(), tp);
             if (logs != null) {
                 OptionalLong size = ReplicaLogs.leaderSize(logs, info.leader(), tp);
                 if (size.isPresent()) {
@@ -225,6 +228,12 @@ final class Partitions implements Handler {
                     context.now()));
         }
         return out;
+    }
+
+    private static boolean wantsTiered(Listing listing) {
+        return listing.wants(KafkaKinds.LOCAL_LOG_START_OFFSET)
+                || listing.wants(KafkaKinds.TIERED_OFFSET)
+                || listing.wants(KafkaKinds.TIERED_OFFSET_REASON);
     }
 
     private static boolean wantsLogDirs(Listing listing) {

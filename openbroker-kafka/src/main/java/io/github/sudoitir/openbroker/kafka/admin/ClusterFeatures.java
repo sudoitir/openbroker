@@ -8,6 +8,7 @@ import io.github.sudoitir.openbroker.access.Capability;
 import io.github.sudoitir.openbroker.access.Remedy;
 import io.github.sudoitir.openbroker.kafka.messaging.ShareFeatures;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Optional;
@@ -19,7 +20,11 @@ import org.apache.kafka.clients.admin.DescribeFeaturesOptions;
 import org.apache.kafka.clients.admin.DescribeMetadataQuorumOptions;
 import org.apache.kafka.clients.admin.FeatureMetadata;
 import org.apache.kafka.clients.admin.FinalizedVersionRange;
+import org.apache.kafka.clients.admin.ListOffsetsOptions;
+import org.apache.kafka.clients.admin.OffsetSpec;
 import org.apache.kafka.clients.admin.SupportedVersionRange;
+import org.apache.kafka.common.IsolationLevel;
+import org.apache.kafka.common.TopicPartition;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -360,6 +365,36 @@ public record ClusterFeatures(
         }
         return Assessment.unavailable(
                 share.unavailableReason().orElse(""), share.remedy().map(text -> new Remedy(text, "", "text/plain")));
+    }
+
+    /**
+     * Whether this cluster serves earliest-local and latest-tiered offsets. One partition is enough: a broker that
+     * does not know the spec refuses the request, and a missing offsets topic still means the spec was accepted.
+     * An unknown tiered offset is a number the caller does not invent; this only says whether the spec exists.
+     */
+    static Assessment assessTieredOffsets(Admin admin, Await await) {
+        TopicPartition probe = new TopicPartition("__consumer_offsets", 0);
+        for (OffsetSpec spec : List.of(OffsetSpec.earliestLocal(), OffsetSpec.latestTiered())) {
+            try {
+                probeOffset(admin, await, probe, spec);
+            } catch (BrokerException e) {
+                if (e.reason().equals(ErrorReasons.UNSUPPORTED_VERSION)) {
+                    return Assessment.unavailable(e.getMessage(), Optional.empty());
+                }
+                // The offsets topic may not exist yet. The broker still accepted the spec.
+                if (e.status() != Status.NOT_FOUND) {
+                    throw e;
+                }
+            }
+        }
+        return Assessment.available("The cluster serves earliest local and latest tiered offsets.");
+    }
+
+    private static void probeOffset(Admin admin, Await await, TopicPartition partition, OffsetSpec spec) {
+        await.get(admin.listOffsets(
+                        Map.of(partition, spec),
+                        new ListOffsetsOptions(IsolationLevel.READ_COMMITTED).timeoutMs(await.timeoutMs()))
+                .all());
     }
 
     /** The remedy that raises a feature, where the software supports it. */
