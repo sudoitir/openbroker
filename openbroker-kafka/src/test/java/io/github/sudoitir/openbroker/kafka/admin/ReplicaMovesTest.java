@@ -37,6 +37,8 @@ import java.util.Set;
 import java.util.function.Supplier;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.AlterConfigOp;
+import org.apache.kafka.clients.admin.Config;
+import org.apache.kafka.clients.admin.ConfigEntry;
 import org.apache.kafka.clients.admin.ListPartitionReassignmentsOptions;
 import org.apache.kafka.clients.admin.ListPartitionReassignmentsResult;
 import org.apache.kafka.clients.admin.PartitionReassignment;
@@ -194,6 +196,38 @@ class ReplicaMovesTest {
             assertThat(e.status()).isEqualTo(Status.FAILED_PRECONDITION);
             assertThat(e.getMessage()).contains("1").contains("2");
         });
+    }
+
+    @Test
+    void aRateReportedAsTheDefaultIsStillTheOverride() {
+        ConfigEntry rate = new ConfigEntry(
+                ReplicaMoves.LEADER_RATE,
+                "1",
+                ConfigEntry.ConfigSource.DEFAULT_CONFIG,
+                false,
+                true,
+                List.of(),
+                ConfigEntry.ConfigType.LONG,
+                null);
+        Config config = new Config(List.of(rate));
+
+        assertThat(ReplicaMoves.override(config, ReplicaMoves.LEADER_RATE)).contains("1");
+    }
+
+    @Test
+    void theUnlimitedRateIsNotAnOverride() {
+        ConfigEntry rate = new ConfigEntry(
+                ReplicaMoves.LEADER_RATE,
+                "9223372036854775807",
+                ConfigEntry.ConfigSource.DEFAULT_CONFIG,
+                false,
+                false,
+                List.of(),
+                ConfigEntry.ConfigType.LONG,
+                null);
+
+        assertThat(ReplicaMoves.override(new Config(List.of(rate)), ReplicaMoves.LEADER_RATE))
+                .isEmpty();
     }
 
     private static Await await() {

@@ -541,16 +541,59 @@ final class ReplicaMoves {
         return new ThrottleKey(resource, name, override(config, name), desired);
     }
 
-    /** The dynamic override, or empty when the value is only the built-in default. */
+    /**
+     * The override an operator set, or empty when the value is only the built-in default. A dynamic value can be
+     * reported as the default source by an older broker and carried on a synonym, so both are read.
+     */
     static Optional<String> override(@Nullable Config config, String name) {
         if (config == null) {
             return Optional.empty();
         }
         ConfigEntry entry = config.get(name);
-        if (entry == null || entry.value() == null || entry.source() == ConfigEntry.ConfigSource.DEFAULT_CONFIG) {
+        if (entry == null) {
             return Optional.empty();
         }
-        return Optional.of(entry.value());
+        Optional<String> found = overrideValue(name, entry);
+        if (found.isPresent()) {
+            return found;
+        }
+        for (ConfigEntry.ConfigSynonym synonym : entry.synonyms()) {
+            if (isOperatorSource(synonym.source())
+                    && synonym.value() != null
+                    && !synonym.value().isBlank()) {
+                return Optional.of(synonym.value());
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** An operator-set value. The unlimited rate is the built-in default, not an override. */
+    private static Optional<String> overrideValue(String name, ConfigEntry entry) {
+        if (entry.value() == null || entry.value().isBlank()) {
+            return Optional.empty();
+        }
+        if (isOperatorSource(entry.source())) {
+            return Optional.of(entry.value());
+        }
+        if (entry.source() == ConfigEntry.ConfigSource.DEFAULT_CONFIG && !isBuiltinDefault(name, entry.value())) {
+            return Optional.of(entry.value());
+        }
+        return Optional.empty();
+    }
+
+    private static boolean isOperatorSource(ConfigEntry.ConfigSource source) {
+        return source == ConfigEntry.ConfigSource.DYNAMIC_BROKER_CONFIG
+                || source == ConfigEntry.ConfigSource.DYNAMIC_DEFAULT_BROKER_CONFIG
+                || source == ConfigEntry.ConfigSource.DYNAMIC_TOPIC_CONFIG
+                || source == ConfigEntry.ConfigSource.STATIC_BROKER_CONFIG;
+    }
+
+    /** The rate Kafka uses when nobody has set a throttle. A replica list has no built-in value. */
+    private static boolean isBuiltinDefault(String name, String value) {
+        if (LEADER_RATE.equals(name) || FOLLOWER_RATE.equals(name)) {
+            return "9223372036854775807".equals(value);
+        }
+        return false;
     }
 
     /** This partition's brokers merged into the throttled-replica list. A {@code *} list is left as it is. */
@@ -625,6 +668,7 @@ final class ReplicaMoves {
                         .describeConfigs(
                                 resources,
                                 new DescribeConfigsOptions()
+                                        .includeSynonyms(true)
                                         .timeoutMs(context.await().timeoutMs()))
                         .all());
     }
