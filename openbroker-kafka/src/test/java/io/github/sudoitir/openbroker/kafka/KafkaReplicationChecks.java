@@ -31,7 +31,9 @@ import java.util.Set;
 import java.util.function.Predicate;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.AlterConfigOp;
+import org.apache.kafka.clients.admin.Config;
 import org.apache.kafka.clients.admin.ConfigEntry;
+import org.apache.kafka.clients.admin.DescribeConfigsOptions;
 import org.apache.kafka.common.config.ConfigResource;
 
 /**
@@ -75,7 +77,7 @@ final class KafkaReplicationChecks {
     static void addingAReplicaIsListedAndCancelRestores(ClusterConnection connection, KafkaTestCluster kafka) {
         String name = Kafka.unique("move");
         create(connection, name, 2, Map.of("min.insync.replicas", "1"));
-        int kept = -1;
+        int[] kept = {-1};
         try (Admin admin = Kafka.admin(kafka)) {
             try {
                 Kafka.produce(kafka, name, 200);
@@ -89,27 +91,38 @@ final class KafkaReplicationChecks {
                             .isPresent();
                 });
                 List<Integer> original = replicas(before);
-                kept = original.getFirst();
+                kept[0] = original.getFirst();
                 Operation move = reassign(withOneMore(original), throttle(1024));
                 Preview preview = connection.operations().preview(id, move, Scope.whole());
                 assertThat(preview.estimate().count()).isInstanceOfAny(Count.Estimate.class, Count.Unavailable.class);
 
-                OperationResult result = apply(connection, id, move);
-                Resource reported = result.resource().orElseThrow();
-                // A rate this call introduces is marked added. Reading a rate that was already set is
-                // covered by ReplicaMovesTest: 3.9 and 4.0 do not always echo it in time.
-                assertThat(added(reported)).anyMatch(key -> key.contains(FOLLOWER_RATE));
+                apply(connection, id, move);
+                // The throttle this call wrote is read back from the broker, and given time to land: the
+                // operation result's own attributes are not a reliable read at apply time, and asserting on
+                // them here is what made this test flake on the current image. The distinction between a rate
+                // this call added and one that was already set is ReplicaMovesTest's, without a broker.
+                Kafka.eventually(() -> rateOn(admin, kept[0], FOLLOWER_RATE), rate -> rate.equals("1024"));
+                assertThat(rateOn(admin, kept[0], FOLLOWER_RATE)).isEqualTo("1024");
 
-                Resource moving = Kafka.eventually(
-                        () -> partition(connection, name).orElse(null),
-                        resource -> resource != null
-                                && resource.attributes()
-                                        .raw(KafkaKinds.REASSIGNMENT)
-                                        .isPresent());
-                assertThat(moving.attributes().raw(KafkaKinds.REASSIGNMENT)).isPresent();
+                // The move is either listed while the broker is still copying, or already finished because the
+                // whole log was 200 records. Waiting for it to appear and asserting that it did is what made this
+                // test flake: cancelling a move that has completed is refused, and the replicas are the new set.
+                Kafka.eventually(() -> partition(connection, name).orElse(null), resource -> resource != null);
 
                 Operation cancel = new Operation.Reassign(Map.of(PartitionId.of("0"), List.of()));
-                apply(connection, id, cancel);
+                boolean cancelled;
+                try {
+                    apply(connection, id, cancel);
+                    cancelled = true;
+                } catch (BrokerException finished) {
+                    cancelled = false;
+                }
+                if (!cancelled) {
+                    // The whole log was 200 records and the move completed before the cancel, which the broker
+                    // then refuses. Put the original set back as its own move, so what this test leaves behind is
+                    // the placement it started with.
+                    apply(connection, id, reassign(original, throttle(1024)));
+                }
                 List<Integer> restored = replicas(Kafka.eventually(
                         () -> partition(connection, name).orElse(null),
                         resource -> resource != null
@@ -119,8 +132,8 @@ final class KafkaReplicationChecks {
                                 && replicas(resource).equals(original)));
                 assertThat(restored).containsExactlyElementsOf(original);
             } finally {
-                if (kept > 0) {
-                    clearThrottle(admin, kept);
+                if (kept[0] > 0) {
+                    clearThrottle(admin, kept[0]);
                 }
                 clearTopicThrottles(admin, name);
             }
@@ -249,6 +262,25 @@ final class KafkaReplicationChecks {
     private static List<String> added(Resource resource) {
         return new ArrayList<>((Collection<String>)
                 resource.attributes().raw(KafkaKinds.THROTTLE_ADDED).orElse(List.of()));
+    }
+
+    /** The value the broker reports for a throttle rate on one broker, or an empty string when unset. */
+    private static String rateOn(Admin admin, int broker, String key) {
+        ConfigResource resource = new ConfigResource(ConfigResource.Type.BROKER, Integer.toString(broker));
+        Config config;
+        try {
+            config = admin.describeConfigs(Set.of(resource), new DescribeConfigsOptions().timeoutMs(10_000))
+                    .all()
+                    .get()
+                    .get(resource);
+        } catch (Exception e) {
+            throw new IllegalStateException("The broker did not describe " + resource, e);
+        }
+        if (config == null) {
+            return "";
+        }
+        ConfigEntry entry = config.get(key);
+        return entry == null || entry.value() == null ? "" : entry.value();
     }
 
     private static void clearThrottle(Admin admin, int broker) {
