@@ -8,4 +8,4 @@
 
 ## 2. Release
 
-- [ ] 2.1 A maintainer runs the Release workflow after this merges. This change does not run it.
+- [x] 2.1 The Release workflow ran for 0.13.0 after this merged, and Central serves it.
