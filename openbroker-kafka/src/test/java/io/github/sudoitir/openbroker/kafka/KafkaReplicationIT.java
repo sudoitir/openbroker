@@ -11,10 +11,8 @@ import io.github.sudoitir.openbroker.Status;
 import io.github.sudoitir.openbroker.access.Assessment;
 import io.github.sudoitir.openbroker.kafka.admin.KafkaAccess;
 import io.github.sudoitir.openbroker.kafka.admin.KafkaKinds;
-import io.github.sudoitir.openbroker.messaging.Count;
 import io.github.sudoitir.openbroker.model.Attributes;
 import io.github.sudoitir.openbroker.model.PartitionId;
-import io.github.sudoitir.openbroker.model.Placement;
 import io.github.sudoitir.openbroker.model.Resource;
 import io.github.sudoitir.openbroker.model.ResourceId;
 import io.github.sudoitir.openbroker.model.ResourcePath;
@@ -22,21 +20,15 @@ import io.github.sudoitir.openbroker.model.ResourceQuery;
 import io.github.sudoitir.openbroker.model.Scope;
 import io.github.sudoitir.openbroker.operation.Election;
 import io.github.sudoitir.openbroker.operation.Operation;
-import io.github.sudoitir.openbroker.operation.OperationResult;
 import io.github.sudoitir.openbroker.operation.Precondition;
 import io.github.sudoitir.openbroker.operation.Preview;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Predicate;
-import org.apache.kafka.clients.admin.Admin;
-import org.apache.kafka.clients.admin.AlterConfigOp;
-import org.apache.kafka.clients.admin.ConfigEntry;
-import org.apache.kafka.common.config.ConfigResource;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -45,27 +37,20 @@ import org.junit.jupiter.api.Test;
 class KafkaReplicationIT {
 
     private static final String THROTTLE = "replication.throttle.bytes_per_second";
-    private static final String LEADER_RATE = "leader.replication.throttled.rate";
-    private static final String FOLLOWER_RATE = "follower.replication.throttled.rate";
-    private static final String LEADER_REPLICAS = "leader.replication.throttled.replicas";
-    private static final String FOLLOWER_REPLICAS = "follower.replication.throttled.replicas";
 
     private static KafkaTestCluster kafka;
     private static BrokerDrivers drivers;
     private static ClusterConnection connection;
-    private static Admin admin;
 
     @BeforeAll
     static void start() {
         kafka = KafkaTestCluster.shared();
         drivers = BrokerDrivers.load();
         connection = Kafka.connect(drivers, kafka);
-        admin = Kafka.admin(kafka);
     }
 
     @AfterAll
     static void stop() {
-        admin.close();
         connection.close();
         drivers.close();
     }
@@ -99,22 +84,7 @@ class KafkaReplicationIT {
 
     @Test
     void anAlreadyPreferredLeaderIsLeftAsItIs() {
-        String name = Kafka.unique("prefer");
-        create(name, 3, Map.of());
-        try {
-            ResourceId id = partitionId(name);
-            Operation elect = new Operation.ElectLeader(Election.PREFERRED);
-            OperationResult result = Kafka.eventually(
-                    () -> connection
-                            .operations()
-                            .execute(id, elect, Scope.whole())
-                            .orThrow(),
-                    OperationResult::alreadyInState);
-
-            assertThat(result.alreadyInState()).isTrue();
-        } finally {
-            delete(name);
-        }
+        KafkaReplicationChecks.anAlreadyPreferredLeaderIsLeftAsItIs(connection);
     }
 
     @Test
@@ -205,92 +175,8 @@ class KafkaReplicationIT {
     }
 
     @Test
-    void addingAReplicaIsListedAndCancelRestoresTheReplicas() throws Exception {
-        String name = Kafka.unique("move");
-        create(name, 2, Map.of("min.insync.replicas", "1"));
-        int kept = -1;
-        try {
-            Kafka.produce(kafka, name, 200);
-            ResourceId id = partitionId(name);
-            Resource before = awaitPartition(name, KafkaReplicationIT::replicasReported);
-            assertThat(before.placements()).allSatisfy(placement -> {
-                assertThat(placement.attributes().raw(KafkaKinds.REPLICA_SIZE_BYTES))
-                        .isPresent();
-                assertThat(placement.attributes().raw(KafkaKinds.OFFSET_LAG)).isPresent();
-            });
-            List<Integer> original = replicas(before);
-            kept = original.getFirst();
-            Operation move = reassign(withOneMore(original), throttle(1024));
-            Preview preview = connection.operations().preview(id, move, Scope.whole());
-            assertThat(preview.estimate().count()).isInstanceOfAny(Count.Estimate.class, Count.Unavailable.class);
-
-            OperationResult result = apply(id, move);
-            Resource reported = result.resource().orElseThrow();
-            // A rate this call introduces is marked added. Reading a rate that was already set is
-            // covered by ReplicaMovesTest: 3.9 and 4.0 do not always echo it in time.
-            assertThat(added(reported)).anyMatch(key -> key.contains(FOLLOWER_RATE));
-
-            Resource moving = Kafka.eventually(
-                    () -> partition(name).orElse(null),
-                    resource -> resource != null
-                            && resource.attributes()
-                                    .raw(KafkaKinds.REASSIGNMENT)
-                                    .isPresent());
-            assertThat(moving.attributes().raw(KafkaKinds.REASSIGNMENT)).isPresent();
-
-            Operation cancel = new Operation.Reassign(Map.of(PartitionId.of("0"), List.of()));
-            apply(id, cancel);
-            List<Integer> restored = replicas(Kafka.eventually(
-                    () -> partition(name).orElse(null),
-                    resource -> resource != null
-                            && resource.attributes()
-                                    .raw(KafkaKinds.REASSIGNMENT)
-                                    .isEmpty()
-                            && replicas(resource).equals(original)));
-            assertThat(restored).containsExactlyElementsOf(original);
-        } finally {
-            if (kept > 0) {
-                clearThrottle(kept);
-            }
-            clearTopicThrottles(name);
-            delete(name);
-        }
-    }
-
-    /**
-     * Preview and apply, and preview again when the in-sync set moves between the two. That is the same refusal the
-     * caller gets, and on a three-broker cluster it happens while followers catch up.
-     */
-    private static OperationResult apply(ResourceId id, Operation operation) {
-        BrokerException last = null;
-        for (int attempt = 0; attempt < 5; attempt++) {
-            Preview preview = connection.operations().preview(id, operation, Scope.whole());
-            try {
-                return connection
-                        .operations()
-                        .execute(id, operation, Scope.whole(), Precondition.ifMatch(preview.etag()))
-                        .orThrow();
-            } catch (BrokerException e) {
-                if (e.status() != Status.FAILED_PRECONDITION) {
-                    throw e;
-                }
-                last = e;
-            }
-        }
-        throw last;
-    }
-
-    private static boolean replicasReported(Resource resource) {
-        if (resource.placements().size() < 2) {
-            return false;
-        }
-        for (Placement placement : resource.placements()) {
-            if (placement.attributes().raw(KafkaKinds.REPLICA_SIZE_BYTES).isEmpty()
-                    || placement.attributes().raw(KafkaKinds.OFFSET_LAG).isEmpty()) {
-                return false;
-            }
-        }
-        return resource.attributes().raw(KafkaKinds.REPLICAS).isPresent();
+    void addingAReplicaIsListedAndCancelRestoresTheReplicas() {
+        KafkaReplicationChecks.addingAReplicaIsListedAndCancelRestores(connection, kafka);
     }
 
     private static void create(String name, long replicas, Map<String, String> configs) {
@@ -370,34 +256,5 @@ class KafkaReplicationIT {
 
     private static Attributes throttle(long bytesPerSecond) {
         return Attributes.builder().putRaw(THROTTLE, bytesPerSecond).build();
-    }
-
-    @SuppressWarnings("unchecked")
-    private static List<String> added(Resource resource) {
-        return new ArrayList<>((Collection<String>)
-                resource.attributes().raw(KafkaKinds.THROTTLE_ADDED).orElse(List.of()));
-    }
-
-    private static void clearThrottle(int broker) {
-        deleteOverride(new ConfigResource(ConfigResource.Type.BROKER, Integer.toString(broker)), LEADER_RATE);
-        deleteOverride(new ConfigResource(ConfigResource.Type.BROKER, Integer.toString(broker)), FOLLOWER_RATE);
-    }
-
-    private static void clearTopicThrottles(String topic) {
-        ConfigResource resource = new ConfigResource(ConfigResource.Type.TOPIC, topic);
-        deleteOverride(resource, LEADER_REPLICAS);
-        deleteOverride(resource, FOLLOWER_REPLICAS);
-    }
-
-    private static void deleteOverride(ConfigResource resource, String key) {
-        try {
-            admin.incrementalAlterConfigs(Map.of(
-                            resource,
-                            List.of(new AlterConfigOp(new ConfigEntry(key, null), AlterConfigOp.OpType.DELETE))))
-                    .all()
-                    .get();
-        } catch (Exception ignored) {
-            // An override that was never set has nothing to delete.
-        }
     }
 }
