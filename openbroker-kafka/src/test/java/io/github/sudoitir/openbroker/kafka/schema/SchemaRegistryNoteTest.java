@@ -78,6 +78,51 @@ class SchemaRegistryNoteTest {
     }
 
     @Test
+    void aLiveSubjectWhoseDeleteAnswers404DoesNotProceedToPermanent() throws Exception {
+        AtomicBoolean permanent = new AtomicBoolean();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            String path = exchange.getRequestURI().getPath();
+            String query = exchange.getRequestURI().getQuery();
+            String method = exchange.getRequestMethod();
+            byte[] body;
+            int status = 200;
+            if ("DELETE".equals(method) && query != null && query.contains("permanent=true")) {
+                permanent.set(true);
+                status = 500;
+                body = "{\"message\":\"should not be called\"}".getBytes(StandardCharsets.UTF_8);
+            } else if ("DELETE".equals(method)) {
+                status = 404;
+                body = "{\"error_code\":40401,\"message\":\"Subject not found.\"}".getBytes(StandardCharsets.UTF_8);
+            } else if (path.contains("/versions/1")) {
+                body = "{\"id\":1,\"version\":1,\"schemaType\":\"AVRO\",\"schema\":\"{\\\"type\\\":\\\"string\\\"}\"}"
+                        .getBytes(StandardCharsets.UTF_8);
+            } else if (path.contains("/versions")) {
+                body = "[1]".getBytes(StandardCharsets.UTF_8);
+            } else if (path.contains("/config")) {
+                body = "{\"compatibilityLevel\":\"NONE\"}".getBytes(StandardCharsets.UTF_8);
+            } else {
+                status = 404;
+                body = "{}".getBytes(StandardCharsets.UTF_8);
+            }
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(status, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        try (KafkaConnection connection = connection(server.getAddress().getPort())) {
+            SchemaCatalog catalog = connection.unwrap(SchemaCatalog.class).orElseThrow();
+            assertThatThrownBy(() -> catalog.delete("orders-value", true, Precondition.none()))
+                    .isInstanceOf(BrokerException.class)
+                    .satisfies(error -> assertThat(error.getMessage()).doesNotContain("was soft-deleted"));
+            assertThat(permanent).isFalse();
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
     void anIdTheRegistryDoesNotListIsNotInvented() throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/", exchange -> {

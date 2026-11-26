@@ -213,11 +213,14 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
         // A permanent delete is refused until the subject is soft-deleted. Soft-delete first, then remove it.
         RegistryHttp.Reply soft = exchange("DELETE", path, null, true);
         if (soft.status() < 200 || soft.status() >= 300) {
-            boolean alreadySoftDeleted = soft.status() == 404 && state(name).isPresent();
-            if (!alreadySoftDeleted) {
-                if (soft.status() == 404) {
-                    throw gone(name);
-                }
+            // Refetch. The state read above is from before this DELETE, so it cannot say whether a 404 means the
+            // subject is already off the live list.
+            if (soft.status() == 404
+                    && !state(name).orElseThrow(() -> gone(name)).live()) {
+                // Already soft-deleted: the live list 404s and the deleted list still names it. Proceed.
+            } else if (soft.status() == 404) {
+                throw gone(name);
+            } else {
                 require2xx(soft, "delete " + name);
             }
         }
@@ -355,7 +358,7 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
         }
         versions.sort(Comparator.comparingInt(SubjectVersion::version));
         Level level = level(name);
-        return Optional.of(new State(name, versions, level.level(), level.note(), level.raw(), true));
+        return Optional.of(new State(name, versions, level.level(), level.note(), level.raw(), true, !liveMissing));
     }
 
     private SubjectVersion version(String name, int number, boolean deleted) {
@@ -369,8 +372,8 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
             throw refused(
                     Status.FAILED_PRECONDITION,
                     ErrorReasons.NOT_SUPPORTED,
-                    Dispatch.NOT_SENT,
-                    "The registry will not return a deleted version's schema.");
+                    Dispatch.REJECTED,
+                    "The registry will not return the schema of " + name + " version " + number + ".");
         }
         require2xx(reply, "read " + name + " version " + number);
         JsonNode node = json(reply);
@@ -754,10 +757,11 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
             Optional<CompatibilityLevel> level,
             Optional<String> note,
             String raw,
-            boolean present) {
+            boolean present,
+            boolean live) {
 
         static State absent(String name) {
-            return new State(name, List.of(), Optional.empty(), Optional.empty(), "", false);
+            return new State(name, List.of(), Optional.empty(), Optional.empty(), "", false, false);
         }
 
         Subject subject() {
