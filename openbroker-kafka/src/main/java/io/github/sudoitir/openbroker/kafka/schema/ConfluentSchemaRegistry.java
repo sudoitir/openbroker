@@ -666,7 +666,7 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
                         ErrorReasons.PRECONDITION_FAILED,
                         Dispatch.NOT_SENT,
                         "The registry changed since the preview.");
-            case Precondition.IfMatch(var expected) -> {
+            case Precondition.IfMatch() -> {
                 // The preview's etag still matches.
             }
         }
