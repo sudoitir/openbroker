@@ -16,6 +16,8 @@ import io.github.sudoitir.openbroker.Plane;
 import io.github.sudoitir.openbroker.Status;
 import io.github.sudoitir.openbroker.access.Access;
 import io.github.sudoitir.openbroker.kafka.messaging.KafkaTransport;
+import io.github.sudoitir.openbroker.kafka.schema.SchemaCatalog;
+import io.github.sudoitir.openbroker.kafka.schema.SchemaCatalogs;
 import io.github.sudoitir.openbroker.messaging.Messages;
 import io.github.sudoitir.openbroker.messaging.Transport;
 import io.github.sudoitir.openbroker.model.Attributes;
@@ -55,6 +57,7 @@ public final class KafkaConnection implements ClusterConnection {
     private final KafkaNotifications notifications;
     private final KafkaAccess access;
     private final KafkaTransport transport;
+    private final SchemaCatalog catalog;
 
     public KafkaConnection(BrokerSystem system, ClusterSpec spec, CredentialSource credentials, DriverContext context) {
         this(system, new KafkaCluster(spec, credentials, context), context);
@@ -73,6 +76,7 @@ public final class KafkaConnection implements ClusterConnection {
         this.access = new KafkaAccess(cluster);
         this.notifications = new KafkaNotifications(cluster, resources, handlers);
         this.transport = new KafkaTransport(cluster);
+        this.catalog = SchemaCatalogs.open(cluster);
     }
 
     /**
@@ -224,13 +228,19 @@ public final class KafkaConnection implements ClusterConnection {
     }
 
     /**
-     * Kafka's own {@link Admin} client, for what only Kafka has. The connection owns it: closing the
-     * returned view does nothing, it follows a {@link #reconfigure}, and its calls are not admitted by
-     * the {@code CallInterceptor}. Any other type is absent.
+     * Kafka's own {@link Admin} client, or the {@link SchemaCatalog} this connection was configured with.
+     * The connection owns both: closing the returned view does nothing, each follows a {@link #reconfigure},
+     * and its calls are not admitted by the {@code CallInterceptor}. Any other type is absent.
      */
     @Override
     public <T> Optional<T> unwrap(Class<T> type) {
-        return type.equals(Admin.class) ? Optional.of(type.cast(cluster.nativeAdmin())) : Optional.empty();
+        if (type.equals(Admin.class)) {
+            return Optional.of(type.cast(cluster.nativeAdmin()));
+        }
+        if (type.equals(SchemaCatalog.class)) {
+            return Optional.of(type.cast(catalog));
+        }
+        return Optional.empty();
     }
 
     @Override
@@ -238,6 +248,7 @@ public final class KafkaConnection implements ClusterConnection {
         notifications.close();
         transport.close();
         messages.close();
+        catalog.close();
         cluster.close();
     }
 }

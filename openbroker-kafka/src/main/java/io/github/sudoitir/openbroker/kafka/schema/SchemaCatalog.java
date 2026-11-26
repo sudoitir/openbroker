@@ -26,6 +26,10 @@ import java.util.Map;
  */
 public interface SchemaCatalog extends AutoCloseable {
 
+    /** Releases the registry client. Does not throw: a close that fails has already given up the client. */
+    @Override
+    void close();
+
     /** The capability that says whether this cluster's registry is configured and reachable. */
     Capability SCHEMA_REGISTRY = new Capability("kafka.schema-registry");
 

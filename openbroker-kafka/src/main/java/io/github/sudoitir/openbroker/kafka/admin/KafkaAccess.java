@@ -6,6 +6,8 @@ import io.github.sudoitir.openbroker.access.Access;
 import io.github.sudoitir.openbroker.access.AccessSnapshot;
 import io.github.sudoitir.openbroker.access.Assessment;
 import io.github.sudoitir.openbroker.access.Capability;
+import io.github.sudoitir.openbroker.kafka.KafkaOptions;
+import io.github.sudoitir.openbroker.kafka.schema.SchemaCatalog;
 import io.github.sudoitir.openbroker.model.ResourceId;
 import io.github.sudoitir.openbroker.support.Deadlines;
 import java.util.LinkedHashMap;
@@ -94,7 +96,20 @@ public final class KafkaAccess implements Access {
             out.put(PREFERRED_ELECTION, reported(cluster, PREFERRED_ELECTION, "Preferred leader election is sent."));
             out.put(REASSIGNMENT, reported(cluster, REASSIGNMENT, "Partition reassignment is sent."));
         }
+        out.put(SchemaCatalog.SCHEMA_REGISTRY, registry());
         return new AccessSnapshot(out, cluster.options().clock().instant());
+    }
+
+    /**
+     * A registry is independent of what the account may do on the cluster. Named is not reached: this probe does not
+     * call it, so a named registry stays unknown until a catalog call does.
+     */
+    private Assessment registry() {
+        String kind = cluster.option(KafkaOptions.REGISTRY_KIND, KafkaOptions.REGISTRY_NONE);
+        if (kind.isBlank() || KafkaOptions.REGISTRY_NONE.equals(kind)) {
+            return Assessment.unavailable("No schema registry is configured on this connection", Optional.empty());
+        }
+        return Assessment.unknown("A schema registry is named on this connection but has not been reached.");
     }
 
     /** The refusal recorded on this connection, or available until a broker rejects the call. */
