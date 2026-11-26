@@ -659,8 +659,8 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
             case Precondition.None() -> {
                 // No etag was taken, so the change runs.
             }
-            case Precondition.IfMatch(var expected)
-            when !expected.equals(etag) ->
+            case Precondition.IfMatch(var given)
+            when !given.equals(etag) ->
                 throw refused(
                         Status.FAILED_PRECONDITION,
                         ErrorReasons.PRECONDITION_FAILED,

@@ -46,7 +46,9 @@ final class RegistryHttp implements AutoCloseable {
     record Reply(int status, byte[] body) {
         @Override
         public boolean equals(Object other) {
-            return other instanceof Reply reply && status == reply.status && Arrays.equals(body, reply.body);
+            return other instanceof Reply(int status, byte[] body)
+                    && this.status == status
+                    && Arrays.equals(this.body, body);
         }
 
         @Override
