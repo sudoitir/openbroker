@@ -537,6 +537,10 @@
                             <publishingServerId>central</publishingServerId>
                             <autoPublish>true</autoPublish>
                             <waitUntil>published</waitUntil>
+                            <!-- 0.12.0 waited 20m 17s for Central to validate this bundle; 0.13.0 uploaded in
+                                 under a second and then hit the plugin's 30-minute default. The poll still
+                                 ends as soon as the deployment publishes. -->
+                            <waitMaxTime>5400</waitMaxTime>
                         </configuration>
                     </plugin>
                 </plugins>
