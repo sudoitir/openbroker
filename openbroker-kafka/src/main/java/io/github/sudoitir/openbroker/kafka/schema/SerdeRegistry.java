@@ -163,6 +163,9 @@ final class SerdeRegistry {
         if (value instanceof Boolean) {
             return "\"boolean\"";
         }
+        if (value instanceof byte[]) {
+            return "\"bytes\"";
+        }
         if (value instanceof Number number) {
             return integral(number) ? "\"long\"" : "\"double\"";
         }
@@ -204,6 +207,8 @@ final class SerdeRegistry {
         return switch (schema.getType()) {
             case LONG -> ((Number) value).longValue();
             case DOUBLE -> ((Number) value).doubleValue();
+            case BYTES -> ByteBuffer.wrap((byte[]) value);
+            case FIXED -> new GenericData.Fixed(schema, (byte[]) value);
             case ARRAY ->
                 ((List<?>) value)
                         .stream()
@@ -246,6 +251,15 @@ final class SerdeRegistry {
             Map<String, Object> out = new LinkedHashMap<>();
             map.forEach((key, item) -> out.put(String.valueOf(fromAvro(key)), fromAvro(item)));
             return out;
+        }
+        if (value instanceof ByteBuffer buffer) {
+            ByteBuffer view = buffer.asReadOnlyBuffer();
+            byte[] bytes = new byte[view.remaining()];
+            view.get(bytes);
+            return bytes;
+        }
+        if (value instanceof GenericData.Fixed fixed) {
+            return fixed.bytes().clone();
         }
         return value;
     }
@@ -453,6 +467,12 @@ final class SerdeRegistry {
         }
         if (count < 0) {
             throw new IllegalArgumentException("A message index count is negative.");
+        }
+        // Each index is at least one byte. A count past the bytes left cannot be a real list, and allocating it
+        // would let a short payload demand a huge array. An incomplete varint is truncated; this overrun is refused.
+        int remaining = payload.length - reader.offset();
+        if (count > remaining) {
+            throw new IllegalArgumentException("A message index count does not fit the payload.");
         }
         List<Integer> indexes = new ArrayList<>(count);
         for (int i = 0; i < count; i++) {

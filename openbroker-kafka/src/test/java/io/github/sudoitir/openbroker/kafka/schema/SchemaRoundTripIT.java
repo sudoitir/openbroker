@@ -27,6 +27,11 @@ class SchemaRoundTripIT {
                 assertThat(decoded).isInstanceOf(DecodedRecord.Decoded.class);
                 assertThat(((DecodedRecord.Decoded) decoded).record()).isEqualTo(record);
             }
+            Map<String, Object> withBytes = Map.of("blob", new byte[] {4, 5});
+            byte[] framed = catalog.encode("avro", SchemaRegistrySupport.subject(), withBytes);
+            DecodedRecord decoded = catalog.decode("avro", MessageBody.of(framed));
+            assertThat((byte[]) ((Map<?, ?>) ((DecodedRecord.Decoded) decoded).record()).get("blob"))
+                    .isEqualTo(new byte[] {4, 5});
         }
     }
 }

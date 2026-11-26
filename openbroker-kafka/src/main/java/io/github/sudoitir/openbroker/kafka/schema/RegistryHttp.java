@@ -112,7 +112,7 @@ final class RegistryHttp implements AutoCloseable {
         http.close();
     }
 
-    /** Strips a registry credential from a message. A password shorter than 4 characters is not substring-stripped. */
+    /** Strips a registry credential from a message. A password is stripped where it stands as its own token, at any length. */
     static final class Redactor {
 
         private final String pair;
@@ -148,9 +148,7 @@ final class RegistryHttp implements AutoCloseable {
             if (!pair.isEmpty()) {
                 out = out.replace(pair, "****");
             }
-            if (password.length() >= 4) {
-                out = out.replace(password, "****");
-            }
+            out = stripToken(out, password);
             if (!token.isEmpty()) {
                 out = out.replace(token, "****");
             }
@@ -162,8 +160,56 @@ final class RegistryHttp implements AutoCloseable {
                 return false;
             }
             return (!pair.isEmpty() && message.contains(pair))
-                    || (password.length() >= 4 && message.contains(password))
+                    || containsToken(message, password)
                     || (!token.isEmpty() && message.contains(token));
+        }
+
+        /** The password at any length, only where it stands as its own token, so a short one does not eat ordinary words. */
+        private static String stripToken(String message, String secret) {
+            if (secret.isEmpty()) {
+                return message;
+            }
+            StringBuilder out = new StringBuilder();
+            int i = 0;
+            while (i < message.length()) {
+                if (message.startsWith(secret, i) && tokenBounded(message, i, secret.length())) {
+                    out.append("****");
+                    i += secret.length();
+                } else {
+                    out.append(message.charAt(i));
+                    i++;
+                }
+            }
+            return out.toString();
+        }
+
+        private static boolean containsToken(String message, String secret) {
+            if (secret.isEmpty()) {
+                return false;
+            }
+            int from = 0;
+            while (from <= message.length() - secret.length()) {
+                int at = message.indexOf(secret, from);
+                if (at < 0) {
+                    return false;
+                }
+                if (tokenBounded(message, at, secret.length())) {
+                    return true;
+                }
+                from = at + 1;
+            }
+            return false;
+        }
+
+        private static boolean tokenBounded(String message, int start, int length) {
+            boolean left = start == 0 || !isTokenChar(message.charAt(start - 1));
+            int end = start + length;
+            boolean right = end >= message.length() || !isTokenChar(message.charAt(end));
+            return left && right;
+        }
+
+        private static boolean isTokenChar(char c) {
+            return Character.isLetterOrDigit(c) || c == '_';
         }
     }
 

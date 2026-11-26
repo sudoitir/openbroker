@@ -78,4 +78,23 @@ class SchemaRegistryPreviewIT {
             assertThat(SchemaRegistrySupport.versions(catalog, name)).containsExactly(1);
         }
     }
+
+    @Test
+    void aPermanentDeleteIsAppliedAndASoftDeletedSubjectStaysAddressable() {
+        String name = SchemaRegistrySupport.subject();
+        try (ClusterConnection connection = SchemaRegistrySupport.connect(SchemaRegistrySupport.confluent(null))) {
+            SchemaCatalog catalog = connection.unwrap(SchemaCatalog.class).orElseThrow();
+            catalog.register(name, SchemaType.AVRO, SCHEMA_A, Precondition.none());
+            catalog.delete(name, false, Precondition.none());
+            assertThat(catalog.subject(name).versions()).isNotEmpty();
+            assertThat(catalog.subject(name).versions().get(0).deleted()).isTrue();
+
+            Preview preview = catalog.previewDelete(name, true);
+            catalog.delete(name, true, Precondition.ifMatch(preview.etag()));
+            assertThatThrownBy(() -> catalog.subject(name))
+                    .isInstanceOf(BrokerException.class)
+                    .extracting(error -> ((BrokerException) error).status())
+                    .isEqualTo(Status.NOT_FOUND);
+        }
+    }
 }

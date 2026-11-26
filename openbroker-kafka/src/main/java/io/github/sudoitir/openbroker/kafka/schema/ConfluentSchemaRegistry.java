@@ -4,6 +4,7 @@ import io.github.sudoitir.openbroker.BrokerException;
 import io.github.sudoitir.openbroker.CallScope;
 import io.github.sudoitir.openbroker.Deadline;
 import io.github.sudoitir.openbroker.Dispatch;
+import io.github.sudoitir.openbroker.ErrorInfo;
 import io.github.sudoitir.openbroker.ErrorReasons;
 import io.github.sudoitir.openbroker.Status;
 import io.github.sudoitir.openbroker.access.Assessment;
@@ -34,6 +35,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -49,11 +51,14 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
     private static final String CHECK_ON_APPLY = "The compatibility check happens on apply.";
     private static final String ALREADY = "Already registered; applying creates no second version.";
     private static final String CANNOT_RESTORE = "The schemas cannot be restored.";
+    private static final String NOTHING_WRITTEN = "Nothing has been written.";
 
     private static final ObjectMapper JSON = JsonMapper.builder().build();
 
     private final KafkaCluster cluster;
     private final RegistryHttp http = new RegistryHttp();
+    /** Last body read for a version. A soft-deleted version stays addressable when the registry will not return it again. */
+    private final ConcurrentHashMap<String, SubjectVersion> knownVersions = new ConcurrentHashMap<>();
 
     ConfluentSchemaRegistry(KafkaCluster cluster) {
         this.cluster = cluster;
@@ -106,10 +111,14 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
         Optional<Integer> existing = lookup(name, kind, text);
         String check = compatibilityCheck(name, kind, text);
         List<AttributeChange> diff = new ArrayList<>();
-        diff.add(new AttributeChange("subject", Optional.of(name), Optional.of(name)));
+        diff.add(new AttributeChange(
+                "subject", now.present() ? Optional.of(name) : Optional.empty(), Optional.of(name)));
         diff.add(new AttributeChange("schema.type", Optional.empty(), Optional.of(kind.name())));
         existing.ifPresent(id -> diff.add(new AttributeChange("schema.id", Optional.of(id), Optional.of(id))));
-        diff.add(new AttributeChange("note", Optional.empty(), Optional.of(existing.isPresent() ? ALREADY : check)));
+        diff.add(new AttributeChange(
+                "note",
+                Optional.empty(),
+                Optional.of(NOTHING_WRITTEN + " " + (existing.isPresent() ? ALREADY : check))));
         return preview(diff, Set.of(), existing.isPresent() ? 0 : 1, now.etag());
     }
 
@@ -131,7 +140,7 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
         }
         require2xx(reply, "register " + name);
         int id = json(reply).path("id").asInt();
-        return versionFor(name, id, kind, text);
+        return versionFor(name, id);
     }
 
     @Override
@@ -139,8 +148,9 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
         String name = required(subject);
         Objects.requireNonNull(level, "level");
         State now = state(name).orElseGet(() -> State.absent(name));
-        List<AttributeChange> diff =
-                List.of(new AttributeChange("compatibility", now.level().map(Enum::name), Optional.of(level.name())));
+        List<AttributeChange> diff = List.of(
+                new AttributeChange("compatibility", now.level().map(Enum::name), Optional.of(level.name())),
+                new AttributeChange("note", Optional.empty(), Optional.of(NOTHING_WRITTEN)));
         int affected = now.level().isPresent() && now.level().get() == level ? 0 : 1;
         return preview(diff, Set.of(), affected, now.etag());
     }
@@ -161,10 +171,12 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
     public Preview previewCompatibilityDefault(CompatibilityLevel level) {
         Objects.requireNonNull(level, "level");
         String current = defaultLevel();
-        List<AttributeChange> diff = List.of(new AttributeChange(
-                "compatibility",
-                current.isEmpty() ? Optional.empty() : Optional.of(current),
-                Optional.of(level.name())));
+        List<AttributeChange> diff = List.of(
+                new AttributeChange(
+                        "compatibility",
+                        current.isEmpty() ? Optional.empty() : Optional.of(current),
+                        Optional.of(level.name())),
+                new AttributeChange("note", Optional.empty(), Optional.of(NOTHING_WRITTEN)));
         return preview(diff, Set.of(), current.equals(level.name()) ? 0 : 1, SchemaEtags.of("", List.of(), current));
     }
 
@@ -185,9 +197,8 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
         State now = state(name).orElseThrow(() -> gone(name));
         List<AttributeChange> diff = new ArrayList<>();
         diff.add(new AttributeChange("subject", Optional.of(name), Optional.empty()));
-        if (permanent) {
-            diff.add(new AttributeChange("note", Optional.empty(), Optional.of(CANNOT_RESTORE)));
-        }
+        String note = permanent ? NOTHING_WRITTEN + " " + CANNOT_RESTORE : NOTHING_WRITTEN;
+        diff.add(new AttributeChange("note", Optional.empty(), Optional.of(note)));
         return preview(
                 diff, permanent ? Set.of("subject") : Set.of(), now.versions().size(), now.etag());
     }
@@ -198,15 +209,31 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
         Objects.requireNonNull(condition, "condition");
         State now = state(name).orElseThrow(() -> gone(name));
         requireMatch(condition, now.etag());
-        String path = "/subjects/" + enc(name) + (permanent ? "?permanent=true" : "");
-        RegistryHttp.Reply reply = exchange("DELETE", path, null, true);
-        if (permanent && (reply.status() == 404 || reply.status() == 405) && !registryAnswer(reply)) {
-            throw refused(Status.UNIMPLEMENTED, ErrorReasons.NOT_SUPPORTED, Dispatch.REJECTED, registryMessage(reply));
+        String path = "/subjects/" + enc(name);
+        // A permanent delete is refused until the subject is soft-deleted. Soft-delete first, then remove it.
+        RegistryHttp.Reply soft = exchange("DELETE", path, null, true);
+        boolean softOk = soft.status() >= 200 && soft.status() < 300;
+        if (!softOk && state(name).isEmpty()) {
+            if (soft.status() == 404) {
+                throw gone(name);
+            }
+            require2xx(soft, "delete " + name);
         }
-        if (reply.status() == 404) {
-            throw gone(name);
+        if (!permanent) {
+            return;
         }
-        require2xx(reply, "delete " + name);
+        RegistryHttp.Reply hard = exchange("DELETE", path + "?permanent=true", null, true);
+        if (hard.status() < 200 || hard.status() >= 300) {
+            throw new BrokerException(
+                    Status.ABORTED,
+                    ErrorInfo.of(ErrorReasons.UNEXPECTED_SYSTEM),
+                    Dispatch.IN_DOUBT,
+                    null,
+                    redactor()
+                            .apply("The subject " + name
+                                    + " was soft-deleted, and the permanent delete did not finish: "
+                                    + registryMessage(hard)));
+        }
     }
 
     @Override
@@ -305,15 +332,19 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
 
     private Optional<State> state(String name) {
         RegistryHttp.Reply live = get("/subjects/" + enc(name) + "/versions");
-        if (live.status() == 404) {
+        RegistryHttp.Reply deleted = get("/subjects/" + enc(name) + "/versions?deleted=true");
+        boolean liveMissing = live.status() == 404;
+        boolean deletedOk = deleted.status() >= 200 && deleted.status() < 300;
+        if (liveMissing && !deletedOk) {
             return Optional.empty();
         }
-        require2xx(live, "list versions of " + name);
-        List<Integer> current = ints(json(live));
-        List<Integer> all = current;
-        RegistryHttp.Reply deleted = get("/subjects/" + enc(name) + "/versions?deleted=true");
-        if (deleted.status() >= 200 && deleted.status() < 300) {
-            all = ints(json(deleted));
+        if (!liveMissing) {
+            require2xx(live, "list versions of " + name);
+        }
+        List<Integer> current = liveMissing ? List.of() : ints(json(live));
+        List<Integer> all = deletedOk ? ints(json(deleted)) : current;
+        if (all.isEmpty() && liveMissing) {
+            return Optional.empty();
         }
         List<SubjectVersion> versions = new ArrayList<>();
         for (int number : all) {
@@ -322,20 +353,31 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
         }
         versions.sort(Comparator.comparingInt(SubjectVersion::version));
         Level level = level(name);
-        return Optional.of(new State(name, versions, level.level(), level.note(), level.raw()));
+        return Optional.of(new State(name, versions, level.level(), level.note(), level.raw(), true));
     }
 
     private SubjectVersion version(String name, int number, boolean deleted) {
         String path = "/subjects/" + enc(name) + "/versions/" + number + (deleted ? "?deleted=true" : "");
         RegistryHttp.Reply reply = get(path);
+        if ((reply.status() < 200 || reply.status() >= 300) && deleted) {
+            SubjectVersion cached = knownVersions.get(name + "\0" + number);
+            if (cached != null) {
+                return new SubjectVersion(cached.id(), cached.version(), cached.type(), cached.schema(), true);
+            }
+            // ponytail: some registries list a soft-deleted version but will not return its body. The version number
+            // is the registry's; the id is that number only until a read has seen the real id.
+            return new SubjectVersion(number, number, SchemaType.AVRO, "", true);
+        }
         require2xx(reply, "read " + name + " version " + number);
         JsonNode node = json(reply);
-        return new SubjectVersion(
+        SubjectVersion read = new SubjectVersion(
                 node.path("id").asInt(),
                 node.path("version").asInt(number),
                 schemaType(node.path("schemaType").asString()),
                 node.path("schema").asString(),
                 deleted || node.path("deleted").asBoolean(false));
+        knownVersions.put(name + "\0" + read.version(), read);
+        return read;
     }
 
     private Level level(String name) {
@@ -404,12 +446,12 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
         return CHECK_ON_APPLY;
     }
 
-    private SubjectVersion versionFor(String name, int id, SchemaType type, String schema) {
+    private SubjectVersion versionFor(String name, int id) {
         State after = state(name).orElseThrow(() -> gone(name));
         return after.versions().stream()
                 .filter(version -> version.id() == id)
                 .findFirst()
-                .orElse(new SubjectVersion(id, after.versions().size(), type, schema, false));
+                .orElseThrow(() -> bad("The registry registered schema id " + id + " but did not list it."));
     }
 
     private RegistryHttp.Reply get(String path) {
@@ -454,6 +496,13 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
     }
 
     private void require2xx(RegistryHttp.Reply reply, String what) {
+        if (reply.status() == 405) {
+            throw refused(
+                    Status.UNIMPLEMENTED,
+                    ErrorReasons.NOT_SUPPORTED,
+                    Dispatch.REJECTED,
+                    "The registry does not offer this operation: " + registryMessage(reply));
+        }
         if (reply.status() < 200 || reply.status() >= 300) {
             throw refused(
                     Status.UNAVAILABLE,
@@ -700,10 +749,11 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
             List<SubjectVersion> versions,
             Optional<CompatibilityLevel> level,
             Optional<String> note,
-            String raw) {
+            String raw,
+            boolean present) {
 
         static State absent(String name) {
-            return new State(name, List.of(), Optional.empty(), Optional.empty(), "");
+            return new State(name, List.of(), Optional.empty(), Optional.empty(), "", false);
         }
 
         Subject subject() {

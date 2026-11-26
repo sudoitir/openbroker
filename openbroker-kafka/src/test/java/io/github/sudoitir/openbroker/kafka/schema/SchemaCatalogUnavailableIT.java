@@ -6,6 +6,7 @@ import io.github.sudoitir.openbroker.ClusterConnection;
 import io.github.sudoitir.openbroker.access.Assessment;
 import io.github.sudoitir.openbroker.kafka.KafkaOptions;
 import io.github.sudoitir.openbroker.messaging.Cursor;
+import io.github.sudoitir.openbroker.messaging.MessageBody;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -27,6 +28,9 @@ class SchemaCatalogUnavailableIT {
             SchemaCatalog catalog = connection.unwrap(SchemaCatalog.class).orElseThrow();
             assertThat(catalog.capability().status()).isEqualTo(Assessment.Status.UNAVAILABLE);
             assertThat(catalog.subjects(new Cursor("")).items()).isEmpty();
+            DecodedRecord decoded = catalog.decode(null, MessageBody.of(new byte[] {1, 2, 3}));
+            assertThat(decoded).isInstanceOf(DecodedRecord.Undecoded.class);
+            assertThat(((DecodedRecord.Undecoded) decoded).reason()).isEqualTo(DecodedRecord.NO_REGISTRY);
         }
     }
 
@@ -40,12 +44,11 @@ class SchemaCatalogUnavailableIT {
     }
 
     @Test
-    void glueSaysWhatItCannotDo() {
-        try (ClusterConnection connection =
-                SchemaRegistrySupport.connect(Map.of(KafkaOptions.REGISTRY_KIND, KafkaOptions.REGISTRY_GLUE))) {
-            SchemaCatalog catalog = connection.unwrap(SchemaCatalog.class).orElseThrow();
-            assertThat(catalog.capability().status()).isEqualTo(Assessment.Status.UNAVAILABLE);
-            assertThat(catalog.capability().reason()).contains("UUID");
-        }
+    void glueIsNotAnAcceptedKind() {
+        assertThat(KafkaOptions.SCHEMA
+                        .option(KafkaOptions.REGISTRY_KIND)
+                        .orElseThrow()
+                        .allowedValues())
+                .containsExactly(KafkaOptions.REGISTRY_NONE, KafkaOptions.REGISTRY_CONFLUENT);
     }
 }

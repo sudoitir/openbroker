@@ -2,7 +2,7 @@
 
 ### Requirement: A cluster can have one schema registry
 
-The driver SHALL accept one schema registry on a Kafka connection: a Confluent-compatible registry, or Glue where subject, version, schema type and compatibility still mean the same thing. It SHALL list subjects, versions and compatibility in that vocabulary. An operation the chosen registry does not offer SHALL be unavailable with that registry's reason, and the operations it does offer SHALL still be reported. With no registry configured, the capability SHALL be unavailable with the reason, and the driver SHALL NOT invent subjects. Credentials SHALL be asked for on each connection and SHALL NOT be returned on a read.
+The driver SHALL accept one schema registry on a Kafka connection, a Confluent-compatible registry. It SHALL list subjects, versions and compatibility in that vocabulary. An operation that registry does not offer SHALL be unavailable with that registry's reason, and the subject list SHALL still answer. With no registry configured, the capability SHALL be unavailable with the reason, and the driver SHALL NOT invent subjects. Credentials SHALL be asked for on each connection and SHALL NOT be returned on a read. Glue is not an accepted registry kind in this change: its schema version id is a UUID, and the driver SHALL NOT invent the integer a record carries. A later change adds that client.
 
 #### Scenario: A Confluent-compatible registry
 

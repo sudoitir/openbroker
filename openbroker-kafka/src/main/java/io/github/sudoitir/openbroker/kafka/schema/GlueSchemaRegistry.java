@@ -94,7 +94,7 @@ final class GlueSchemaRegistry implements SchemaCatalog {
         if (body.isTombstone()) {
             return new DecodedRecord.Undecoded(DecodedRecord.NO_SCHEMA_ID);
         }
-        return new DecodedRecord.Undecoded(DecodedRecord.NO_REGISTRY);
+        throw unavailable();
     }
 
     @Override

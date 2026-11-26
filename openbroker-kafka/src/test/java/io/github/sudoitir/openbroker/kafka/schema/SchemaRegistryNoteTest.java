@@ -74,7 +74,7 @@ class SchemaRegistryNoteTest {
         }
     }
 
-    private static KafkaConnection connection(int port) {
+    static KafkaConnection connection(int port) {
         ConnectOptions options = ConnectOptions.defaults();
         DriverContext context = new DriverContext() {
             @Override

@@ -26,7 +26,7 @@ public final class KafkaOptions {
      */
     public static final String SETUP_GRACE = "setup.grace";
 
-    /** The schema registry this cluster is managed through: {@code none}, {@code confluent} or {@code glue}. */
+    /** The schema registry this cluster is managed through: {@code none} or {@code confluent}. */
     public static final String REGISTRY_KIND = "registry.kind";
 
     /** The registry's base URL, such as {@code https://registry.example:8081}. */
@@ -43,6 +43,10 @@ public final class KafkaOptions {
 
     public static final String REGISTRY_NONE = "none";
     public static final String REGISTRY_CONFLUENT = "confluent";
+    /**
+     * Reserved for a later Glue client. Not an accepted {@link #REGISTRY_KIND}: Glue's schema version id is a UUID, and
+     * this driver does not invent the integer a record carries.
+     */
     public static final String REGISTRY_GLUE = "glue";
 
     public static final String PLAINTEXT = "PLAINTEXT";
@@ -119,9 +123,10 @@ public final class KafkaOptions {
                     false,
                     false,
                     Optional.of(REGISTRY_NONE),
-                    List.of(REGISTRY_NONE, REGISTRY_CONFLUENT, REGISTRY_GLUE),
+                    List.of(REGISTRY_NONE, REGISTRY_CONFLUENT),
                     "The schema registry this cluster's subjects, versions and compatibility are managed"
-                            + " through. With none, the schema catalog is unavailable and records stay undecoded.",
+                            + " through. With none, the schema catalog is unavailable and records stay undecoded."
+                            + " glue is not accepted.",
                     Optional.empty()),
             new OptionSpec(
                     REGISTRY_URL,

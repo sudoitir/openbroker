@@ -13,8 +13,9 @@ import java.util.Optional;
  *     registry shows them
  * @param compatibility the level this subject is held at, or empty when the registry resolves it from
  *     the registry default and does not restate it here
- * @param compatibilityNote the registry's own words when its level is one this driver does not name,
- *     or a sentence about why the level is not known; empty when {@code compatibility} is present
+ * @param compatibilityNote the registry's own words when its level is one this driver does not name, kept
+ *     beside {@link CompatibilityLevel#NONE}, or a sentence about why the level is not known when
+ *     {@code compatibility} is empty. Empty when the level is one this driver names.
  */
 public record Subject(
         String name,
