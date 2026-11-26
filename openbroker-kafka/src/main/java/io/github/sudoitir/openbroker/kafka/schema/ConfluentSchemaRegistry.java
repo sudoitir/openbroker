@@ -251,8 +251,18 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
                     "No serde named " + serdeName + " is registered.");
         }
         Objects.requireNonNull(record, "record");
-        throw refused(
-                Status.UNIMPLEMENTED, ErrorReasons.NOT_SUPPORTED, Dispatch.NOT_SENT, "Encoding is not available yet.");
+        String schema;
+        try {
+            schema = SerdeRegistry.schemaOf(serdeName, record);
+        } catch (IllegalArgumentException e) {
+            throw refused(Status.INVALID_ARGUMENT, ErrorReasons.INVALID_ARGUMENT, Dispatch.NOT_SENT, e.getMessage());
+        }
+        SubjectVersion version = register(subject, SerdeRegistry.typeOf(serdeName), schema, Precondition.none());
+        try {
+            return SerdeRegistry.frame(serdeName, version.id(), schema, record);
+        } catch (RuntimeException e) {
+            throw refused(Status.INVALID_ARGUMENT, ErrorReasons.INVALID_ARGUMENT, Dispatch.NOT_SENT, e.getMessage());
+        }
     }
 
     @Override
