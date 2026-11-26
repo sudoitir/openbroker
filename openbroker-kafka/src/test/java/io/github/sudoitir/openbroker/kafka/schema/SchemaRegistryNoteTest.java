@@ -75,6 +75,22 @@ class SchemaRegistryNoteTest {
     }
 
     static KafkaConnection connection(int port) {
+        return connection(Map.of(
+                KafkaOptions.REGISTRY_KIND,
+                KafkaOptions.REGISTRY_CONFLUENT,
+                KafkaOptions.REGISTRY_URL,
+                "http://127.0.0.1:" + port));
+    }
+
+    static KafkaConnection connection(Map<String, String> registryOptions) {
+        return connection(new ClusterSpec(
+                List.of(new NodeSpec(
+                        NodeId.of("1"), List.of(Endpoint.of(Plane.DATA, KafkaOptions.PROTOCOL, "127.0.0.1:1")))),
+                List.of(),
+                registryOptions));
+    }
+
+    static KafkaConnection connection(ClusterSpec spec) {
         ConnectOptions options = ConnectOptions.defaults();
         DriverContext context = new DriverContext() {
             @Override
@@ -90,15 +106,6 @@ class SchemaRegistryNoteTest {
             @Override
             public void evict(String key) {}
         };
-        ClusterSpec spec = new ClusterSpec(
-                List.of(new NodeSpec(
-                        NodeId.of("1"), List.of(Endpoint.of(Plane.DATA, KafkaOptions.PROTOCOL, "127.0.0.1:1")))),
-                List.of(),
-                Map.of(
-                        KafkaOptions.REGISTRY_KIND,
-                        KafkaOptions.REGISTRY_CONFLUENT,
-                        KafkaOptions.REGISTRY_URL,
-                        "http://127.0.0.1:" + port));
         return new KafkaConnection(
                 new KafkaDriver().system(), new KafkaCluster(spec, CredentialSource.none(), context), context);
     }

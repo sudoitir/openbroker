@@ -109,6 +109,10 @@ public final class KafkaAccess implements Access {
         if (kind.isBlank() || KafkaOptions.REGISTRY_NONE.equals(kind)) {
             return Assessment.unavailable("No schema registry is configured on this connection", Optional.empty());
         }
+        if (!KafkaOptions.REGISTRY_CONFLUENT.equals(kind)) {
+            return Assessment.unavailable(
+                    "This driver does not speak a registry kind of " + kind + ".", Optional.empty());
+        }
         return Assessment.unknown("A schema registry is named on this connection but has not been reached.");
     }
 
