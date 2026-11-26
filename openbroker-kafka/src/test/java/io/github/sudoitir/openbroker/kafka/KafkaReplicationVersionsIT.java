@@ -6,13 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import io.github.sudoitir.openbroker.BrokerDrivers;
 import io.github.sudoitir.openbroker.BrokerException;
 import io.github.sudoitir.openbroker.ClusterConnection;
-import io.github.sudoitir.openbroker.ClusterSpec;
-import io.github.sudoitir.openbroker.ConnectOptions;
-import io.github.sudoitir.openbroker.ConnectRequest;
-import io.github.sudoitir.openbroker.CredentialSource;
-import io.github.sudoitir.openbroker.Endpoint;
 import io.github.sudoitir.openbroker.NodeId;
-import io.github.sudoitir.openbroker.Plane;
 import io.github.sudoitir.openbroker.Status;
 import io.github.sudoitir.openbroker.access.Assessment;
 import io.github.sudoitir.openbroker.kafka.admin.KafkaAccess;
@@ -31,14 +25,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.Network;
-import org.testcontainers.containers.wait.strategy.Wait;
-import org.testcontainers.kafka.KafkaContainer;
 
 /**
- * Tiered offsets and the election and reassignment refusals on Kafka 2.8 (ZooKeeper) and 3.9 (KRaft). 2.8 does not
- * serve the tiered offset specs. 3.9 does, and a topic that is not tiered still reports them as unknown.
+ * Tiered offsets, election and reassignment refusals, and a successful throttled move on Kafka 2.8 (ZooKeeper) and 3.9
+ * (KRaft). 2.8 does not serve the tiered offset specs. 3.9 does, and a topic that is not tiered still reports them as
+ * unknown. The move runs on the same three-broker cluster the default image uses, so a version that cannot add a
+ * replica fails here.
  */
 class KafkaReplicationVersionsIT {
 
@@ -47,10 +39,10 @@ class KafkaReplicationVersionsIT {
     private static final String THROTTLE = "replication.throttle.bytes_per_second";
 
     @Test
-    void kafka28DeclaresTieredOffsetsUnavailableAndRefusesAMove() {
-        try (BrokerCluster cluster = zooKeeper28()) {
+    void kafka28DeclaresTieredOffsetsUnavailableAndMovesAReplica() {
+        try (KafkaTestCluster cluster = KafkaTestCluster.start(IMAGE_28)) {
             try (BrokerDrivers drivers = BrokerDrivers.load();
-                    ClusterConnection connection = connect(drivers, cluster.bootstrap())) {
+                    ClusterConnection connection = Kafka.connect(drivers, cluster)) {
                 assertThat(connection
                                 .access()
                                 .probe()
@@ -64,16 +56,17 @@ class KafkaReplicationVersionsIT {
                                 .reason())
                         .isNotBlank();
                 refusals(connection);
+                KafkaReplicationChecks.anAlreadyPreferredLeaderIsLeftAsItIs(connection);
+                KafkaReplicationChecks.addingAReplicaIsListedAndCancelRestores(connection, cluster);
             }
         }
     }
 
     @Test
-    void kafka39ReadsTieredOffsetsAndRefusesAMove() {
-        try (KafkaContainer container = new KafkaContainer(IMAGE_39)) {
-            container.start();
+    void kafka39ReadsTieredOffsetsAndMovesAReplica() {
+        try (KafkaTestCluster cluster = KafkaTestCluster.start(IMAGE_39)) {
             try (BrokerDrivers drivers = BrokerDrivers.load();
-                    ClusterConnection connection = connect(drivers, container.getBootstrapServers())) {
+                    ClusterConnection connection = Kafka.connect(drivers, cluster)) {
                 String name = Kafka.unique("tier39");
                 create(connection, name);
                 try {
@@ -99,6 +92,8 @@ class KafkaReplicationVersionsIT {
                     delete(connection, name);
                 }
                 refusals(connection);
+                KafkaReplicationChecks.anAlreadyPreferredLeaderIsLeftAsItIs(connection);
+                KafkaReplicationChecks.addingAReplicaIsListedAndCancelRestores(connection, cluster);
             }
         }
     }
@@ -212,52 +207,5 @@ class KafkaReplicationVersionsIT {
         List<NodeId> nodes =
                 replicas.stream().map(id -> NodeId.of(Integer.toString(id))).toList();
         return new Operation.Reassign(Map.of(PartitionId.of("0"), nodes), options);
-    }
-
-    private static ClusterConnection connect(BrokerDrivers drivers, String bootstrap) {
-        ClusterSpec spec = new ClusterSpec(
-                List.of(), List.of(Endpoint.of(Plane.DATA, KafkaOptions.PROTOCOL, bootstrap)), Map.of());
-        return drivers.connect(
-                new ConnectRequest(KafkaDriver.SYSTEM, spec, CredentialSource.none(), ConnectOptions.defaults()));
-    }
-
-    private static BrokerCluster zooKeeper28() {
-        Network network = Network.newNetwork();
-        GenericContainer<?> zookeeper = new GenericContainer<>(IMAGE_28.replace("cp-kafka", "cp-zookeeper"))
-                .withNetwork(network)
-                .withNetworkAliases("zookeeper")
-                .withEnv("ZOOKEEPER_CLIENT_PORT", "2181")
-                .waitingFor(Wait.forLogMessage(".*binding to port.*", 1));
-        zookeeper.start();
-        ZooKeeperKafkaBroker broker = new ZooKeeperKafkaBroker(IMAGE_28, "kafka-1")
-                .withSettings(Map.of(
-                        "KAFKA_BROKER_ID",
-                        "1",
-                        "KAFKA_ZOOKEEPER_CONNECT",
-                        "zookeeper:2181",
-                        "KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR",
-                        "1"))
-                .withNetwork(network)
-                .withNetworkAliases("kafka-1");
-        try {
-            broker.start();
-        } catch (RuntimeException e) {
-            broker.stop();
-            zookeeper.stop();
-            network.close();
-            throw e;
-        }
-        return new BrokerCluster(broker.getBootstrapServers(), () -> {
-            broker.stop();
-            zookeeper.stop();
-            network.close();
-        });
-    }
-
-    private record BrokerCluster(String bootstrap, Runnable stop) implements AutoCloseable {
-        @Override
-        public void close() {
-            stop.run();
-        }
     }
 }

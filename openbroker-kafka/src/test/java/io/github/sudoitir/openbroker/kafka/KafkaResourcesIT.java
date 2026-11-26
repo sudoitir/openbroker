@@ -29,6 +29,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -55,6 +56,15 @@ class KafkaResourcesIT {
 
     private static List<Resource> list(ResourceQuery query) {
         return connection.resources().read(query).orThrow().items();
+    }
+
+    /**
+     * The first match, or null when the cluster has not listed it yet. A poll reads before the broker has caught
+     * up, so it must be allowed to see nothing rather than throw out of the poll.
+     */
+    private static @Nullable Resource first(ResourceQuery query) {
+        List<Resource> items = list(query);
+        return items.isEmpty() ? null : items.getFirst();
     }
 
     private static ResourceId topic(String name) {
@@ -126,10 +136,11 @@ class KafkaResourcesIT {
                         .build());
 
         Resource created = Kafka.eventually(
-                () -> list(ResourceQuery.of(KafkaKinds.TOPIC).named(name)).getFirst(),
-                r -> r.attributes()
-                        .raw(KafkaKinds.CONFIG_PREFIX + "retention.ms")
-                        .isPresent());
+                () -> first(ResourceQuery.of(KafkaKinds.TOPIC).named(name)),
+                r -> r != null
+                        && r.attributes()
+                                .raw(KafkaKinds.CONFIG_PREFIX + "retention.ms")
+                                .isPresent());
         assertThat(created.id()).isEqualTo(id);
         assertThat(created.attributes().raw(KafkaKinds.PARTITIONS)).contains(3L);
         assertThat(created.attributes().raw(KafkaKinds.REPLICATION_FACTOR)).contains(3L);
@@ -147,10 +158,11 @@ class KafkaResourcesIT {
                         Scope.whole())
                 .orThrow();
         Resource changed = Kafka.eventually(
-                () -> list(ResourceQuery.of(KafkaKinds.TOPIC).named(name)).getFirst(),
-                r -> r.attributes()
-                        .raw(KafkaKinds.CONFIG_PREFIX + "retention.ms")
-                        .equals(Optional.of("3600000")));
+                () -> first(ResourceQuery.of(KafkaKinds.TOPIC).named(name)),
+                r -> r != null
+                        && r.attributes()
+                                .raw(KafkaKinds.CONFIG_PREFIX + "retention.ms")
+                                .equals(Optional.of("3600000")));
         assertThat(changed.attributes().raw(KafkaKinds.PARTITIONS)).contains(5L);
         assertThat(changed.attributes().raw(KafkaKinds.CONFIG_PREFIX + "retention.ms"))
                 .contains("3600000");
