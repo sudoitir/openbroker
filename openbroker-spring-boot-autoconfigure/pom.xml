@@ -15,7 +15,7 @@
     <description>Configures OpenBroker clients, health, metrics and tracing in a Spring Boot application.</description>
 
     <properties>
-        <spring-boot.version>4.1.2</spring-boot.version>
+        <spring-boot.version>4.2.0</spring-boot.version>
         <artemis.image>apache/artemis:2.57.0</artemis.image>
         <kafka.image>apache/kafka:4.4.0</kafka.image>
     </properties>
