@@ -26,6 +26,25 @@ public final class KafkaOptions {
      */
     public static final String SETUP_GRACE = "setup.grace";
 
+    /** The schema registry this cluster is managed through: {@code none}, {@code confluent} or {@code glue}. */
+    public static final String REGISTRY_KIND = "registry.kind";
+
+    /** The registry's base URL, such as {@code https://registry.example:8081}. */
+    public static final String REGISTRY_URL = "registry.url";
+
+    /** The cloud registry's region, such as {@code eu-west-1}. */
+    public static final String REGISTRY_GLUE_REGION = "registry.glue.region";
+
+    /** The cloud registry's registry name, which groups its schemas. */
+    public static final String REGISTRY_GLUE_REGISTRY = "registry.glue.registry";
+
+    /** The registry's credential, as {@code user:password}; sensitive, and never echoed. */
+    public static final String REGISTRY_CREDENTIALS = "registry.credentials";
+
+    public static final String REGISTRY_NONE = "none";
+    public static final String REGISTRY_CONFLUENT = "confluent";
+    public static final String REGISTRY_GLUE = "glue";
+
     public static final String PLAINTEXT = "PLAINTEXT";
     public static final String SSL = "SSL";
     public static final String SASL_PLAINTEXT = "SASL_PLAINTEXT";
@@ -93,6 +112,54 @@ public final class KafkaOptions {
                     List.of(),
                     "How long building a connection may take once its socket is open. Kafka counts naming the"
                             + " broker and logging in against it, so a slow reverse DNS ends the connection instead.",
+                    Optional.empty()),
+            new OptionSpec(
+                    REGISTRY_KIND,
+                    OptionSpec.Type.STRING,
+                    false,
+                    false,
+                    Optional.of(REGISTRY_NONE),
+                    List.of(REGISTRY_NONE, REGISTRY_CONFLUENT, REGISTRY_GLUE),
+                    "The schema registry this cluster's subjects, versions and compatibility are managed"
+                            + " through. With none, the schema catalog is unavailable and records stay undecoded.",
+                    Optional.empty()),
+            new OptionSpec(
+                    REGISTRY_URL,
+                    OptionSpec.Type.URI,
+                    false,
+                    false,
+                    Optional.empty(),
+                    List.of(),
+                    "A Confluent-compatible registry's base URL, including any prefix the registry is"
+                            + " served under.",
+                    Optional.empty()),
+            new OptionSpec(
+                    REGISTRY_GLUE_REGION,
+                    OptionSpec.Type.STRING,
+                    false,
+                    false,
+                    Optional.empty(),
+                    List.of(),
+                    "The region of a cloud registry, read when the registry kind is glue.",
+                    Optional.empty()),
+            new OptionSpec(
+                    REGISTRY_GLUE_REGISTRY,
+                    OptionSpec.Type.STRING,
+                    false,
+                    false,
+                    Optional.empty(),
+                    List.of(),
+                    "The registry name of a cloud registry, read when the registry kind is glue.",
+                    Optional.empty()),
+            new OptionSpec(
+                    REGISTRY_CREDENTIALS,
+                    OptionSpec.Type.STRING,
+                    false,
+                    true,
+                    Optional.empty(),
+                    List.of(),
+                    "The registry's credential as user:password. Never logged, never shown in an exception,"
+                            + " never returned by a read.",
                     Optional.empty())));
 
     private KafkaOptions() {}
