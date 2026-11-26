@@ -655,21 +655,14 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
     }
 
     private void requireMatch(Precondition condition, String etag) {
-        switch (condition) {
-            case Precondition.None() -> {
-                // No etag was taken, so the change runs.
-            }
-            case Precondition.IfMatch(var given)
-            when !given.equals(etag) ->
-                throw refused(
-                        Status.FAILED_PRECONDITION,
-                        ErrorReasons.PRECONDITION_FAILED,
-                        Dispatch.NOT_SENT,
-                        "The registry changed since the preview.");
-            case Precondition.IfMatch(var matched) -> {
-                // The preview's etag still matches; the switch needs the binding to be exhaustive.
-            }
+        if (condition instanceof Precondition.IfMatch(var given) && !given.equals(etag)) {
+            throw refused(
+                    Status.FAILED_PRECONDITION,
+                    ErrorReasons.PRECONDITION_FAILED,
+                    Dispatch.NOT_SENT,
+                    "The registry changed since the preview.");
         }
+        // None carries no etag, and a matching one runs the change, so neither needs a branch of its own.
     }
 
     private BrokerException refused(Status status, String reason, Dispatch dispatch, String message) {
