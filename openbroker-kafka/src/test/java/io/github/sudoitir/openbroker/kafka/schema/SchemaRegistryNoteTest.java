@@ -1,8 +1,10 @@
 package io.github.sudoitir.openbroker.kafka.schema;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sun.net.httpserver.HttpServer;
+import io.github.sudoitir.openbroker.BrokerException;
 import io.github.sudoitir.openbroker.ClusterSpec;
 import io.github.sudoitir.openbroker.ConnectOptions;
 import io.github.sudoitir.openbroker.CredentialSource;
@@ -14,6 +16,7 @@ import io.github.sudoitir.openbroker.kafka.KafkaDriver;
 import io.github.sudoitir.openbroker.kafka.KafkaOptions;
 import io.github.sudoitir.openbroker.kafka.admin.KafkaCluster;
 import io.github.sudoitir.openbroker.kafka.admin.KafkaConnection;
+import io.github.sudoitir.openbroker.operation.Precondition;
 import io.github.sudoitir.openbroker.operation.Preview;
 import io.github.sudoitir.openbroker.spi.DriverContext;
 import java.net.InetSocketAddress;
@@ -69,6 +72,42 @@ class SchemaRegistryNoteTest {
                             change -> assertThat(String.valueOf(change.after().orElse("")))
                                     .contains("happens on apply"));
             assertThat(wrote).isFalse();
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void anIdTheRegistryDoesNotListIsNotInvented() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            String path = exchange.getRequestURI().getPath();
+            String method = exchange.getRequestMethod();
+            byte[] body;
+            int status = 200;
+            if ("POST".equals(method) && path.endsWith("/versions")) {
+                body = "{\"id\":99}".getBytes(StandardCharsets.UTF_8);
+            } else if (path.contains("/versions/1")) {
+                body = "{\"id\":1,\"version\":1,\"schemaType\":\"AVRO\",\"schema\":\"{\\\"type\\\":\\\"string\\\"}\"}"
+                        .getBytes(StandardCharsets.UTF_8);
+            } else if (path.contains("/versions")) {
+                body = "[1]".getBytes(StandardCharsets.UTF_8);
+            } else {
+                status = 404;
+                body = "{\"error_code\":40401,\"message\":\"Subject not found.\"}".getBytes(StandardCharsets.UTF_8);
+            }
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(status, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        try (KafkaConnection connection = connection(server.getAddress().getPort())) {
+            SchemaCatalog catalog = connection.unwrap(SchemaCatalog.class).orElseThrow();
+            assertThatThrownBy(() -> catalog.register(
+                            "orders-value", SchemaType.AVRO, "{\"type\":\"string\"}", Precondition.none()))
+                    .isInstanceOf(BrokerException.class)
+                    .satisfies(error -> assertThat(error.getMessage()).contains("did not list"));
         } finally {
             server.stop(0);
         }

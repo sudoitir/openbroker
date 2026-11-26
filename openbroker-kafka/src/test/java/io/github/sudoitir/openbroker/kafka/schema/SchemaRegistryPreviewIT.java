@@ -33,6 +33,14 @@ class SchemaRegistryPreviewIT {
             SchemaCatalog catalog = connection.unwrap(SchemaCatalog.class).orElseThrow();
             List<Integer> before = SchemaRegistrySupport.versions(catalog, name);
             Preview preview = catalog.previewRegister(name, SchemaType.AVRO, SCHEMA_A);
+            assertThat(preview.diff())
+                    .anySatisfy(
+                            change -> assertThat(String.valueOf(change.after().orElse("")))
+                                    .contains("Nothing has been written."));
+            assertThat(preview.diff())
+                    .filteredOn(change -> change.key().equals("subject"))
+                    .singleElement()
+                    .satisfies(change -> assertThat(change.before()).isEmpty());
             assertThat(SchemaRegistrySupport.versions(catalog, name)).isEqualTo(before);
 
             catalog.register(name, SchemaType.AVRO, SCHEMA_B, Precondition.none());
