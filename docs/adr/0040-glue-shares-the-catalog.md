@@ -13,7 +13,7 @@ A client that answered anyway would have to invent that integer, or pretend an o
 ## Decision
 
 - One vocabulary is shared where it holds. Subject, version, schema type and compatibility mean the same thing. There is no second vocabulary and no Glue-only type.
-- The Glue client is a later change. Its schema ids are UUIDs, and it needs an SDK the driver does not carry. Until then `registry.kind` does not offer it. The driver refuses to model a registry it cannot speak to: a kind other than `none` or `confluent` is refused with the reason.
+- The Glue client is a later change. Its schema ids are UUIDs, not the 4-byte id this catalog's contract is built on, and it needs an SDK the driver does not carry. Until then `registry.kind` offers only `none` and `confluent`. A kind outside that list is refused at the schema check. The driver does not model a registry it cannot speak to.
 - An operation a registry does not offer is unavailable with that registry's reason, and the method throws a `BrokerException` naming the reason. The driver does not fake the operation, and it does not invent an integer id for a UUID.
 - Credentials, when that later client is reached, are the connection secret or an explicit choice to use the ambient chain. There is no silent ambient default.
 

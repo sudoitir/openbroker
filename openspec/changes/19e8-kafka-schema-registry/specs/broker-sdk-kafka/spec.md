@@ -17,7 +17,7 @@ The driver SHALL accept one schema registry on a Kafka connection, a Confluent-c
 #### Scenario: A kind this driver does not speak
 
 - **WHEN** a caller sets the registry kind to a value other than none or confluent
-- **THEN** the connection is refused with the reason
+- **THEN** the connection is refused at the schema check with the reason
 
 #### Scenario: The registry does not offer an operation
 
