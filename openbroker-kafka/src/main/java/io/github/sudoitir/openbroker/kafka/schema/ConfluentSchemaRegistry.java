@@ -212,12 +212,14 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
         String path = "/subjects/" + enc(name);
         // A permanent delete is refused until the subject is soft-deleted. Soft-delete first, then remove it.
         RegistryHttp.Reply soft = exchange("DELETE", path, null, true);
-        boolean softOk = soft.status() >= 200 && soft.status() < 300;
-        if (!softOk && state(name).isEmpty()) {
-            if (soft.status() == 404) {
-                throw gone(name);
+        if (soft.status() < 200 || soft.status() >= 300) {
+            boolean alreadySoftDeleted = soft.status() == 404 && state(name).isPresent();
+            if (!alreadySoftDeleted) {
+                if (soft.status() == 404) {
+                    throw gone(name);
+                }
+                require2xx(soft, "delete " + name);
             }
-            require2xx(soft, "delete " + name);
         }
         if (!permanent) {
             return;
@@ -364,9 +366,11 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
             if (cached != null) {
                 return new SubjectVersion(cached.id(), cached.version(), cached.type(), cached.schema(), true);
             }
-            // ponytail: some registries list a soft-deleted version but will not return its body. The version number
-            // is the registry's; the id is that number only until a read has seen the real id.
-            return new SubjectVersion(number, number, SchemaType.AVRO, "", true);
+            throw refused(
+                    Status.FAILED_PRECONDITION,
+                    ErrorReasons.NOT_SUPPORTED,
+                    Dispatch.NOT_SENT,
+                    "The registry will not return a deleted version's schema.");
         }
         require2xx(reply, "read " + name + " version " + number);
         JsonNode node = json(reply);
