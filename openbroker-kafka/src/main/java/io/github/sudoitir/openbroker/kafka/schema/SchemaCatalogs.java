@@ -35,12 +35,13 @@ public final class SchemaCatalogs {
 
         private final KafkaCluster cluster;
         private final ConfluentSchemaRegistry confluent;
-        private final GlueSchemaRegistry glue = new GlueSchemaRegistry();
+        private final GlueSchemaRegistry glue;
         private final Absent absent = new Absent();
 
         private Bound(KafkaCluster cluster) {
             this.cluster = cluster;
             this.confluent = new ConfluentSchemaRegistry(cluster);
+            this.glue = new GlueSchemaRegistry(cluster);
         }
 
         private SchemaCatalog current() {

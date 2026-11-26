@@ -6,6 +6,8 @@ import io.github.sudoitir.openbroker.ErrorInfo;
 import io.github.sudoitir.openbroker.ErrorReasons;
 import io.github.sudoitir.openbroker.Status;
 import io.github.sudoitir.openbroker.access.Assessment;
+import io.github.sudoitir.openbroker.kafka.KafkaOptions;
+import io.github.sudoitir.openbroker.kafka.admin.KafkaCluster;
 import io.github.sudoitir.openbroker.messaging.Cursor;
 import io.github.sudoitir.openbroker.messaging.MessageBody;
 import io.github.sudoitir.openbroker.operation.Precondition;
@@ -15,16 +17,23 @@ import java.util.Optional;
 
 /**
  * A Glue registry behind the same catalog. Glue's schema version id is a UUID, not the integer a record carries, and
- * this driver does not invent one. Every operation says so rather than answering as if it were a Confluent registry.
+ * this driver does not invent one, and it does not fall back to the ambient credential chain. Every operation says so
+ * rather than answering as if it were a Confluent registry.
  */
 final class GlueSchemaRegistry implements SchemaCatalog {
 
     static final String REASON =
             "Glue identifies a schema version by a UUID, not the integer id a record carries, and this driver does not invent one.";
 
+    private final KafkaCluster cluster;
+
+    GlueSchemaRegistry(KafkaCluster cluster) {
+        this.cluster = cluster;
+    }
+
     @Override
     public Assessment capability() {
-        return Assessment.unavailable(REASON, Optional.empty());
+        return Assessment.unavailable(reason(), Optional.empty());
     }
 
     @Override
@@ -96,8 +105,21 @@ final class GlueSchemaRegistry implements SchemaCatalog {
     @Override
     public void close() {}
 
-    private static BrokerException unavailable() {
+    private String reason() {
+        String region = cluster.option(KafkaOptions.REGISTRY_GLUE_REGION, "");
+        String registry = cluster.option(KafkaOptions.REGISTRY_GLUE_REGISTRY, "");
+        String credentials = cluster.option(KafkaOptions.REGISTRY_CREDENTIALS, "");
+        if (region.isBlank() || registry.isBlank()) {
+            return REASON + " registry.glue.region and registry.glue.registry are not set.";
+        }
+        if (credentials.isBlank()) {
+            return REASON + " No credentials are set, and this driver does not use the ambient credential chain.";
+        }
+        return REASON + " This driver does not use the ambient credential chain.";
+    }
+
+    private BrokerException unavailable() {
         return new BrokerException(
-                Status.UNIMPLEMENTED, ErrorInfo.of(ErrorReasons.NOT_SUPPORTED), Dispatch.NOT_SENT, null, REASON);
+                Status.UNIMPLEMENTED, ErrorInfo.of(ErrorReasons.NOT_SUPPORTED), Dispatch.NOT_SENT, null, reason());
     }
 }
