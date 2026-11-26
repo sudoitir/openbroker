@@ -6,6 +6,7 @@ import io.github.sudoitir.openbroker.BrokerException;
 import io.github.sudoitir.openbroker.ClusterConnection;
 import io.github.sudoitir.openbroker.NodeId;
 import io.github.sudoitir.openbroker.Status;
+import io.github.sudoitir.openbroker.kafka.admin.KafkaErrors;
 import io.github.sudoitir.openbroker.kafka.admin.KafkaKinds;
 import io.github.sudoitir.openbroker.messaging.Count;
 import io.github.sudoitir.openbroker.model.Attributes;
@@ -114,7 +115,10 @@ final class KafkaReplicationChecks {
                 try {
                     apply(connection, id, cancel);
                     cancelled = true;
-                } catch (BrokerException finished) {
+                } catch (BrokerException refused) {
+                    // Only "there is nothing in progress to cancel" is tolerated: any other failure is the test's.
+                    assertThat(refused.info().metadata())
+                            .containsEntry(KafkaErrors.NATIVE_CODE, "NoReassignmentInProgressException");
                     cancelled = false;
                 }
                 if (!cancelled) {
