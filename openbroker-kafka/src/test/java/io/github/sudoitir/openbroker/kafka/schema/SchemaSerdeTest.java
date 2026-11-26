@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.ByteArrayOutputStream;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericData;
@@ -60,8 +62,10 @@ class SchemaSerdeTest {
         encoder.flush();
         DecodedRecord fixedDecoded =
                 SerdeRegistry.decode(SerdeRegistry.AVRO, SchemaType.AVRO, 1, "s", fixed, out.toByteArray());
-        assertThat(((Map<?, ?>) ((DecodedRecord.Decoded) fixedDecoded).record()).get("id"))
-                .isEqualTo(new byte[] {9, 8});
+        Map<String, List<Byte>> viewed = new LinkedHashMap<>();
+        byte[] id = (byte[]) ((Map<?, ?>) ((DecodedRecord.Decoded) fixedDecoded).record()).get("id");
+        viewed.put("id", List.of(id[0], id[1]));
+        assertThat(viewed).containsEntry("id", List.of((byte) 9, (byte) 8));
     }
 
     @Test

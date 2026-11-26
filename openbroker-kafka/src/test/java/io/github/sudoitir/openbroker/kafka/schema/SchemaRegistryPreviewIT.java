@@ -45,8 +45,8 @@ class SchemaRegistryPreviewIT {
 
             catalog.register(name, SchemaType.AVRO, SCHEMA_B, Precondition.none());
             List<Integer> afterOther = SchemaRegistrySupport.versions(catalog, name);
-            assertThatThrownBy(() ->
-                            catalog.register(name, SchemaType.AVRO, SCHEMA_A, Precondition.ifMatch(preview.etag())))
+            Precondition stale = Precondition.ifMatch(preview.etag());
+            assertThatThrownBy(() -> catalog.register(name, SchemaType.AVRO, SCHEMA_A, stale))
                     .isInstanceOf(BrokerException.class)
                     .satisfies(error -> {
                         BrokerException failure = (BrokerException) error;

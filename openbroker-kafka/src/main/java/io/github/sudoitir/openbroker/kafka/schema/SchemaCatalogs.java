@@ -200,7 +200,9 @@ public final class SchemaCatalogs {
         }
 
         @Override
-        public void close() {}
+        public void close() {
+            // Nothing to release: this catalog holds no client.
+        }
 
         private static BrokerException unavailable() {
             return new BrokerException(
@@ -297,7 +299,9 @@ public final class SchemaCatalogs {
         }
 
         @Override
-        public void close() {}
+        public void close() {
+            // Nothing to release: this catalog holds no client.
+        }
 
         private BrokerException refused() {
             return new BrokerException(

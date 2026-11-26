@@ -36,7 +36,8 @@ class SchemaRegistryRefusalIT {
             catalog.register(name, SchemaType.AVRO, FIRST, Precondition.none());
             catalog.setCompatibility(name, CompatibilityLevel.FULL, Precondition.none());
 
-            assertThatThrownBy(() -> catalog.register(name, SchemaType.AVRO, BREAKING, Precondition.none()))
+            Precondition none = Precondition.none();
+            assertThatThrownBy(() -> catalog.register(name, SchemaType.AVRO, BREAKING, none))
                     .isInstanceOf(BrokerException.class)
                     .extracting(error -> ((BrokerException) error).status())
                     .isEqualTo(Status.FAILED_PRECONDITION);
@@ -48,7 +49,8 @@ class SchemaRegistryRefusalIT {
     void aMissingSubjectIsNotFound() {
         try (ClusterConnection connection = SchemaRegistrySupport.connect(SchemaRegistrySupport.confluent(null))) {
             SchemaCatalog catalog = connection.unwrap(SchemaCatalog.class).orElseThrow();
-            assertThatThrownBy(() -> catalog.subject(SchemaRegistrySupport.subject()))
+            String missing = SchemaRegistrySupport.subject();
+            assertThatThrownBy(() -> catalog.subject(missing))
                     .isInstanceOf(BrokerException.class)
                     .extracting(error -> ((BrokerException) error).status())
                     .isEqualTo(Status.NOT_FOUND);
@@ -95,7 +97,8 @@ class SchemaRegistryRefusalIT {
             assertThat(catalog.subjects(new Cursor("")).items())
                     .extracting(Subject::name)
                     .contains("kept");
-            assertThatThrownBy(() -> catalog.setCompatibility("kept", CompatibilityLevel.FULL, Precondition.none()))
+            Precondition none = Precondition.none();
+            assertThatThrownBy(() -> catalog.setCompatibility("kept", CompatibilityLevel.FULL, none))
                     .isInstanceOf(BrokerException.class)
                     .satisfies(error -> {
                         BrokerException failure = (BrokerException) error;

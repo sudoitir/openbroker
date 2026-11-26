@@ -16,6 +16,7 @@ import java.net.http.HttpTimeoutException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
@@ -42,7 +43,22 @@ final class RegistryHttp implements AutoCloseable {
             .build();
 
     /** One answer. The body is at most {@link #CAP} bytes and has already been read. */
-    record Reply(int status, byte[] body) {}
+    record Reply(int status, byte[] body) {
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof Reply reply && status == reply.status && Arrays.equals(body, reply.body);
+        }
+
+        @Override
+        public int hashCode() {
+            return 31 * status + Arrays.hashCode(body);
+        }
+
+        @Override
+        public String toString() {
+            return "Reply[status=" + status + ", body=" + Arrays.toString(body) + "]";
+        }
+    }
 
     Reply exchange(String method, URI uri, byte[] body, Redactor redactor, boolean write, Duration timeout) {
         HttpRequest.Builder request = HttpRequest.newBuilder(uri)
@@ -58,13 +74,14 @@ final class RegistryHttp implements AutoCloseable {
         try {
             HttpResponse<byte[]> response = http.send(request.build(), responseInfo -> new Capped());
             return new Reply(response.statusCode(), response.body());
-        } catch (HttpTimeoutException e) {
+        } catch (HttpTimeoutException _) {
             throw Deadlines.exceeded(null, write ? Dispatch.IN_DOUBT : Dispatch.NOT_SENT);
         } catch (IOException e) {
             throw transport(e, redactor, write);
         } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             throw Deadlines.cancelled(null, e);
-        } catch (ResponseTooLarge e) {
+        } catch (ResponseTooLarge _) {
             throw failed(
                     Status.RESOURCE_EXHAUSTED,
                     ErrorReasons.RESPONSE_TOO_LARGE,

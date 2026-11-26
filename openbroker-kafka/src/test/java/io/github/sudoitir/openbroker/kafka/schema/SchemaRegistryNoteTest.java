@@ -113,7 +113,8 @@ class SchemaRegistryNoteTest {
         server.start();
         try (KafkaConnection connection = connection(server.getAddress().getPort())) {
             SchemaCatalog catalog = connection.unwrap(SchemaCatalog.class).orElseThrow();
-            assertThatThrownBy(() -> catalog.delete("orders-value", true, Precondition.none()))
+            Precondition none = Precondition.none();
+            assertThatThrownBy(() -> catalog.delete("orders-value", true, none))
                     .isInstanceOf(BrokerException.class)
                     .satisfies(error -> assertThat(error.getMessage()).doesNotContain("was soft-deleted"));
             assertThat(permanent).isFalse();
@@ -149,8 +150,8 @@ class SchemaRegistryNoteTest {
         server.start();
         try (KafkaConnection connection = connection(server.getAddress().getPort())) {
             SchemaCatalog catalog = connection.unwrap(SchemaCatalog.class).orElseThrow();
-            assertThatThrownBy(() -> catalog.register(
-                            "orders-value", SchemaType.AVRO, "{\"type\":\"string\"}", Precondition.none()))
+            Precondition none = Precondition.none();
+            assertThatThrownBy(() -> catalog.register("orders-value", SchemaType.AVRO, "{\"type\":\"string\"}", none))
                     .isInstanceOf(BrokerException.class)
                     .satisfies(error -> assertThat(error.getMessage()).contains("did not list"));
         } finally {
@@ -188,7 +189,9 @@ class SchemaRegistryNoteTest {
             }
 
             @Override
-            public void evict(String key) {}
+            public void evict(String key) {
+                // This connection shares nothing, so there is nothing to forget.
+            }
         };
         return new KafkaConnection(
                 new KafkaDriver().system(), new KafkaCluster(spec, CredentialSource.none(), context), context);

@@ -53,7 +53,8 @@ class SchemaCatalogUnavailableIT {
             SchemaCatalog catalog = connection.unwrap(SchemaCatalog.class).orElseThrow();
             assertThat(catalog.capability().status()).isEqualTo(Assessment.Status.UNAVAILABLE);
             assertThat(catalog.capability().reason()).contains("glue");
-            assertThatThrownBy(() -> catalog.decode(null, MessageBody.of(new byte[] {1, 2})))
+            MessageBody body = MessageBody.of(new byte[] {1, 2});
+            assertThatThrownBy(() -> catalog.decode(null, body))
                     .isInstanceOf(BrokerException.class)
                     .satisfies(error -> assertThat(error.toString()).doesNotContain(DecodedRecord.NO_REGISTRY));
         }

@@ -39,6 +39,7 @@ final class SerdeRegistry {
     static final String AVRO = "avro";
     static final String PROTOBUF = "protobuf";
     static final String JSON = "json";
+    private static final String OPTIONAL = "optional ";
 
     private static final ObjectMapper JSON_MAPPER = JsonMapper.builder().build();
     private static final System.Logger LOG = System.getLogger(SerdeRegistry.class.getName());
@@ -100,7 +101,7 @@ final class SerdeRegistry {
                         default -> throw new IllegalArgumentException(name);
                     };
             return new DecodedRecord.Decoded(type, schemaId, subject, record);
-        } catch (Truncated e) {
+        } catch (Truncated _) {
             return new DecodedRecord.Undecoded(DecodedRecord.TRUNCATED);
         } catch (RuntimeException e) {
             LOG.log(
@@ -301,17 +302,17 @@ final class SerdeRegistry {
                     .append(" {\n")
                     .append(protoBody(cast(map)))
                     .append("  }\n");
-            return "optional " + type;
+            return OPTIONAL + type;
         }
         throw new IllegalArgumentException("A field has no schema type: " + name);
     }
 
     private static String protoScalar(String name, Object value, StringBuilder nested) {
         if (value instanceof Map<?, ?>) {
-            return protoField(name, value, nested).replace("optional ", "");
+            return protoField(name, value, nested).replace(OPTIONAL, "");
         }
         String field = protoField(name, value, nested);
-        return field.startsWith("optional ") ? field.substring("optional ".length()) : field;
+        return field.startsWith(OPTIONAL) ? field.substring(OPTIONAL.length()) : field;
     }
 
     private static String protoBody(Map<String, ?> record) {
@@ -321,8 +322,8 @@ final class SerdeRegistry {
             checkName(field.getKey());
             String type =
                     switch (field.getValue()) {
-                        case String ignored -> "optional string";
-                        case Boolean ignored -> "optional bool";
+                        case String _ -> "optional string";
+                        case Boolean _ -> "optional bool";
                         case Number value -> integral(value) ? "optional int64" : "optional double";
                         default ->
                             throw new IllegalArgumentException("A nested field must be a scalar: " + field.getKey());
@@ -395,24 +396,7 @@ final class SerdeRegistry {
 
     private static Object fromProto(Object value) {
         if (value instanceof DynamicMessage message) {
-            Map<String, Object> out = new LinkedHashMap<>();
-            for (Descriptors.FieldDescriptor field :
-                    message.getDescriptorForType().getFields()) {
-                if (field.isRepeated()) {
-                    int count = message.getRepeatedFieldCount(field);
-                    if (count == 0) {
-                        continue;
-                    }
-                    List<Object> items = new ArrayList<>();
-                    for (int i = 0; i < count; i++) {
-                        items.add(fromProto(message.getRepeatedField(field, i)));
-                    }
-                    out.put(field.getName(), items);
-                } else if (message.hasField(field)) {
-                    out.put(field.getName(), fromProto(message.getField(field)));
-                }
-            }
-            return out;
+            return fromMessage(message);
         }
         if (value instanceof Descriptors.EnumValueDescriptor descriptor) {
             return descriptor.getName();
@@ -421,6 +405,32 @@ final class SerdeRegistry {
             return bytes.toByteArray();
         }
         return value;
+    }
+
+    private static Map<String, Object> fromMessage(DynamicMessage message) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (Descriptors.FieldDescriptor field : message.getDescriptorForType().getFields()) {
+            Object fieldValue = fieldValue(message, field);
+            if (fieldValue != null) {
+                out.put(field.getName(), fieldValue);
+            }
+        }
+        return out;
+    }
+
+    private static Object fieldValue(DynamicMessage message, Descriptors.FieldDescriptor field) {
+        if (!field.isRepeated()) {
+            return message.hasField(field) ? fromProto(message.getField(field)) : null;
+        }
+        int count = message.getRepeatedFieldCount(field);
+        if (count == 0) {
+            return null;
+        }
+        List<Object> items = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            items.add(fromProto(message.getRepeatedField(field, i)));
+        }
+        return items;
     }
 
     private static Descriptors.Descriptor descriptor(String schema, List<Integer> indexes) {

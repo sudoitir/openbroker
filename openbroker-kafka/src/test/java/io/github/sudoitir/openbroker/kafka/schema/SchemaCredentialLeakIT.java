@@ -38,10 +38,14 @@ class SchemaCredentialLeakIT {
             }
 
             @Override
-            public void flush() {}
+            public void flush() {
+                // A captured line is already in the list. Nothing is buffered.
+            }
 
             @Override
-            public void close() {}
+            public void close() {
+                // The handler is removed by the test. Closing it drops nothing.
+            }
         };
         handler.setLevel(Level.ALL);
         logger.setLevel(Level.ALL);
@@ -64,7 +68,8 @@ class SchemaCredentialLeakIT {
                     KafkaOptions.REGISTRY_CREDENTIALS,
                     "user:" + SECRET))) {
                 SchemaCatalog catalog = connection.unwrap(SchemaCatalog.class).orElseThrow();
-                assertThatThrownBy(() -> catalog.subjects(new Cursor("")))
+                Cursor start = new Cursor("");
+                assertThatThrownBy(() -> catalog.subjects(start))
                         .isInstanceOf(BrokerException.class)
                         .satisfies(error -> assertThat(error.toString()).doesNotContain(SECRET));
             }

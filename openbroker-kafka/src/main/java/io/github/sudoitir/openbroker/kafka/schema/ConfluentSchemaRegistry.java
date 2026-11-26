@@ -52,6 +52,14 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
     private static final String ALREADY = "Already registered; applying creates no second version.";
     private static final String CANNOT_RESTORE = "The schemas cannot be restored.";
     private static final String NOTHING_WRITTEN = "Nothing has been written.";
+    private static final String SUBJECT = "subject";
+    private static final String CONDITION = "condition";
+    private static final String LEVEL = "level";
+    private static final String COMPATIBILITY = "compatibility";
+    private static final String SCHEMA = "schema";
+    private static final String SCHEMA_TYPE = "schemaType";
+    private static final String SUBJECTS = "/subjects/";
+    private static final String VERSIONS = "/versions";
 
     private static final ObjectMapper JSON = JsonMapper.builder().build();
 
@@ -111,8 +119,7 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
         Optional<Integer> existing = lookup(name, kind, text);
         String check = compatibilityCheck(name, kind, text);
         List<AttributeChange> diff = new ArrayList<>();
-        diff.add(new AttributeChange(
-                "subject", now.present() ? Optional.of(name) : Optional.empty(), Optional.of(name)));
+        diff.add(new AttributeChange(SUBJECT, now.present() ? Optional.of(name) : Optional.empty(), Optional.of(name)));
         diff.add(new AttributeChange("schema.type", Optional.empty(), Optional.of(kind.name())));
         existing.ifPresent(id -> diff.add(new AttributeChange("schema.id", Optional.of(id), Optional.of(id))));
         diff.add(new AttributeChange(
@@ -127,10 +134,10 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
         String name = required(subject);
         SchemaType kind = Objects.requireNonNull(type, "type");
         String text = requiredSchema(schema);
-        Objects.requireNonNull(condition, "condition");
+        Objects.requireNonNull(condition, CONDITION);
         State now = state(name).orElseGet(() -> State.absent(name));
         requireMatch(condition, now.etag());
-        RegistryHttp.Reply reply = post("/subjects/" + enc(name) + "/versions", body(kind, text), true);
+        RegistryHttp.Reply reply = post(SUBJECTS + enc(name) + VERSIONS, body(kind, text), true);
         if (reply.status() == 409) {
             throw refused(
                     Status.FAILED_PRECONDITION,
@@ -146,10 +153,10 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
     @Override
     public Preview previewCompatibility(String subject, CompatibilityLevel level) {
         String name = required(subject);
-        Objects.requireNonNull(level, "level");
+        Objects.requireNonNull(level, LEVEL);
         State now = state(name).orElseGet(() -> State.absent(name));
         List<AttributeChange> diff = List.of(
-                new AttributeChange("compatibility", now.level().map(Enum::name), Optional.of(level.name())),
+                new AttributeChange(COMPATIBILITY, now.level().map(Enum::name), Optional.of(level.name())),
                 new AttributeChange("note", Optional.empty(), Optional.of(NOTHING_WRITTEN)));
         int affected = now.level().isPresent() && now.level().get() == level ? 0 : 1;
         return preview(diff, Set.of(), affected, now.etag());
@@ -158,8 +165,8 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
     @Override
     public CompatibilityLevel setCompatibility(String subject, CompatibilityLevel level, Precondition condition) {
         String name = required(subject);
-        Objects.requireNonNull(level, "level");
-        Objects.requireNonNull(condition, "condition");
+        Objects.requireNonNull(level, LEVEL);
+        Objects.requireNonNull(condition, CONDITION);
         State now = state(name).orElseGet(() -> State.absent(name));
         requireMatch(condition, now.etag());
         RegistryHttp.Reply reply = put("/config/" + enc(name), configBody(level), true);
@@ -169,11 +176,11 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
 
     @Override
     public Preview previewCompatibilityDefault(CompatibilityLevel level) {
-        Objects.requireNonNull(level, "level");
+        Objects.requireNonNull(level, LEVEL);
         String current = defaultLevel();
         List<AttributeChange> diff = List.of(
                 new AttributeChange(
-                        "compatibility",
+                        COMPATIBILITY,
                         current.isEmpty() ? Optional.empty() : Optional.of(current),
                         Optional.of(level.name())),
                 new AttributeChange("note", Optional.empty(), Optional.of(NOTHING_WRITTEN)));
@@ -182,8 +189,8 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
 
     @Override
     public CompatibilityLevel setCompatibilityDefault(CompatibilityLevel level, Precondition condition) {
-        Objects.requireNonNull(level, "level");
-        Objects.requireNonNull(condition, "condition");
+        Objects.requireNonNull(level, LEVEL);
+        Objects.requireNonNull(condition, CONDITION);
         String current = defaultLevel();
         requireMatch(condition, SchemaEtags.of("", List.of(), current));
         RegistryHttp.Reply reply = put("/config", configBody(level), true);
@@ -196,20 +203,20 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
         String name = required(subject);
         State now = state(name).orElseThrow(() -> gone(name));
         List<AttributeChange> diff = new ArrayList<>();
-        diff.add(new AttributeChange("subject", Optional.of(name), Optional.empty()));
+        diff.add(new AttributeChange(SUBJECT, Optional.of(name), Optional.empty()));
         String note = permanent ? NOTHING_WRITTEN + " " + CANNOT_RESTORE : NOTHING_WRITTEN;
         diff.add(new AttributeChange("note", Optional.empty(), Optional.of(note)));
         return preview(
-                diff, permanent ? Set.of("subject") : Set.of(), now.versions().size(), now.etag());
+                diff, permanent ? Set.of(SUBJECT) : Set.of(), now.versions().size(), now.etag());
     }
 
     @Override
     public void delete(String subject, boolean permanent, Precondition condition) {
         String name = required(subject);
-        Objects.requireNonNull(condition, "condition");
+        Objects.requireNonNull(condition, CONDITION);
         State now = state(name).orElseThrow(() -> gone(name));
         requireMatch(condition, now.etag());
-        String path = "/subjects/" + enc(name);
+        String path = SUBJECTS + enc(name);
         // A permanent delete is refused until the subject is soft-deleted. Soft-delete first, then remove it.
         RegistryHttp.Reply soft = exchange("DELETE", path, null, true);
         if (soft.status() < 200 || soft.status() >= 300) {
@@ -309,17 +316,15 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
         require2xx(reply, "read schema " + id);
         JsonNode node = json(reply);
         String subject = "";
-        RegistryHttp.Reply versions = get("/schemas/ids/" + id + "/versions");
+        RegistryHttp.Reply versions = get("/schemas/ids/" + id + VERSIONS);
         if (versions.status() == 200) {
             JsonNode listed = json(versions);
             if (listed.isArray() && !listed.isEmpty()) {
-                subject = listed.get(0).path("subject").asString();
+                subject = listed.get(0).path(SUBJECT).asString();
             }
         }
         return Optional.of(new Stored(
-                schemaType(node.path("schemaType").asString()),
-                node.path("schema").asString(),
-                subject));
+                schemaType(node.path(SCHEMA_TYPE).asString()), node.path(SCHEMA).asString(), subject));
     }
 
     private List<String> names() {
@@ -336,8 +341,8 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
     }
 
     private Optional<State> state(String name) {
-        RegistryHttp.Reply live = get("/subjects/" + enc(name) + "/versions");
-        RegistryHttp.Reply deleted = get("/subjects/" + enc(name) + "/versions?deleted=true");
+        RegistryHttp.Reply live = get(SUBJECTS + enc(name) + VERSIONS);
+        RegistryHttp.Reply deleted = get(SUBJECTS + enc(name) + "/versions?deleted=true");
         boolean liveMissing = live.status() == 404;
         boolean deletedOk = deleted.status() >= 200 && deleted.status() < 300;
         if (liveMissing && !deletedOk) {
@@ -362,7 +367,7 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
     }
 
     private SubjectVersion version(String name, int number, boolean deleted) {
-        String path = "/subjects/" + enc(name) + "/versions/" + number + (deleted ? "?deleted=true" : "");
+        String path = SUBJECTS + enc(name) + "/versions/" + number + (deleted ? "?deleted=true" : "");
         RegistryHttp.Reply reply = get(path);
         if ((reply.status() < 200 || reply.status() >= 300) && deleted) {
             SubjectVersion cached = knownVersions.get(name + "\0" + number);
@@ -380,8 +385,8 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
         SubjectVersion read = new SubjectVersion(
                 node.path("id").asInt(),
                 node.path("version").asInt(number),
-                schemaType(node.path("schemaType").asString()),
-                node.path("schema").asString(),
+                schemaType(node.path(SCHEMA_TYPE).asString()),
+                node.path(SCHEMA).asString(),
                 deleted || node.path("deleted").asBoolean(false));
         knownVersions.put(name + "\0" + read.version(), read);
         return read;
@@ -408,21 +413,21 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
     private static Level parseLevel(JsonNode node) {
         String raw = node.path("compatibilityLevel").asString();
         if (raw.isEmpty()) {
-            raw = node.path("compatibility").asString();
+            raw = node.path(COMPATIBILITY).asString();
         }
         if (raw.isEmpty()) {
             return new Level(Optional.empty(), Optional.of("The registry did not restate a compatibility level."), "");
         }
         try {
             return new Level(Optional.of(CompatibilityLevel.valueOf(raw)), Optional.empty(), raw);
-        } catch (IllegalArgumentException e) {
+        } catch (IllegalArgumentException _) {
             return new Level(Optional.of(CompatibilityLevel.NONE), Optional.of(raw), raw);
         }
     }
 
     /** The Confluent lookup. It returns an existing id and registers nothing. */
     private Optional<Integer> lookup(String name, SchemaType type, String schema) {
-        RegistryHttp.Reply reply = post("/subjects/" + enc(name), body(type, schema), false);
+        RegistryHttp.Reply reply = post(SUBJECTS + enc(name), body(type, schema), false);
         if (reply.status() == 404 || reply.status() == 405) {
             return Optional.empty();
         }
@@ -522,7 +527,7 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
     private boolean registryAnswer(RegistryHttp.Reply reply) {
         try {
             return json(reply).has("error_code");
-        } catch (BrokerException e) {
+        } catch (BrokerException _) {
             return false;
         }
     }
@@ -532,7 +537,7 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
             JsonNode node = json(reply);
             String message = node.path("message").asString();
             return message.isEmpty() ? "the registry answered " + reply.status() : message;
-        } catch (BrokerException e) {
+        } catch (BrokerException _) {
             return "the registry answered " + reply.status();
         }
     }
@@ -540,7 +545,7 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
     private JsonNode json(RegistryHttp.Reply reply) {
         try {
             return JSON.readTree(reply.body());
-        } catch (JacksonException e) {
+        } catch (JacksonException _) {
             throw bad("The registry's answer was not JSON.");
         }
     }
@@ -556,20 +561,20 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
 
     private byte[] body(SchemaType type, String schema) {
         Map<String, String> fields = new LinkedHashMap<>();
-        fields.put("schema", schema);
-        fields.put("schemaType", type.name());
+        fields.put(SCHEMA, schema);
+        fields.put(SCHEMA_TYPE, type.name());
         return JSON.writeValueAsBytes(fields);
     }
 
     private byte[] configBody(CompatibilityLevel level) {
-        return JSON.writeValueAsBytes(Map.of("compatibility", level.name()));
+        return JSON.writeValueAsBytes(Map.of(COMPATIBILITY, level.name()));
     }
 
     private URI uri(String path) {
         String base = url();
         try {
             return URI.create(base + path);
-        } catch (IllegalArgumentException e) {
+        } catch (IllegalArgumentException _) {
             throw refused(
                     Status.INVALID_ARGUMENT,
                     ErrorReasons.INVALID_ARGUMENT,
@@ -587,7 +592,7 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
         URI uri;
         try {
             uri = URI.create(raw);
-        } catch (IllegalArgumentException e) {
+        } catch (IllegalArgumentException _) {
             throw refused(
                     Status.INVALID_ARGUMENT,
                     ErrorReasons.INVALID_ARGUMENT,
@@ -651,15 +656,18 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
 
     private void requireMatch(Precondition condition, String etag) {
         switch (condition) {
-            case Precondition.None() -> {}
-            case Precondition.IfMatch match -> {
-                if (!match.etag().equals(etag)) {
-                    throw refused(
-                            Status.FAILED_PRECONDITION,
-                            ErrorReasons.PRECONDITION_FAILED,
-                            Dispatch.NOT_SENT,
-                            "The registry changed since the preview.");
-                }
+            case Precondition.None() -> {
+                // No etag was taken, so the change runs.
+            }
+            case Precondition.IfMatch(var expected)
+            when !expected.equals(etag) ->
+                throw refused(
+                        Status.FAILED_PRECONDITION,
+                        ErrorReasons.PRECONDITION_FAILED,
+                        Dispatch.NOT_SENT,
+                        "The registry changed since the preview.");
+            case Precondition.IfMatch(var expected) -> {
+                // The preview's etag still matches.
             }
         }
     }
@@ -709,7 +717,7 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
         }
         try {
             return SchemaType.valueOf(raw);
-        } catch (IllegalArgumentException e) {
+        } catch (IllegalArgumentException _) {
             return SchemaType.AVRO;
         }
     }
@@ -735,7 +743,7 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
         }
         try (InputStream in = body.openStream()) {
             return in.readAllBytes();
-        } catch (IOException e) {
+        } catch (IOException _) {
             throw refused(
                     Status.UNAVAILABLE, ErrorReasons.UNREACHABLE, Dispatch.NOT_SENT, "The record could not be read.");
         }
