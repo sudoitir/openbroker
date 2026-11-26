@@ -21,10 +21,18 @@ class KafkaDriverTest {
     }
 
     @Test
-    void theSchemaDescribesTheSecurityProtocolTheMechanismTheClientIdTheWatchIntervalAndTheSetupGrace() {
+    void theSchemaDescribesTheConnectionAndTheSchemaRegistry() {
         assertThat(new KafkaDriver().schema().options())
                 .extracting(OptionSpec::key)
-                .containsExactly("security.protocol", "sasl.mechanism", "client.id", "watch.interval", "setup.grace");
+                .containsExactly(
+                        "security.protocol",
+                        "sasl.mechanism",
+                        "client.id",
+                        "watch.interval",
+                        "setup.grace",
+                        "registry.kind",
+                        "registry.url",
+                        "registry.credentials");
         assertThat(new KafkaDriver()
                         .schema()
                         .option("security.protocol")
@@ -33,8 +41,12 @@ class KafkaDriverTest {
                 .containsExactly("PLAINTEXT", "SSL", "SASL_PLAINTEXT", "SASL_SSL");
     }
 
+    /** The registry credential is the one sensitive option: it is never logged, shown or returned. */
     @Test
-    void noOptionIsSensitive() {
-        assertThat(new KafkaDriver().schema().options()).noneMatch(OptionSpec::sensitive);
+    void onlyTheRegistryCredentialIsSensitive() {
+        assertThat(new KafkaDriver().schema().options())
+                .filteredOn(OptionSpec::sensitive)
+                .extracting(OptionSpec::key)
+                .containsExactly("registry.credentials");
     }
 }

@@ -63,6 +63,15 @@
         <openbroker.api.strictZero>true</openbroker.api.strictZero>
 
         <kafka.version>4.4.0</kafka.version>
+        <!-- Decoding a record that carries a schema id. Apicurio 3.0.8's protobuf utilities are built against protobuf 3.25.x and pull kotlin-stdlib at 1.9.21/2.0.0/2.0.20/2.1.0 through wire-schema and okio-jvm at 3.9.0 and 3.10.2. One version of each, the ones that utility is built against. -->
+        <avro.version>1.11.5</avro.version>
+        <protobuf.version>3.25.8</protobuf.version>
+        <apicurio-protobuf.version>3.0.8</apicurio-protobuf.version>
+        <kotlin.version>2.0.20</kotlin.version>
+        <okio.version>3.10.2</okio.version>
+        <!-- Avro 1.11.5 and Testcontainers disagree on these two; the newer of each still serves Avro. -->
+        <commons-compress.version>1.28.0</commons-compress.version>
+        <jetbrains-annotations.version>17.0.0</jetbrains-annotations.version>
         <amqp.client.version>5.37.1</amqp.client.version>
         <jspecify.version>1.0.1</jspecify.version>
         <artemis.version>2.57.0</artemis.version>
@@ -181,6 +190,47 @@
                 <groupId>org.apache.kafka</groupId>
                 <artifactId>kafka-clients</artifactId>
                 <version>${kafka.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.avro</groupId>
+                <artifactId>avro</artifactId>
+                <version>${avro.version}</version>
+            </dependency>
+            <!-- One protobuf, one kotlin-stdlib, one okio-jvm: Apicurio's protobuf schema utilities otherwise fail dependencyConvergence. -->
+            <dependency>
+                <groupId>com.google.protobuf</groupId>
+                <artifactId>protobuf-java</artifactId>
+                <version>${protobuf.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.google.protobuf</groupId>
+                <artifactId>protobuf-java-util</artifactId>
+                <version>${protobuf.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jetbrains.kotlin</groupId>
+                <artifactId>kotlin-stdlib</artifactId>
+                <version>${kotlin.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.squareup.okio</groupId>
+                <artifactId>okio-jvm</artifactId>
+                <version>${okio.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-compress</artifactId>
+                <version>${commons-compress.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jetbrains</groupId>
+                <artifactId>annotations</artifactId>
+                <version>${jetbrains-annotations.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.apicurio</groupId>
+                <artifactId>apicurio-registry-protobuf-schema-utilities</artifactId>
+                <version>${apicurio-protobuf.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.rabbitmq</groupId>

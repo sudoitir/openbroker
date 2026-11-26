@@ -94,6 +94,11 @@ public final class KafkaCluster implements AutoCloseable {
         return context.options();
     }
 
+    /** A connection option, or the fallback when it was not set. A reconfigure is visible on the next read. */
+    public String option(String key, String fallback) {
+        return spec.option(key, fallback);
+    }
+
     /** How often the watch reads the cluster, and so how old the shared topic description may be. */
     public Duration watchInterval() {
         String text = spec.option(KafkaOptions.WATCH_INTERVAL, KafkaOptions.DEFAULT_WATCH_INTERVAL);
