@@ -32,12 +32,6 @@ public final class KafkaOptions {
     /** The registry's base URL, such as {@code https://registry.example:8081}. */
     public static final String REGISTRY_URL = "registry.url";
 
-    /** The cloud registry's region, such as {@code eu-west-1}. */
-    public static final String REGISTRY_GLUE_REGION = "registry.glue.region";
-
-    /** The cloud registry's registry name, which groups its schemas. */
-    public static final String REGISTRY_GLUE_REGISTRY = "registry.glue.registry";
-
     /** The registry's credential, as {@code user:password}; sensitive, and never echoed. */
     public static final String REGISTRY_CREDENTIALS = "registry.credentials";
 
@@ -47,9 +41,8 @@ public final class KafkaOptions {
      * Reserved for a later Glue client. Not an accepted {@link #REGISTRY_KIND}: Glue's schema version id is a UUID, and
      * this driver does not invent the integer a record carries.
      */
-    public static final String REGISTRY_GLUE = "glue";
-
     public static final String PLAINTEXT = "PLAINTEXT";
+
     public static final String SSL = "SSL";
     public static final String SASL_PLAINTEXT = "SASL_PLAINTEXT";
     public static final String SASL_SSL = "SASL_SSL";

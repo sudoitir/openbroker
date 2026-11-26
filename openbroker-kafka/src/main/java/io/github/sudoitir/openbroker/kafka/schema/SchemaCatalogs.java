@@ -35,20 +35,17 @@ public final class SchemaCatalogs {
 
         private final KafkaCluster cluster;
         private final ConfluentSchemaRegistry confluent;
-        private final GlueSchemaRegistry glue;
         private final Absent absent = new Absent();
 
         private Bound(KafkaCluster cluster) {
             this.cluster = cluster;
             this.confluent = new ConfluentSchemaRegistry(cluster);
-            this.glue = new GlueSchemaRegistry(cluster);
         }
 
         private SchemaCatalog current() {
             String kind = cluster.option(KafkaOptions.REGISTRY_KIND, KafkaOptions.REGISTRY_NONE);
             return switch (kind) {
                 case KafkaOptions.REGISTRY_CONFLUENT -> confluent;
-                case KafkaOptions.REGISTRY_GLUE -> glue;
                 default -> absent;
             };
         }

@@ -13,13 +13,13 @@ Glue's client would also need credentials. The SDK's default provider chain read
 ## Decision
 
 - Glue will share this catalog when a client can address a schema version without inventing an integer id. Subject, version, schema type and compatibility will mean the same thing. There is no second vocabulary.
-- That client is a later change. `registry.kind` does not accept `glue`. The constant and the class remain, and they are not offered. `software.amazon.awssdk:glue` is not a dependency. The reason is the UUID schema version id: `SubjectVersion.id` is the integer a record carries, and a Glue record does not carry one.
+- That client is a later change. `registry.kind` offers `none` and `confluent` only, and the connection schema refuses any other value before a catalog is built, so the driver neither offers Glue nor keeps a class for a registry it cannot speak to. `software.amazon.awssdk:glue` is not a dependency. The reason is the UUID schema version id: `SubjectVersion.id` is the integer a record carries, and a Glue record does not carry one.
 - An operation the later client cannot offer will be `Assessment.unavailable` with Glue's reason, and the method will throw a `BrokerException` naming that reason. The driver will not fake the operation.
 - Credentials, when that client is reached, are the connection's `registry.credentials` or an explicit choice to use the ambient chain. There is no silent ambient default.
 
 ## Consequences
 
-- A caller cannot select Glue today. The Confluent-compatible path is the one that is complete. Adding the client later does not change the catalog's vocabulary.
+- A caller cannot select Glue today; a connection naming it is refused at the schema check with the allowed values. The Confluent-compatible path is the one that is complete. Adding the client later does not change the catalog's vocabulary.
 - Adding the Glue client later does not change the catalog. It fills the operations Glue actually has and keeps refusing the ones it lacks, including a decode that would pretend a UUID was the integer in front of a record.
 - A deployment that expected the process role to be picked up without saying so will find the capability unavailable. That is the point.
 
