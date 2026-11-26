@@ -6,7 +6,7 @@ A Kafka cluster is often managed with a schema registry, and a record may carry 
 
 - A connection unwraps to a schema catalog: subjects, versions, compatibility, and a preview before a registration, a compatibility change or a delete.
 - A payload that carries a schema id decodes for Avro, Protobuf and JSON. Encoding the same record produces framing that decodes back to it. A serde is a registered name, never a class name.
-- With no registry configured the capability is unavailable and no subject is invented. Glue is the same vocabulary; an operation it cannot answer is unavailable with its reason.
+- With no registry configured the capability is unavailable and no subject is invented. A registry kind other than none or confluent is refused. The driver does not model a registry it cannot speak to.
 - No API break. The new types are on the Kafka driver. `openbroker-api` gains no dependency.
 
 ## Capabilities

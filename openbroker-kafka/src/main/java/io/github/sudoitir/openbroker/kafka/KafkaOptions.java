@@ -37,10 +37,7 @@ public final class KafkaOptions {
 
     public static final String REGISTRY_NONE = "none";
     public static final String REGISTRY_CONFLUENT = "confluent";
-    /**
-     * Reserved for a later Glue client. Not an accepted {@link #REGISTRY_KIND}: Glue's schema version id is a UUID, and
-     * this driver does not invent the integer a record carries.
-     */
+
     public static final String PLAINTEXT = "PLAINTEXT";
 
     public static final String SSL = "SSL";

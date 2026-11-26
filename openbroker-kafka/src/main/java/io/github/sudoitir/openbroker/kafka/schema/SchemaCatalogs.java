@@ -44,10 +44,13 @@ public final class SchemaCatalogs {
 
         private SchemaCatalog current() {
             String kind = cluster.option(KafkaOptions.REGISTRY_KIND, KafkaOptions.REGISTRY_NONE);
-            return switch (kind) {
-                case KafkaOptions.REGISTRY_CONFLUENT -> confluent;
-                default -> absent;
-            };
+            if (KafkaOptions.REGISTRY_CONFLUENT.equals(kind)) {
+                return confluent;
+            }
+            if (kind.isBlank() || KafkaOptions.REGISTRY_NONE.equals(kind)) {
+                return absent;
+            }
+            return new Unspoken(kind);
         }
 
         @Override
@@ -206,6 +209,103 @@ public final class SchemaCatalogs {
                     Dispatch.NOT_SENT,
                     null,
                     NO_REGISTRY);
+        }
+    }
+
+    /** A kind this driver does not speak. It is not reported as if no registry were configured. */
+    private static final class Unspoken implements SchemaCatalog {
+
+        private final String kind;
+
+        private Unspoken(String kind) {
+            this.kind = kind;
+        }
+
+        private String reason() {
+            return "This driver does not speak a registry kind of " + kind + ".";
+        }
+
+        @Override
+        public Assessment capability() {
+            return Assessment.unavailable(reason(), Optional.empty());
+        }
+
+        @Override
+        public Subjects subjects(Cursor cursor) {
+            throw refused();
+        }
+
+        @Override
+        public Subject subject(String name) {
+            throw refused();
+        }
+
+        @Override
+        public Preview previewRegister(String subject, SchemaType type, String schema) {
+            throw refused();
+        }
+
+        @Override
+        public SubjectVersion register(String subject, SchemaType type, String schema, Precondition condition) {
+            throw refused();
+        }
+
+        @Override
+        public Preview previewCompatibility(String subject, CompatibilityLevel level) {
+            throw refused();
+        }
+
+        @Override
+        public CompatibilityLevel setCompatibility(String subject, CompatibilityLevel level, Precondition condition) {
+            throw refused();
+        }
+
+        @Override
+        public Preview previewCompatibilityDefault(CompatibilityLevel level) {
+            throw refused();
+        }
+
+        @Override
+        public CompatibilityLevel setCompatibilityDefault(CompatibilityLevel level, Precondition condition) {
+            throw refused();
+        }
+
+        @Override
+        public Preview previewDelete(String subject, boolean permanent) {
+            throw refused();
+        }
+
+        @Override
+        public void delete(String subject, boolean permanent, Precondition condition) {
+            throw refused();
+        }
+
+        @Override
+        public DecodedRecord decode(String serdeName, MessageBody body) {
+            if (serdeName != null && !SerdeRegistry.known(serdeName)) {
+                return new DecodedRecord.Undecoded(DecodedRecord.SERDE_NOT_REGISTERED);
+            }
+            if (body.isTombstone()) {
+                return new DecodedRecord.Undecoded(DecodedRecord.NO_SCHEMA_ID);
+            }
+            throw refused();
+        }
+
+        @Override
+        public byte[] encode(String serdeName, String subject, Map<String, ?> record) {
+            throw refused();
+        }
+
+        @Override
+        public void close() {}
+
+        private BrokerException refused() {
+            return new BrokerException(
+                    Status.INVALID_ARGUMENT,
+                    ErrorInfo.of(ErrorReasons.INVALID_ARGUMENT),
+                    Dispatch.NOT_SENT,
+                    null,
+                    reason());
         }
     }
 }

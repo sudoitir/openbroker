@@ -44,11 +44,9 @@ class SchemaCatalogUnavailableIT {
     }
 
     @Test
-    void glueIsNotAnAcceptedKind() {
-        assertThat(KafkaOptions.SCHEMA
-                        .option(KafkaOptions.REGISTRY_KIND)
-                        .orElseThrow()
-                        .allowedValues())
-                .containsExactly(KafkaOptions.REGISTRY_NONE, KafkaOptions.REGISTRY_CONFLUENT);
+    void aKindOtherThanNoneOrConfluentIsRefused() {
+        assertThat(KafkaOptions.SCHEMA.validate(Map.of(KafkaOptions.REGISTRY_KIND, "other")))
+                .isNotEmpty()
+                .allSatisfy(violation -> assertThat(violation.detail()).contains("must be one of"));
     }
 }

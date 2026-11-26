@@ -1,6 +1,6 @@
 ## Context
 
-See ADR-0038, ADR-0039 and ADR-0040. The catalog is a Kafka facet reached by unwrap. A serde is a registered name. Glue shares the vocabulary and does not invent an integer schema id.
+See ADR-0038, ADR-0039 and ADR-0040. The catalog is a Kafka facet reached by unwrap. A serde is a registered name. One vocabulary is shared where it holds. The driver does not model a registry it cannot speak to.
 
 ## Goals / Non-Goals
 
@@ -12,7 +12,7 @@ See ADR-0038, ADR-0039 and ADR-0040. The catalog is a Kafka facet reached by unw
 
 **Non-Goals:**
 
-- A Glue client. Glue's schema version id is a UUID, and the AWS SDK cannot answer this catalog without inventing the integer a record carries. `registry.kind` does not accept `glue`. A later change adds the client. See ADR-0040.
+- A Glue client. Its schema ids are UUIDs, and it needs an SDK this driver does not carry. Until a later change, `registry.kind` does not offer it. See ADR-0040.
 - A custom serde loaded by class name.
 - Protobuf schemas that import another file.
 
