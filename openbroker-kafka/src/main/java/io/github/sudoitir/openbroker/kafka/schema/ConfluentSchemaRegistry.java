@@ -4,7 +4,6 @@ import io.github.sudoitir.openbroker.BrokerException;
 import io.github.sudoitir.openbroker.CallScope;
 import io.github.sudoitir.openbroker.Deadline;
 import io.github.sudoitir.openbroker.Dispatch;
-import io.github.sudoitir.openbroker.ErrorInfo;
 import io.github.sudoitir.openbroker.ErrorReasons;
 import io.github.sudoitir.openbroker.Status;
 import io.github.sudoitir.openbroker.access.Assessment;
@@ -490,7 +489,7 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
         }
     }
 
-    private static List<Integer> ints(JsonNode node) {
+    private List<Integer> ints(JsonNode node) {
         if (!node.isArray()) {
             throw bad("The registry's version list was not a list.");
         }
@@ -613,40 +612,33 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
         return RegistryHttp.failed(status, reason, dispatch, redactor(), message);
     }
 
-    private static BrokerException gone(String name) {
-        return new BrokerException(
+    private BrokerException gone(String name) {
+        return refused(
                 Status.NOT_FOUND,
-                ErrorInfo.of(ErrorReasons.RESOURCE_GONE),
+                ErrorReasons.RESOURCE_GONE,
                 Dispatch.NOT_SENT,
-                null,
                 "The subject " + name + " does not exist.");
     }
 
-    private static BrokerException bad(String message) {
-        return new BrokerException(
-                Status.INTERNAL, ErrorInfo.of(ErrorReasons.BAD_RESPONSE), Dispatch.REJECTED, null, message);
+    private BrokerException bad(String message) {
+        return refused(Status.INTERNAL, ErrorReasons.BAD_RESPONSE, Dispatch.REJECTED, message);
     }
 
-    private static String required(String name) {
+    private String required(String name) {
         if (name == null || name.isBlank()) {
-            throw new BrokerException(
+            throw refused(
                     Status.INVALID_ARGUMENT,
-                    ErrorInfo.of(ErrorReasons.INVALID_ARGUMENT),
+                    ErrorReasons.INVALID_ARGUMENT,
                     Dispatch.NOT_SENT,
-                    null,
                     "A subject name is required.");
         }
         return name;
     }
 
-    private static String requiredSchema(String schema) {
+    private String requiredSchema(String schema) {
         if (schema == null || schema.isBlank()) {
-            throw new BrokerException(
-                    Status.INVALID_ARGUMENT,
-                    ErrorInfo.of(ErrorReasons.INVALID_ARGUMENT),
-                    Dispatch.NOT_SENT,
-                    null,
-                    "A schema is required.");
+            throw refused(
+                    Status.INVALID_ARGUMENT, ErrorReasons.INVALID_ARGUMENT, Dispatch.NOT_SENT, "A schema is required.");
         }
         return schema;
     }
@@ -681,19 +673,15 @@ final class ConfluentSchemaRegistry implements SchemaCatalog {
         return start;
     }
 
-    private static byte[] bytes(MessageBody body) {
+    private byte[] bytes(MessageBody body) {
         if (body.bytes().isPresent()) {
             return body.bytes().get().toByteArray();
         }
         try (InputStream in = body.openStream()) {
             return in.readAllBytes();
         } catch (IOException e) {
-            throw new BrokerException(
-                    Status.UNAVAILABLE,
-                    ErrorInfo.of(ErrorReasons.UNREACHABLE),
-                    Dispatch.NOT_SENT,
-                    null,
-                    "The record could not be read.");
+            throw refused(
+                    Status.UNAVAILABLE, ErrorReasons.UNREACHABLE, Dispatch.NOT_SENT, "The record could not be read.");
         }
     }
 

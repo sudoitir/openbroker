@@ -84,7 +84,8 @@ final class RegistryHttp implements AutoCloseable {
                     redactor,
                     "The registry's response was larger than " + CAP + " bytes.");
         }
-        String message = redactor.apply("Could not reach the schema registry: " + failure.getMessage());
+        String detail = failure.getMessage() == null ? failure.getClass().getSimpleName() : failure.getMessage();
+        String message = redactor.apply("Could not reach the schema registry: " + detail);
         if (redactor.leaks(String.valueOf(failure))) {
             cause = null;
         }
