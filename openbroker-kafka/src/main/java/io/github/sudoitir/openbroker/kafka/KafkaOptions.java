@@ -125,8 +125,7 @@ public final class KafkaOptions {
                     Optional.of(REGISTRY_NONE),
                     List.of(REGISTRY_NONE, REGISTRY_CONFLUENT),
                     "The schema registry this cluster's subjects, versions and compatibility are managed"
-                            + " through. With none, the schema catalog is unavailable and records stay undecoded."
-                            + " glue is not accepted.",
+                            + " through. With none, the schema catalog is unavailable and records stay undecoded.",
                     Optional.empty()),
             new OptionSpec(
                     REGISTRY_URL,
@@ -137,24 +136,6 @@ public final class KafkaOptions {
                     List.of(),
                     "A Confluent-compatible registry's base URL, including any prefix the registry is"
                             + " served under.",
-                    Optional.empty()),
-            new OptionSpec(
-                    REGISTRY_GLUE_REGION,
-                    OptionSpec.Type.STRING,
-                    false,
-                    false,
-                    Optional.empty(),
-                    List.of(),
-                    "The region of a cloud registry, read when the registry kind is glue.",
-                    Optional.empty()),
-            new OptionSpec(
-                    REGISTRY_GLUE_REGISTRY,
-                    OptionSpec.Type.STRING,
-                    false,
-                    false,
-                    Optional.empty(),
-                    List.of(),
-                    "The registry name of a cloud registry, read when the registry kind is glue.",
                     Optional.empty()),
             new OptionSpec(
                     REGISTRY_CREDENTIALS,
